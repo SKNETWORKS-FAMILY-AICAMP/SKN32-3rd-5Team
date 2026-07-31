@@ -3,11 +3,20 @@
 #
 # 공개 저장소이고 코퍼스에는 이용약관 제약이 있는 자료가 섞여 있다.
 # 한 번 푸시되면 히스토리에서 지우기 어려우므로 커밋 전에 막는다.
+#
+# ⚠️ git 저장소가 아니면 **통과가 아니라 실패**다.
+#    검사를 하나도 못 한 것과 통과한 것은 다르다.
 set -euo pipefail
 
-ALLOWED='^data/(manifests/|README\.md$|\.gitkeep$)'
+if ! git rev-parse --git-dir >/dev/null 2>&1; then
+  echo "✗ git 저장소가 아니다 — 자료 유출 검사를 수행할 수 없다."
+  echo "  검사를 건너뛴 것을 '통과'로 기록하지 않는다."
+  exit 2
+fi
 
-staged=$(git diff --cached --name-only --diff-filter=A 2>/dev/null | grep '^data/' | grep -vE "$ALLOWED" || true)
+ALLOWED='^data/(manifests/|README\.md$|\.gitkeep$|[a-z]+/(\.gitkeep|README\.md)$)'
+
+staged=$(git diff --cached --name-only --diff-filter=A | grep '^data/' | grep -vE "$ALLOWED" || true)
 tracked=$(git ls-files 'data/**' | grep -vE "$ALLOWED" || true)
 
 bad=$(printf '%s\n%s\n' "$staged" "$tracked" | sed '/^$/d' | sort -u)

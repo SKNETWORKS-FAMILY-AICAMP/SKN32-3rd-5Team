@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from ... import __version__
+from ...config import get_config
 from ...triage.levels import BIRD_FEEDING_LEVELS, EVIDENCE, FeedingLevel, TriageLevel
 from ..contracts import DISCLAIMER, HealthResponse
 from ..deps import get_engine
@@ -20,7 +21,25 @@ router = APIRouter(prefix="/api", tags=["meta"])
 
 @router.get("/health", response_model=HealthResponse)
 def health(engine: QAEngine = Depends(get_engine)) -> HealthResponse:
-    return HealthResponse(status="ok", engine=engine.name, version=__version__)
+    """실제 엔진과 **설정이 요구한 엔진**을 함께 돌려준다.
+
+    둘이 다르면 폴백이 일어난 것이고, 그 상태로 산출한 평가 지표는 오염이다 (04 §8).
+    화면과 스크립트가 이를 감지할 수 있어야 한다.
+    """
+    cfg = get_config()
+    return HealthResponse(
+        status="ok",
+        engine=engine.name,
+        engine_configured=cfg.serve.engine,
+        profile=cfg_profile(),
+        version=__version__,
+    )
+
+
+def cfg_profile() -> str:
+    import os
+
+    return os.getenv("PETTRIAGE_PROFILE", "default")
 
 
 @router.get("/triage-levels")

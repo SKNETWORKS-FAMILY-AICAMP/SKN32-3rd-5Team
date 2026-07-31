@@ -35,8 +35,14 @@ jobs:
       - run: pip install -e '.[api,dev]' -c constraints.txt
       - name: 안전 장치 회귀 테스트
         run: pytest -q
+      - name: 콘솔 스크립트가 설치 후 실제로 도는가
+        # 엔트리포인트는 파일 경로 실행으로는 검증되지 않는다.
+        # `scripts/` 처럼 패키지 밖 모듈을 가리키면 여기서 깨진다.
+        run: |
+          pettriage-verify
+          python -c "import pettriage.app.main, pettriage.tools.verify_corpus"
       - name: 층 0 — 코퍼스 검증
-        run: python scripts/verify_corpus.py
+        run: pettriage-verify
 
   no-data-committed:
     #  공개 저장소이므로 자료 파일이 커밋되지 않았는지 확인한다 (D-29)
@@ -44,6 +50,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash scripts/check_no_data.sh
+      - name: 학습 산출물 차단
+        run: |
+          set -e
+          BAD=$(git ls-files | grep -E '\.(safetensors|bin|gguf|pt|ckpt)$' || true)
+          if [ -n "$BAD" ]; then
+            echo "::error::학습 산출물이 커밋되었다 (D-41):"; echo "$BAD"; exit 1
+          fi
+          echo "OK — 학습 산출물 없음"
 
   docker:
     #  이미지가 실제로 빌드되고 뜨는지. 배포 직전에 처음 깨지는 일을 막는다.

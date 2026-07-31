@@ -48,17 +48,58 @@ def _cite(f: Fact) -> str:
     return f"(출처: {f.publisher}, {f.source_id})"
 
 
+#: 역치로 말할 수 있는 임계치 종류. 나머지는 정량 문장을 만들지 않는다.
+#:
+#: `증례 보고 범위` 를 "N 이상 섭취 시" 로 쓰면 **출처에 없는 주장을 하게 된다.**
+#: S-034 Table 1의 캡션은 "Range of doses ... reported to cause" 이고,
+#: 실제로 용량-반응이 역전한다 (포도 3 g/kg 사망 vs 20.6 g/kg 회복).
+THRESHOLD_TYPES = frozenset({"임상징후 발현", "중증", "치사"})
+
+
+def _has_threshold(f: Fact) -> bool:
+    return bool(f.dose) and bool(f.unit) and f.threshold_type in THRESHOLD_TYPES
+
+
+def _has_reported_range(f: Fact) -> bool:
+    return bool(f.dose) and bool(f.unit) and f.threshold_type == "증례 보고 범위"
+
+
+def _dose_phrase(f: Fact) -> str:
+    """단위가 이미 체중당(`mg/kg`)이면 "체중 1kg당"을 덧붙이지 않는다.
+
+    붙이면 `체중 1kg당 20mg/kg` 이라는 이중 표기가 되어 수치가 왜곡된다.
+    """
+    unit = f.unit or ""
+    if "/kg" in unit.replace(" ", ""):
+        return f"{f.dose}{unit}"
+    return f"체중 1kg당 {f.dose}{unit}"
+
+
 TOXICITY_FOOD = Template(
     doc_type="toxicity_food",
     clauses=[
+        # 급여 등급 절 — 등급이 없으면 생략한다.
+        # "주의 대상"처럼 기본값을 채워 넣으면 출처에 없는 분류를 주장하게 된다.
         (
-            lambda f: True,
+            _has("feeding_level"),
             lambda f: f"{f.species_ko}에게 {f.substance}은(는) {f.feeding_level_ko}로 분류된다.",
         ),
-        # 정량 절 — dose가 없으면 통째로 생략된다 (조류는 항상 생략)
         (
-            lambda f: bool(f.dose) and bool(f.unit),
-            lambda f: f"체중 1kg당 {f.dose}{f.unit} 이상 섭취 시 {f.effect_ko}이(가) 보고되었다.",
+            lambda f: not f.feeding_level,
+            lambda f: f"{f.species_ko}와 {f.substance}에 관한 자료다.",
+        ),
+        # 정량 절 — 역치 성격이 확인된 값만. 조류는 임계치가 0건이라 항상 생략된다.
+        (
+            _has_threshold,
+            lambda f: f"{_dose_phrase(f)} 이상 섭취 시 {f.effect_ko}이(가) 보고되었다.",
+        ),
+        # 증례 보고 범위는 역치가 아니다 — 범위로만 말한다
+        (
+            _has_reported_range,
+            lambda f: (
+                f"증례 보고에서 {_dose_phrase(f)} 범위의 섭취가 "
+                f"{f.effect_ko}과(와) 함께 보고되었다."
+            ),
         ),
         # 역치가 없다고 명시된 경우 — 포도처럼 용량-반응이 성립하지 않는 물질
         (
@@ -84,8 +125,12 @@ TOXICITY_PLANT = Template(
         ),
         (_has("toxic_part"), lambda f: f"{f.toxic_part}이(가) 독성 부위다."),
         (
-            lambda f: bool(f.dose) and bool(f.unit),
+            _has_threshold,
             lambda f: f"{f.dose}{f.unit} 섭취 시 {f.effect_ko}이(가) 보고되었다.",
+        ),
+        (
+            _has_reported_range,
+            lambda f: f"증례 보고에서 {f.dose}{f.unit} 범위가 {f.effect_ko}과(와) 함께 보고되었다.",
         ),
         (_has("signs"), lambda f: f"주요 증상은 {', '.join(f.signs)}이다."),
         (_has("onset"), lambda f: f"증상은 {f.onset} 이내에 나타난다."),
@@ -138,7 +183,10 @@ NUTRITION = Template(
             lambda f: bool(f.dose) and bool(f.unit),
             lambda f: f"최소 {f.dose}{f.unit}가 권장된다.",
         ),
-        (_has("max_value"), lambda f: f"최대 허용량은 {f.max_value}{f.unit}다."),
+        (
+            lambda f: bool(f.max_value) and bool(f.unit),
+            lambda f: f"최대 허용량은 {f.max_value}{f.unit}다.",
+        ),
         (_has("basis"), lambda f: f"기준은 {f.basis}다."),
         (lambda f: True, _cite),
     ],

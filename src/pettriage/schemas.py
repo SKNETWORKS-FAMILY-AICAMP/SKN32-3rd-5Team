@@ -89,7 +89,11 @@ class Fact:
 
     @property
     def feeding_level_ko(self) -> str:
-        return self.feeding_level.label if self.feeding_level else "주의 대상"
+        """급여 등급 표기. **등급이 없으면 빈 문자열** — 템플릿이 절을 생략한다.
+
+        "주의 대상" 같은 기본값을 채우면 출처에 없는 분류를 주장하게 된다.
+        """
+        return self.feeding_level.label if self.feeding_level else ""
 
     @property
     def triage_ko(self) -> str:

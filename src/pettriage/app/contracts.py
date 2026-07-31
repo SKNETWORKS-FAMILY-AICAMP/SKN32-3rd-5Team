@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from ..triage.levels import TriageLevel
 
@@ -69,7 +69,17 @@ class RecordCreate(BaseModel):
 # ─────────────────────────────────────────────────────────────
 # 응답 구성요소
 # ─────────────────────────────────────────────────────────────
-class Citation(BaseModel):
+class _Strict(BaseModel):
+    """대입에도 검증이 도는 기반 모델.
+
+    검증기를 생성 시점에만 걸면 ``obj.status = "answered"`` 한 줄로 불변식이 뚫린다.
+    안전 불변식을 타입으로 강제하기로 한 이상(D-40) 대입도 막아야 의미가 있다.
+    """
+
+    model_config = ConfigDict(validate_assignment=True)
+
+
+class Citation(_Strict):
     """근거 1건 (02 §12 '근거 보기' 화면).
 
     `quote` 가 None인 것은 결함이 아니다 — 경로 ②(사실 추출)로 적재된 자료는
@@ -94,7 +104,7 @@ class Citation(BaseModel):
         return self
 
 
-class TriageResult(BaseModel):
+class TriageResult(_Strict):
     """트리아지 배지 + 감사 정보 (02 §7.2 · D-09 · D-39).
 
     `rule_level`·`llm_level`·`overridden` 을 응답에 실어 보낸다.
@@ -114,12 +124,12 @@ class TriageResult(BaseModel):
 
     @model_validator(mode="after")
     def _monitor_needs_conditions(self) -> TriageResult:
-        if self.level == TriageLevel.MONITOR and not self.escalation_conditions:
+        if int(self.level) == int(TriageLevel.MONITOR) and not self.escalation_conditions:
             raise ValueError("MONITOR는 상승 조건 없이 응답에 실을 수 없다 (D-39).")
         return self
 
 
-class ClarifyPrompt(BaseModel):
+class ClarifyPrompt(_Strict):
     """되묻기 (02 §9). 무엇이 없어서 묻는지를 기계가 읽을 수 있게 남긴다."""
 
     missing: list[str]  # 예: ["species", "weight_kg"]
@@ -137,7 +147,7 @@ RefusalReason = Literal[
 ]
 
 
-class Refusal(BaseModel):
+class Refusal(_Strict):
     """거절 (02 §9).
 
     거절은 실패가 아니라 **설계된 경로**다. 검색 실패와 생성 실패를
@@ -152,7 +162,7 @@ class Refusal(BaseModel):
 # ─────────────────────────────────────────────────────────────
 # 응답
 # ─────────────────────────────────────────────────────────────
-class AskResponse(BaseModel):
+class AskResponse(_Strict):
     """질의 응답 1건. `status` 가 화면 분기를 결정한다."""
 
     status: Literal["answered", "clarify", "refused"]
@@ -229,6 +239,18 @@ class ReportResponse(BaseModel):
 
 
 class HealthResponse(BaseModel):
+    """기동 상태.
+
+    `engine` != `engine_configured` 이면 **폴백이 일어난 것**이다.
+    그 상태로 산출한 평가 지표는 오염이므로 즉시 드러나야 한다 (04 §8).
+    """
+
     status: Literal["ok"]
-    engine: str  # "stub" | "graph"
+    engine: str  # 실제로 물려 있는 엔진
+    engine_configured: str  # configs 가 요구한 엔진
+    profile: str  # PETTRIAGE_PROFILE
     version: str
+
+    @property
+    def degraded(self) -> bool:
+        return self.engine != self.engine_configured

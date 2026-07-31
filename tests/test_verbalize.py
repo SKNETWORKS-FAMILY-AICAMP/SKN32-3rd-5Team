@@ -33,15 +33,53 @@ def _dog_chocolate(**over) -> Fact:
 class TestQuantitativeClause:
     def test_dose_present_renders_quantitative_sentence(self):
         text = verbalize(_dog_chocolate())
-        assert "체중 1kg당 20mg/kg 이상 섭취 시" in text
+        assert "20mg/kg 이상 섭취 시" in text
         assert "출처: Frontiers in Veterinary Science, S-034" in text
+
+    def test_weight_based_unit_is_not_doubled(self):
+        """`mg/kg` 은 이미 체중당이다. "체중 1kg당"을 덧붙이면 수치가 왜곡된다."""
+        text = verbalize(_dog_chocolate())
+        assert "체중 1kg당 20mg/kg" not in text
+
+    def test_absolute_unit_gets_per_weight_prefix(self):
+        """체중당 단위가 아니면 "체중 1kg당"을 붙여야 의미가 산다."""
+        text = verbalize(_dog_chocolate(dose="2.3", unit="g"))
+        assert "체중 1kg당 2.3g 이상 섭취 시" in text
 
     def test_missing_dose_omits_the_clause_entirely(self):
         """조류는 정량 임계치가 0건 → 정량 절이 자동으로 사라진다."""
         text = verbalize(_dog_chocolate(dose=None, unit=None))
-        assert "체중 1kg당" not in text
+        assert "이상 섭취 시" not in text
         assert "정보 없음" not in text  # 빈 값을 문장으로 만들지 않는다
         assert "주요 증상은" in text  # 다른 절은 살아 있다
+
+
+class TestThresholdTypeGate:
+    """`증례 보고 범위` 는 역치가 아니다 — 역치 문장으로 만들면 안 된다 (schemas.py)."""
+
+    def test_reported_range_is_not_stated_as_a_threshold(self):
+        text = verbalize(
+            _dog_chocolate(
+                substance="포도",
+                threshold_type="증례 보고 범위",
+                dose="3",
+                unit="g/kg",
+                effect="급성 신부전",
+            )
+        )
+        assert "이상 섭취 시" not in text, "증례 보고 범위를 역치로 주장하면 안 된다"
+        assert "증례 보고에서" in text
+
+    def test_no_threshold_type_produces_no_quantitative_sentence(self):
+        """성격이 확인되지 않은 수치는 문장으로 만들지 않는다."""
+        text = verbalize(_dog_chocolate(threshold_type=None))
+        assert "이상 섭취 시" not in text
+
+    def test_missing_feeding_level_does_not_invent_a_grade(self):
+        """등급이 없으면 "주의 대상" 같은 기본값을 지어내지 않는다."""
+        text = verbalize(_dog_chocolate(feeding_level=None))
+        assert "주의 대상" not in text
+        assert "분류된다" not in text
 
 
 class TestBirdBecomesQualitative:

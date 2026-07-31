@@ -46,9 +46,19 @@ class TriageDecision:
         return self.level.message
 
 
+def _coerce(level: TriageLevel | int | None, field: str) -> TriageLevel | None:
+    """등급 값을 `TriageLevel` 로 강제한다. 범위 밖이면 즉시 실패한다."""
+    if level is None:
+        return None
+    try:
+        return TriageLevel(int(level))
+    except (ValueError, TypeError) as e:
+        raise ValueError(f"{field}: 알 수 없는 트리아지 등급 {level!r} (1~4)") from e
+
+
 def apply_gate(
-    rule_level: TriageLevel | None,
-    llm_level: TriageLevel | None,
+    rule_level: TriageLevel | int | None,
+    llm_level: TriageLevel | int | None,
     *,
     escalation_conditions: tuple[str, ...] = (),
 ) -> TriageDecision:
@@ -68,12 +78,18 @@ def apply_gate(
             "규칙·LLM 판정이 모두 없다. 등급을 추측하지 않고 거절 경로로 보낸다 (D-11)."
         )
 
+    # LLM 판정을 JSON에서 int로 파싱해 넘기는 구현이 흔하다.
+    # 순수 int가 들어오면 `is` 비교가 전부 거짓이 되어 MONITOR 가드가 뚫린다.
+    # 그래서 경계에서 한 번 강제 변환한다 — 범위 밖이면 ValueError로 크게 실패한다.
+    rule_level = _coerce(rule_level, "rule_level")
+    llm_level = _coerce(llm_level, "llm_level")
+
     candidates = [lv for lv in (rule_level, llm_level) if lv is not None]
     final = max(candidates)
 
     overridden = rule_level is not None and llm_level is not None and llm_level < rule_level
 
-    if final is TriageLevel.MONITOR and not escalation_conditions:
+    if final == TriageLevel.MONITOR and not escalation_conditions:
         raise MonitorWithoutConditions(
             "MONITOR는 상승 조건 없이 출력할 수 없다 (D-39). "
             "조건 없는 '관찰'은 과소평가로 채점된다."

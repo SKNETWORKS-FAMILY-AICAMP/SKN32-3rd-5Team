@@ -31,10 +31,18 @@ def ask(
     session = sessions.get_or_create(req.session_id)
     try:
         return engine.ask(req, session)
-    except Exception:
+    except Exception as e:
         # 엔진이 예외로 죽어도 단정적인 답을 흘리지 않는다.
-        # 질문 본문은 로그에 남기지 않는다 (D-36).
-        log.exception("engine failure (session=%s)", session.session_id)
+        #
+        # ⚠️ 예외 **메시지**를 로그에 넣지 않는다 — LLM·DB 클라이언트는 프롬프트를
+        #    예외에 담는 일이 흔해서, 그대로 찍으면 질문 원문이 로그로 샌다 (D-36).
+        #    디버깅에는 예외 타입과 session_id 면 시작점으로 충분하고,
+        #    본문이 필요하면 개발 환경에서 트레이스를 따로 켠다.
+        log.error(
+            "engine failure — type=%s session=%s (메시지는 개인정보 우려로 생략)",
+            type(e).__name__,
+            session.session_id,
+        )
         return refuse(
             session,
             "판정불가",

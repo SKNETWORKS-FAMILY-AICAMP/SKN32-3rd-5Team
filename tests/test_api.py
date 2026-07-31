@@ -11,12 +11,6 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from pettriage.app.contracts import AskResponse, Citation, TriageResult
-from pettriage.app.main import create_app
-
-
-@pytest.fixture
-def client() -> TestClient:
-    return TestClient(create_app())
 
 
 # ─────────────────────────────────────────────────────────────
@@ -82,6 +76,9 @@ def test_disclaimer_always_present():
 def test_health(client: TestClient):
     d = client.get("/api/health").json()
     assert d["status"] == "ok" and d["engine"] == "stub"
+    # 폴백이 일어났는지 화면·스크립트가 알아챌 수 있어야 한다 (04 §8)
+    assert d["engine_configured"] == "stub"
+    assert d["profile"] == "default"
 
 
 def test_species_missing_forces_clarify(client: TestClient):
@@ -176,9 +173,7 @@ def test_triage_levels_expose_evidence(client: TestClient):
 
 
 def test_bird_only_field_dropped_for_mammals(client: TestClient):
-    """조류 전용 필드는 종이 맞을 때만 보관한다."""
-    from pettriage.app.routes.records import _RECORDS
-
+    """조류 전용 필드는 종이 맞을 때만 보관한다 (최소 수집 · D-36)."""
     client.post(
         "/api/records",
         json={
@@ -188,7 +183,51 @@ def test_bird_only_field_dropped_for_mammals(client: TestClient):
             "droppings": "노란색",
         },
     )
-    assert "droppings" not in _RECORDS["p1"][0]
+    rows = client.get("/api/report", params={"pet_id": "p1"}).json()["timeline"]
+    assert rows and "droppings" not in rows[0]
+
+
+def test_bird_field_kept_for_birds(client: TestClient):
+    client.post(
+        "/api/records",
+        json={
+            "pet_id": "b1",
+            "species": "bird",
+            "recorded_at": "2026-07-31T09:00:00",
+            "droppings": "녹색",
+        },
+    )
+    rows = client.get("/api/report", params={"pet_id": "b1"}).json()["timeline"]
+    assert rows[0]["droppings"] == "녹색"
+
+
+def test_report_applies_period_filter(client: TestClient):
+    """받기만 하고 안 쓰면 화면의 기간 선택이 거짓말이 된다."""
+    for day in ("2026-07-01", "2026-07-15", "2026-07-30"):
+        client.post(
+            "/api/records",
+            json={"pet_id": "p2", "species": "dog", "recorded_at": f"{day}T09:00:00"},
+        )
+    rows = client.get(
+        "/api/report",
+        params={"pet_id": "p2", "period_from": "2026-07-10", "period_to": "2026-07-20"},
+    ).json()["timeline"]
+    assert [r["recorded_at"][:10] for r in rows] == ["2026-07-15"]
+
+
+def test_records_do_not_leak_across_app_instances(client: TestClient):
+    """저장소가 모듈 전역이면 앱을 새로 만들어도 남의 기록이 보인다."""
+    from pettriage.app.main import create_app
+
+    client.post(
+        "/api/records",
+        json={"pet_id": "secret", "species": "dog", "recorded_at": "2026-07-31T09:00:00"},
+    )
+    from pettriage.app import deps
+
+    deps.reset_state()
+    other = TestClient(create_app())
+    assert other.get("/api/report", params={"pet_id": "secret"}).json()["timeline"] == []
 
 
 def test_frontend_is_served(client: TestClient):
@@ -211,3 +250,104 @@ def test_full_text_carries_escalation_conditions(client: TestClient):
     assert "발작" not in d["answer"]
     assert "발작" in d["full_text"]
     assert "수의학적 진단이 아닙니다" in d["full_text"]
+
+
+# ─────────────────────────────────────────────────────────────
+# 회귀 — 감사에서 나온 결함들이 다시 들어오지 않게 한다
+# ─────────────────────────────────────────────────────────────
+def test_invariants_survive_assignment():
+    """생성 시점에만 검증하면 대입 한 줄로 불변식이 뚫린다."""
+    r = AskResponse(
+        status="refused", session_id="s", refusal={"reason": "근거없음", "message": "없음"}
+    )
+    with pytest.raises(ValidationError):
+        r.status = "answered"  # 근거·판정 없이 answered 로 바꿀 수 없다
+
+    c = Citation(source_id="S-042", publisher="AAFCO", route="원문적재", quote="원문")
+    with pytest.raises(ValidationError):
+        c.route = "사실추출"  # 인용문을 실은 채 경로만 바꿀 수 없다
+
+    t = TriageResult(level=2, name="VISIT_SOON", badge="내원", message="오늘 중")
+    with pytest.raises(ValidationError):
+        t.level = 1  # 상승 조건 없이 MONITOR 로 낮출 수 없다
+
+
+def test_clarify_budget_resets_on_progress(client: TestClient):
+    """슬롯을 하나씩 채우는 협조적 사용자가 상한에 걸려 거절되면 안 된다."""
+    sid = None
+    seq = []
+    for body in (
+        {"question": "초콜릿을 먹었어요"},
+        {"question": "초콜릿을 먹었어요", "species": "dog"},
+        {"question": "초콜릿을 먹었어요", "weight_kg": 5.0},
+        {"question": "초콜릿을 먹었어요", "amount_g": 30},
+    ):
+        if sid:
+            body["session_id"] = sid
+        d = client.post("/api/ask", json=body).json()
+        sid = d["session_id"]
+        seq.append(d["status"])
+    assert seq == ["clarify", "clarify", "clarify", "answered"], seq
+
+
+def test_bird_is_not_asked_for_weight(client: TestClient):
+    """조류는 체중당 임계치가 0건이라 수치를 요구하지 않는다 (D-09 개정).
+
+    요구하면 근거에 없는 값을 모델이 지어낸다.
+    """
+    d = client.post("/api/ask", json={"question": "아보카도를 먹었어요", "species": "bird"}).json()
+    assert d["status"] == "answered"
+
+
+def test_eval_profile_disables_clarify(monkeypatch: pytest.MonkeyPatch):
+    """평가 중 되묻기가 섞이면 과소평가율 분모가 흔들린다 (04 §4.1)."""
+    from pettriage import config as config_mod
+    from pettriage.app import deps
+    from pettriage.app.main import create_app
+
+    monkeypatch.setenv("PETTRIAGE_PROFILE", "eval")
+    monkeypatch.setenv("PETTRIAGE_ALLOW_ENGINE_FALLBACK", "1")
+    config_mod.reset_caches()
+    deps.reset_state()
+
+    c = TestClient(create_app())
+    d = c.post("/api/ask", json={"question": "초콜릿을 먹었어요"}).json()
+    assert d["status"] == "refused"
+    assert d["refusal"]["reason"] == "되묻기상한"
+
+
+def test_graph_engine_missing_fails_loudly(monkeypatch: pytest.MonkeyPatch):
+    """설정이 graph 인데 스텁으로 조용히 내려가면 평가가 오염된다."""
+    from pettriage import config as config_mod
+    from pettriage.app import deps
+
+    monkeypatch.setenv("PETTRIAGE_PROFILE", "eval")
+    monkeypatch.delenv("PETTRIAGE_ALLOW_ENGINE_FALLBACK", raising=False)
+    config_mod.reset_caches()
+    deps.reset_state()
+
+    with pytest.raises(deps.EngineUnavailable):
+        deps.get_engine()
+
+
+def test_response_contract_violation_becomes_refusal(client: TestClient):
+    """계약 위반은 500(장애 화면)이 아니라 거절 화면으로 내려간다."""
+    from pettriage.app.deps import get_engine
+
+    class Liar:
+        name = "liar"
+
+        def ask(self, req, session):
+            # 근거 없는 answered — 계약 위반. 직렬화 단계에서 걸린다.
+            return AskResponse.model_construct(
+                status="answered", session_id="x", answer="괜찮습니다", citations=[]
+            )
+
+    client.app.dependency_overrides[get_engine] = lambda: Liar()
+    try:
+        r = client.post("/api/ask", json={"question": "초콜릿", "species": "dog"})
+        assert r.status_code == 200
+        assert r.json()["status"] == "refused"
+        assert "수의학적 진단이 아닙니다" in r.json()["disclaimer"]
+    finally:
+        client.app.dependency_overrides.clear()

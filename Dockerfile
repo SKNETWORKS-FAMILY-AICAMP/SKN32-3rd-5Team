@@ -30,8 +30,11 @@ COPY web ./web
 COPY configs ./configs
 COPY scripts ./scripts
 
+# PETTRIAGE_ROOT 를 명시한다 — 파일 위치로 루트를 추측하게 두지 않는다.
+# configs/ 를 못 찾으면 config.py 가 ConfigNotFound 로 크게 실패한다 (조용한 폴백 금지).
 ENV PYTHONPATH=/app/src \
     PYTHONUNBUFFERED=1 \
+    PETTRIAGE_ROOT=/app \
     PETTRIAGE_PROFILE=default
 
 USER app

@@ -5,7 +5,9 @@ help:            ## 이 목록
 
 install:         ## 개발 환경 설치 (GPU 없이 API·테스트까지)
 	pip install -e '.[api,rag,ingest,dev]' -c constraints.txt
-	pre-commit install
+	@git rev-parse --git-dir >/dev/null 2>&1 \
+		&& pre-commit install \
+		|| echo "· git 저장소가 아니라 pre-commit 훅은 건너뛴다 (설치는 완료)"
 
 serve:           ## FastAPI + 데모 프론트 → http://127.0.0.1:8000
 	uvicorn pettriage.app.main:app --reload --app-dir src

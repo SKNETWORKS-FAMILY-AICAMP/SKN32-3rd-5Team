@@ -10,19 +10,18 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request
+from fastapi.exceptions import ResponseValidationError
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .. import __version__
+from .. import __version__, paths
+from .contracts import DISCLAIMER
 from .deps import allowed_origins
 from .routes import ALL_ROUTERS
 
 log = logging.getLogger(__name__)
-
-WEB_DIR = Path(__file__).resolve().parents[3] / "web"
 
 DESCRIPTION = """
 반려동물 헬스케어 다이어리 & 응급 대응 시스템의 배달 계층.
@@ -40,12 +39,49 @@ DESCRIPTION = """
 """
 
 
+def _install_response_guard(app: FastAPI) -> None:
+    """응답 검증 실패를 **거절 화면**으로 돌린다.
+
+    계약 불변식(근거 없는 `answered` 등)이 깨지면 FastAPI는 500을 낸다.
+    500은 프론트에서 장애 화면으로 그려지는데, 02 §9는 이런 경우에도
+    사용자에게 **행동 지시**를 주라고 정한다. 그래서 200 + `refused` 로 내린다.
+
+    다만 이것은 **버그를 숨기는 것이 아니다** — 로그에는 ERROR로 남고,
+    검증 실패 상세에 입력 원문이 실릴 수 있으므로 메시지는 생략한다 (D-36).
+    """
+
+    @app.exception_handler(ResponseValidationError)
+    async def _on_response_invalid(request: Request, exc: ResponseValidationError):
+        log.error(
+            "응답 계약 위반 — path=%s errors=%d (상세는 개인정보 우려로 생략)",
+            request.url.path,
+            len(exc.errors()),
+        )
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "refused",
+                "session_id": "",
+                "answer": None,
+                "triage": None,
+                "citations": [],
+                "clarify": None,
+                "refusal": {
+                    "reason": "판정불가",
+                    "message": "안전 조건을 만족하는 답변을 만들지 못했습니다.",
+                    "advice": "수의사와 상담하시기 바랍니다.",
+                },
+                "disclaimer": DISCLAIMER,
+                "full_text": (
+                    "안전 조건을 만족하는 답변을 만들지 못했습니다. "
+                    "수의사와 상담하시기 바랍니다. " + DISCLAIMER
+                ),
+            },
+        )
+
+
 def create_app() -> FastAPI:
-    app = FastAPI(
-        title="PetTriage API",
-        version=__version__,
-        description=DESCRIPTION,
-    )
+    app = FastAPI(title="PetTriage API", version=__version__, description=DESCRIPTION)
 
     origins = allowed_origins()
     if origins:
@@ -61,14 +97,17 @@ def create_app() -> FastAPI:
     for router in ALL_ROUTERS:
         app.include_router(router)
 
-    if WEB_DIR.is_dir():
-        app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+    _install_response_guard(app)
+
+    web = paths.web_dir()
+    if web is not None:
+        app.mount("/static", StaticFiles(directory=web), name="static")
 
         @app.get("/", include_in_schema=False)
         def index() -> FileResponse:
-            return FileResponse(WEB_DIR / "index.html")
+            return FileResponse(web / "index.html")
     else:  # pragma: no cover
-        log.warning("web/ 디렉터리가 없다 — API만 제공한다 (%s)", WEB_DIR)
+        log.warning("web/ 디렉터리를 찾지 못했다 — API만 제공한다.")
 
     return app
 

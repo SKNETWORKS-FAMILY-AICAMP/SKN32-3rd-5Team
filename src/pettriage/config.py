@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -27,8 +28,18 @@ import yaml
 from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-ROOT = Path(__file__).resolve().parents[2]
-CONFIGS = ROOT / "configs"
+from . import paths
+
+log = logging.getLogger(__name__)
+
+
+class ConfigNotFound(RuntimeError):
+    """``configs/`` 를 찾지 못했다.
+
+    조용히 기본값으로 되돌아가면 **평가 프로파일이 무시된 채 지표가 산출**된다.
+    그 지표는 오염된 것이므로, 기본값 폴백은 명시적으로 허용할 때만 한다
+    (``PETTRIAGE_ALLOW_DEFAULT_CONFIG=1``).
+    """
 
 
 # ─────────────────────────────────────────────────────────────
@@ -138,8 +149,8 @@ class Secrets(BaseSettings):
     langchain_api_key: SecretStr | None = None
     database_url: str | None = None
 
-    data_dir: Path = ROOT / "data"
-    vectorstore_dir: Path = ROOT / ".chroma"
+    data_dir: Path = Field(default_factory=paths.data_dir)
+    vectorstore_dir: Path = Field(default_factory=lambda: paths.data_dir().parent / ".chroma")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -155,31 +166,71 @@ def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _parse_scalar(raw: str) -> Any:
+    """환경변수 값을 YAML 스칼라로 해석하되, 실패하면 **원문 문자열**로 둔다.
+
+    ``*`` · ``&`` · ``%`` 로 시작하는 값은 YAML 문법상 오류라 그대로 두면
+    앱 기동 자체가 죽는다. 설정 하나 때문에 서버가 안 뜨는 것은 과하다.
+    """
+    try:
+        return yaml.safe_load(raw)
+    except yaml.YAMLError:
+        return raw
+
+
 def _env_overrides(prefix: str = "PETTRIAGE__") -> dict[str, Any]:
     """`PETTRIAGE__RETRIEVAL__TOP_K=8` → `{"retrieval": {"top_k": 8}}`.
 
-    임시 실험에 YAML을 고치지 않아도 되게 한다. **고친 값은 로그에 남는다.**
+    임시 실험에 YAML을 고치지 않아도 되게 한다.
+    **덮어쓴 값은 로그에 남는다** — 실험 결과를 나중에 해석하려면 필수다 (04 §8).
+
+    리스트는 YAML 표기를 쓴다: ``PETTRIAGE__TRIAGE__QUANTITATIVE_SPECIES="[dog, cat]"``
     """
     out: dict[str, Any] = {}
-    for key, raw in os.environ.items():
+    applied: list[str] = []
+    for key, raw in sorted(os.environ.items()):
         if not key.startswith(prefix):
             continue
         node = out
         parts = key[len(prefix) :].lower().split("__")
-        for p in parts[:-1]:
-            node = node.setdefault(p, {})
-        node[parts[-1]] = yaml.safe_load(raw)  # 숫자·bool·리스트를 그대로 해석
+        for part in parts[:-1]:
+            node = node.setdefault(part, {})
+        node[parts[-1]] = _parse_scalar(raw)
+        applied.append(f"{'.'.join(parts)}={raw}")
+    if applied:
+        log.warning("환경변수가 설정을 덮었다 — %s", " · ".join(applied))
     return out
 
 
 def load_config(profile: str = "default") -> AppConfig:
-    """`configs/default.yaml` → `configs/<profile>.yaml` → 환경변수 순으로 덮는다."""
+    """`configs/default.yaml` → `configs/<profile>.yaml` → 환경변수 순으로 덮는다.
+
+    Raises:
+        ConfigNotFound: `configs/` 를 못 찾았고 기본값 폴백도 허용되지 않은 경우.
+    """
+    configs = paths.config_dir()
     merged: dict[str, Any] = {}
-    for name in dict.fromkeys(["default", profile]):
-        path = CONFIGS / f"{name}.yaml"
-        if path.exists():
-            loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-            merged = _deep_merge(merged, loaded)
+    loaded_files: list[str] = []
+
+    if configs is not None:
+        for name in dict.fromkeys(["default", profile]):
+            path = configs / f"{name}.yaml"
+            if path.exists():
+                merged = _deep_merge(merged, yaml.safe_load(path.read_text("utf-8")) or {})
+                loaded_files.append(path.name)
+
+    if not loaded_files:
+        msg = (
+            f"설정 파일을 찾지 못했다 (profile={profile}). "
+            "기본값으로 돌아가면 평가 프로파일이 무시된 채 지표가 산출된다. "
+            "PETTRIAGE_CONFIG_DIR 로 경로를 지정하거나 저장소 루트에서 실행할 것."
+        )
+        if os.getenv("PETTRIAGE_ALLOW_DEFAULT_CONFIG") != "1":
+            raise ConfigNotFound(msg)
+        log.warning("%s — PETTRIAGE_ALLOW_DEFAULT_CONFIG=1 이라 기본값으로 진행한다.", msg)
+    elif profile != "default" and f"{profile}.yaml" not in loaded_files:
+        log.warning("프로파일 %s.yaml 이 없다 — default.yaml 만 적용되었다.", profile)
+
     merged = _deep_merge(merged, _env_overrides())
     return AppConfig.model_validate(merged)
 
@@ -192,3 +243,12 @@ def get_config() -> AppConfig:
 @lru_cache(maxsize=1)
 def get_secrets() -> Secrets:
     return Secrets()
+
+
+def reset_caches() -> None:
+    """캐시를 비운다. **테스트 전용** — 런타임 중에는 부르지 않는다.
+
+    설정이 프로세스 전역으로 고정되면 앞 테스트의 환경변수가 뒤 테스트를 오염시킨다.
+    """
+    get_config.cache_clear()
+    get_secrets.cache_clear()

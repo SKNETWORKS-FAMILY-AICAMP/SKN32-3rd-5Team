@@ -53,7 +53,7 @@ GPU가 없어도 API·테스트는 전부 돈다. 학습 의존성은 `[train]` 
 python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
 make install                                          # = pip install -e '.[api,rag,ingest,dev]' -c constraints.txt
 cp .env.example .env                                  # 키 입력
-make test                                             # 54 tests
+make test                                             # 68 tests
 make serve                                            # http://127.0.0.1:8000
 ```
 
@@ -106,9 +106,10 @@ WS2의 LangGraph가 완성되면 `StubEngine` → `GraphEngine` 으로 바꾼다
 
 ```
 configs/         ⚙️ 재현에 필요한 값 전부 (모델·학습·검색·서빙). 커밋된다
-docs/            설계 문서 — 여기부터 읽는다
+docs/            설계 문서 13종 — 여기부터 읽는다
 src/pettriage/
-  config.py      YAML + 환경변수 로딩
+  paths.py       프로젝트 루트 탐색 — 설치 형태와 무관하게 configs/·web/ 을 찾는다
+  config.py      YAML + 환경변수 로딩 (못 찾으면 크게 실패한다)
   schemas.py     Fact · Chunk
   ingest/        수집 → 사실 추출 → 템플릿 문장화 → 청킹   (WS1)
   retrieval/     임베딩 · 벡터DB · 검색                    (WS2)
@@ -122,15 +123,20 @@ src/pettriage/
     training/      Qwen3-4B QLoRA (PEFT + TRL)
     serving/       LLMClient — 로컬 Qwen · API · Echo
   privacy/       개인정보 제거 (EXIF·얼굴·필드)            (D-36)
-  app/           FastAPI — 계약 · 라우터 · 세션 · 엔진      (WS5)
+  app/           FastAPI — 계약 · 라우터 · 세션 · 저장소    (WS5)
+  tools/         운영 도구 (코퍼스 검증) — 콘솔 스크립트 대상
 web/             데모 프론트 (정적 HTML 1장)               (WS5)
-scripts/         코퍼스 검증 · 자료 유출 차단
-eval/            골든셋 · 지표                              (WS4)
-tests/           안전 장치 회귀 테스트
+eval/            골든셋 · 평가 하네스 · 결과 보고서         (WS4)
+scripts/         셸 진입점 (얇은 래퍼)
 docker/          학습 이미지 · DB 초기화
+tests/           안전 장치 회귀 테스트
+notebooks/       탐색용 (결론은 여기 남기지 않는다)
 data/            🔴 매니페스트만 커밋. 자료 파일은 커밋 금지
 artifacts/       🔴 학습 어댑터. 커밋 금지
 ```
+
+폴더마다 `README.md` 가 있어 **거기에 무엇이 들어가고 무엇이 들어가면 안 되는지**를
+그 자리에서 알 수 있다. 협업 규약은 [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 **설정과 비밀을 나눈 기준** — `configs/*.yaml` 은 재현에 필요하므로 커밋하고,
 `.env` 는 환경마다 다르거나 비밀이므로 커밋하지 않는다.

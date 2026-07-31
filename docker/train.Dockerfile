@@ -12,6 +12,7 @@ WORKDIR /app
 ENV PIP_NO_CACHE_DIR=1 \
     PYTHONPATH=/app/src \
     PYTHONUNBUFFERED=1 \
+    PETTRIAGE_ROOT=/app \
     PETTRIAGE_PROFILE=train \
     HF_HOME=/cache/hf
 
