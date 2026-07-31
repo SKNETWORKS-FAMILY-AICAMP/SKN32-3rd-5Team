@@ -61,11 +61,19 @@ def config_dir() -> Path | None:
 
 
 def web_dir() -> Path | None:
-    """데모 프론트 디렉터리."""
+    """데모 프론트 디렉터리.
+
+    **패키지 안(`app/web/`)을 먼저 본다.** 프론트는 배달 계층의 일부이므로
+    패키지와 함께 설치되어야 한다 — 저장소 루트에 두면 `pip install` 후
+    화면이 사라진다.
+    """
+    packaged = Path(__file__).resolve().parent / "app" / "web"
+    if packaged.is_dir():
+        return packaged
     root = find_root()
     if root is None:
         return None
-    d = root / "web"
+    d = root / "web"  # 구버전 배치 호환
     return d if d.is_dir() else None
 
 

@@ -124,19 +124,33 @@ src/pettriage/
     serving/       LLMClient — 로컬 Qwen · API · Echo
   privacy/       개인정보 제거 (EXIF·얼굴·필드)            (D-36)
   app/           FastAPI — 계약 · 라우터 · 세션 · 저장소    (WS5)
+    web/           데모 프론트 (정적 HTML 1장)
   tools/         운영 도구 (코퍼스 검증) — 콘솔 스크립트 대상
-web/             데모 프론트 (정적 HTML 1장)               (WS5)
 eval/            골든셋 · 평가 하네스 · 결과 보고서         (WS4)
 scripts/         셸 진입점 (얇은 래퍼)
 docker/          학습 이미지 · DB 초기화
 tests/           안전 장치 회귀 테스트
 notebooks/       탐색용 (결론은 여기 남기지 않는다)
 data/            🔴 매니페스트만 커밋. 자료 파일은 커밋 금지
-artifacts/       🔴 학습 어댑터. 커밋 금지
+.github/         CI · PR/이슈 템플릿 · 기여 규약
 ```
 
+**루트에 남긴 것과 내린 것** — 관례를 깨면서까지 줄이지는 않았다.
+
+| 루트에 남김 | 이유 |
+|---|---|
+| `Dockerfile` · `compose.yaml` | 옮기면 `docker build .` · `docker compose up` 이 그대로 안 된다 |
+| `pyproject.toml` · `constraints.txt` | 빌드 도구가 루트에서 찾는다 |
+| `Makefile` · `README.md` · `LICENSE` | 관례 |
+
+| 내린 것 | 어디로 · 왜 |
+|---|---|
+| `web/` | `src/pettriage/app/web/` — **프론트는 배달 계층의 일부다.** 루트에 두면 `pip install` 후 화면이 사라진다 |
+| `CONTRIBUTING.md` | `.github/` — GitHub가 공식 인식하는 위치 |
+| `artifacts/` | 삭제 — 학습 시 코드가 만든다. 빈 폴더를 저장소에 둘 이유가 없다 |
+
 폴더마다 `README.md` 가 있어 **거기에 무엇이 들어가고 무엇이 들어가면 안 되는지**를
-그 자리에서 알 수 있다. 협업 규약은 [`CONTRIBUTING.md`](CONTRIBUTING.md).
+그 자리에서 알 수 있다. 협업 규약은 [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md).
 
 **설정과 비밀을 나눈 기준** — `configs/*.yaml` 은 재현에 필요하므로 커밋하고,
 `.env` 는 환경마다 다르거나 비밀이므로 커밋하지 않는다.

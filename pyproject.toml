@@ -75,7 +75,8 @@ pettriage-verify = "pettriage.tools.verify_corpus:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-pettriage = ["compute/tables/*.csv"]
+# 프론트는 배달 계층의 일부다 — 패키지와 함께 설치되어야 설치본에서도 화면이 뜬다.
+pettriage = ["compute/tables/*.csv", "app/web/*"]
 
 # ─────────────────────────────────────────────────────────────
 # 도구 설정

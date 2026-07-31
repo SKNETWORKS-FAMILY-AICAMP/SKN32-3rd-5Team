@@ -26,7 +26,6 @@ WORKDIR /app
 
 COPY --from=builder /install /usr/local
 COPY src ./src
-COPY web ./web
 COPY configs ./configs
 COPY scripts ./scripts
 
