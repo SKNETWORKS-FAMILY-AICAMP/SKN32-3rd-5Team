@@ -1,0 +1,110 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pettriage"
+version = "0.1.0"
+description = "반려동물 헬스케어 다이어리 & 응급 대응 — RAG + 멀티태스크 sLLM"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "save the pet" }]
+
+# 런타임 최소 집합. 무거운 의존성은 아래 extras 로 분리한다.
+# 학습 GPU가 없는 팀원이 `pip install -e .[api]` 만으로 API를 띄울 수 있어야 한다.
+dependencies = [
+  "pydantic>=2.10,<3",
+  "pydantic-settings>=2.7,<3",
+  "PyYAML>=6.0,<7",
+]
+
+[project.optional-dependencies]
+api = [
+  "fastapi>=0.115,<0.116",
+  "uvicorn[standard]>=0.34,<0.35",
+]
+rag = [
+  "langgraph>=0.2.62,<0.3",
+  "langchain-core>=0.3.29,<0.4",
+  "langchain-community>=0.3.14,<0.4",
+  "sentence-transformers>=3.3,<4",
+  "chromadb>=0.5.23,<0.6",
+  "psycopg[binary]>=3.2,<4",
+  "pgvector>=0.3.6,<0.4",
+  "openai>=1.59,<2",
+  "anthropic>=0.42,<0.43",
+  "langsmith>=0.2.10,<0.3",
+]
+ingest = [
+  "pypdf>=5.1,<6",
+  "pdfplumber>=0.11.4,<0.12",
+  "beautifulsoup4>=4.12,<5",
+  "lxml>=5.3,<6",
+  "openpyxl>=3.1,<4",
+  "pandas>=2.2,<3",
+  "Pillow>=11.1,<12",
+  "piexif>=1.1.3,<2",
+]
+# Qwen3-4B QLoRA (D-42). GPU 환경에서만 설치한다.
+train = [
+  "torch>=2.5,<3",
+  "transformers>=4.48,<5",
+  "peft>=0.14,<0.15",
+  "trl>=0.13,<0.14",
+  "bitsandbytes>=0.45,<0.46",
+  "accelerate>=1.2,<2",
+  "datasets>=3.2,<4",
+]
+dev = [
+  "pytest>=8.3,<9",
+  "pytest-cov>=6.0,<7",
+  "ruff>=0.8.6,<0.9",
+  "mypy>=1.14,<2",
+  "httpx>=0.28,<0.29",
+  "pre-commit>=4.0,<5",
+  "ipykernel>=6.29,<7",
+]
+
+[project.scripts]
+# 실행 진입점을 이름으로 고정한다. 팀원이 경로를 외울 필요가 없다.
+pettriage-serve = "pettriage.app.main:run"
+pettriage-verify = "scripts.verify_corpus:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+pettriage = ["compute/tables/*.csv"]
+
+# ─────────────────────────────────────────────────────────────
+# 도구 설정
+# ─────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+  "gpu: GPU가 필요한 테스트 (기본 실행에서 제외)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# B008 "함수 호출을 기본 인자에 두지 말 것"은 FastAPI의 Depends/Query 관용구와 충돌한다.
+# 라우터 파일에 한정해서만 끈다 — 나머지 코드에서는 그대로 잡힌다.
+"src/pettriage/app/routes/*.py" = ["B008"]
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "src"
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["src/pettriage"]
+omit = ["*/models/training/*"]  # GPU 없이는 실행되지 않는다

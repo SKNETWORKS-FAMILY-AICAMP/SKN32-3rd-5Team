@@ -1,0 +1,10 @@
+source_id,folder,file,orig_name,collected_by,received_at,format,rows_or_pages,sha256_short,license,notes
+S-026,raw/S-026_petpoisonhelpline-poisons,poisons_20260730.csv,poisons_202607301728.csv,이근준,2026-07-30,csv,328행,3f0e52d7818b0dae,미확인,크롤링본. 텍스트 공백 유실·종 정보 82% 결측 → 재크롤링 권고
+S-034,raw/S-034_frontiers-household-food-toxic,fvets-2016-00026.pdf,fvets0300026.pdf,이근준,2026-07-30,pdf,논문 1편,4dd80bd7843f80fc,CC BY,정량 임계치 확보. 2단 조판 → 컬럼 분리 파싱 필요
+S-067,raw/S-067_pet-food-selection-attributes,pet-food-selection-attributes-2019.pdf,5__반려동물_식품의_선택속성_연구.pdf,권소라,2026-07-30,pdf,20쪽,ac8c40f1b5907024,저작권 있음 (오픈 라이선스 표기 없음),"대구경북연구 18(3) 2019, 김경환. reference_only. p.88 표2 = 반려견 사료·간식 분류 체계(한국어) → 급여 기록 입력 선택지 참조"
+REF-01,reference,license-check-table_kwon_20260730.docx,반려동물_자료_오픈소스_확인표.docx,권소라,2026-07-30,docx,22행 표,7766ae33d1eee883,팀 내부 산출물,라이선스 확인표 — 원장 license·usage_scope 컬럼의 근거 자료
+REF-02,reference,bird-toxins-list_seoeun.txt,앵무새 독성물질.txt,이서은,2026-07-30,txt,5개 카테고리 18건,6fd598efd6fbf6ab,팀 내부 산출물,조류 자료 분류 정리본. 실무 메모: 'PDF는 크롤링 말고 다운받아서 텍스트 추출'
+REF-03,reference,resource-list_seoeun_utf8.csv,수집_리소스_목록.csv,이서은,2026-07-30,csv,32행,bcb15b84cc072f48,팀 내부 산출물,라이선스 판단 포함 목록. 원본은 CP949 → UTF-8 변환본. 원본도 함께 보관
+S-043,raw/S-043_nias-pet-feed-nutrition-standard,nias-pet-feed-nutrition-standard-2024.pdf,반려동물_사료_영양표준내지1021_vf.pdf,오한빈,2026-07-30,pdf,118쪽,650e5bc34c4973ab,정부간행물 · 인용문구 명시 (공공누리 표기는 없음),"★★C경로 핵심. 생애단계별 영양소 최소·최대 권장량(/1,000kcal ME) + FEDIAF·AAFCO 대조. MER 공식 kcal ME/kg^0.75. ISBN 978-89-480-8484-9"
+S-044,raw/S-044_korean-feed-composition-2022,korean-feed-composition-table-2022.xlsx,한국표준사료성분표(2022).xlsx,오한빈,2026-07-30,xlsx,181원료 x 73성분,9fed58a26101daea,정부 발간 데이터,⚠️축산용(소·돼지·닭) 원료 DB. **앵무새 핵심 원료(피·기장·해바라기씨·카나리씨) 미수록**. 귀리·귀리피·옥수수 등 공통 곡물 성분만 활용 가능
+S-045,raw/S-045_nias-press-release,nias-press-release-20260409.pdf,20260409_bodo.pdf,오한빈,2026-07-30,pdf,2쪽,bfef01ff1c33a63c,보도자료 (자유 이용),★기획 근거. 영양표준이 「사료 등의 기준 및 규격」 고시 반영(2025.9) → 완전사료 표시제 2028 시행

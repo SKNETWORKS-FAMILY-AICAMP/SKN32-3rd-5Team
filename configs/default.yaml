@@ -1,0 +1,55 @@
+# 기본 프로파일 — 재현에 필요한 값은 전부 여기에 있다 (04 §8).
+#
+#   프로파일 전환:  PETTRIAGE_PROFILE=train  (configs/train.yaml 이 이 파일을 덮는다)
+#   단발 실험:      PETTRIAGE__RETRIEVAL__TOP_K=8 make serve
+#
+# 비밀·환경차이(API 키·DB 주소)는 여기 두지 않는다. .env 로 간다.
+
+model:
+  # D-42 — Qwen3-4B. revision 을 비워두면 재현이 깨지므로 학습 착수 시 커밋 해시를 박는다.
+  base_id: Qwen/Qwen3-4B
+  revision: null
+  max_seq_len: 4096
+  dtype: bfloat16
+  load_in_4bit: true
+  adapter_path: null
+
+train:
+  seed: 42
+  epochs: 3.0
+  lr: 2.0e-4
+  batch_size: 2
+  grad_accum: 8
+  warmup_ratio: 0.03
+  lora:
+    r: 16
+    alpha: 32
+    dropout: 0.05
+  # 태스크 간섭(04 E4)의 조작 변수. ④ 근거 검증에 가장 큰 비중을 준다 (D-05).
+  task_mix:
+    classify: 0.2
+    slot: 0.2
+    compress: 0.2
+    verify: 0.3
+    simplify: 0.1
+
+retrieval:
+  embedding_model: BAAI/bge-m3
+  top_k: 5
+  # 이 값 미만이면 검색 실패로 보고 거절한다 (02 §8.3). 골든셋으로 튜닝한다.
+  score_threshold: 0.35
+  rerank: false
+  chunk_strategy: substance      # D-14 물질 단위
+  fixed_chunk_size: 500          # 비교군 전용 (04 E1)
+
+triage:
+  llm_fallback: true
+  max_clarify_turns: 2
+  # 조류는 체중당 임계치가 0건이라 정량 슬롯을 요구하지 않는다 (D-09 개정).
+  quantitative_species: [dog, cat]
+
+serve:
+  host: 127.0.0.1
+  port: 8000
+  engine: stub                   # graph 로 바꾸면 LangGraph 엔진을 쓴다 (D-40)
+  cors_origins: []

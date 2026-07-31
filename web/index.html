@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PetTriage — 반려동물 헬스케어 다이어리 & 응급 대응</title>
+<!--
+  데모 프론트 (WS5). 빌드 도구 없이 FastAPI가 같은 출처에서 서빙한다.
+
+  설계 근거: docs/02_시스템-아키텍처.md §9 · §12
+
+  이 화면이 지켜야 하는 것 세 가지
+    ① 고지 문구는 상태와 무관하게 항상 보인다 (하단 고정)
+    ② 거절은 장애가 아니라 정상 화면이다 — 빨간 에러로 그리지 않는다
+    ③ 등급 이름·문구를 여기에 하드코딩하지 않는다
+       → /api/triage-levels 에서 받아온다 (단일 출처, 00 §9.4)
+-->
+<style>
+  :root{
+    --bg:#0f1113; --surface:#16191c; --surface-2:#1c2024; --line:#2a2f35;
+    --ink:#e9edf1; --ink-2:#a8b2bd; --ink-3:#6b7681;
+    --accent:#6aa9ff;
+    --l4:#ff5d5d; --l3:#ff9f43; --l2:#ffd166; --l1:#7dd3a0;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:0 0 64px;background:var(--bg);color:var(--ink);
+    font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}
+  header{border-bottom:1px solid var(--line);padding:16px 20px;display:flex;
+    align-items:baseline;gap:12px;flex-wrap:wrap}
+  header h1{font-size:16px;margin:0;letter-spacing:-.01em}
+  header .sub{color:var(--ink-3);font-size:12px}
+  header .env{margin-left:auto;color:var(--ink-3);font-size:11px;font-variant-numeric:tabular-nums}
+  nav{display:flex;gap:2px;padding:10px 20px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  nav button{background:none;border:none;border-bottom:2px solid transparent;color:var(--ink-3);
+    padding:8px 12px;font:inherit;font-size:13px;cursor:pointer}
+  nav button.on{color:var(--ink);border-bottom-color:var(--accent)}
+  main{max-width:860px;margin:0 auto;padding:22px 20px}
+  section{display:none} section.on{display:block}
+  h2{font-size:13px;color:var(--ink-2);margin:0 0 10px;letter-spacing:.04em;text-transform:uppercase}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin-bottom:14px}
+  label{display:block;color:var(--ink-2);font-size:12px;margin-bottom:4px}
+  input,select,textarea{width:100%;background:var(--surface-2);border:1px solid var(--line);
+    border-radius:6px;color:var(--ink);padding:8px 10px;font:inherit}
+  textarea{min-height:76px;resize:vertical}
+  .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:10px}
+  button.go{background:var(--accent);color:#08111f;border:none;border-radius:6px;
+    padding:9px 18px;font:inherit;font-weight:700;cursor:pointer}
+  button.go:disabled{opacity:.45;cursor:default}
+  .badge{display:inline-flex;align-items:center;gap:6px;border:1px solid currentColor;
+    border-radius:999px;padding:3px 12px;font-weight:700;font-size:13px}
+  .lv4{color:var(--l4)} .lv3{color:var(--l3)} .lv2{color:var(--l2)} .lv1{color:var(--l1)}
+  .answer{font-size:15px;line-height:1.75;margin:12px 0}
+  .cond{background:var(--surface-2);border-left:2px solid var(--l3);border-radius:0 6px 6px 0;
+    padding:8px 12px;margin:10px 0;color:var(--ink-2);font-size:13px}
+  .cite{border-top:1px solid var(--line);padding-top:9px;margin-top:6px;font-size:12.5px;color:var(--ink-2)}
+  .cite b{color:var(--ink)}
+  .cite .noquote{color:var(--ink-3);font-size:11.5px}
+  .refused{border-left:3px solid var(--ink-3)}
+  .clarify{border-left:3px solid var(--accent)}
+  .turn{color:var(--ink-3);font-size:11.5px}
+  .audit{margin-top:10px;font-size:11.5px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+  .audit .over{color:var(--l3)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--ink-3);font-size:11.5px;font-weight:600}
+  .ev{color:var(--ink-3);font-size:11.5px;font-style:italic}
+  footer{position:fixed;left:0;right:0;bottom:0;background:var(--surface);
+    border-top:1px solid var(--line);padding:9px 20px;color:var(--ink-2);font-size:12px;text-align:center}
+  .hint{color:var(--ink-3);font-size:11.5px;margin-top:6px}
+  pre{background:var(--surface-2);border-radius:6px;padding:10px;overflow:auto;font-size:11.5px;color:var(--ink-2)}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>PetTriage</h1>
+  <span class="sub">반려동물 헬스케어 다이어리 &amp; 응급 대응 — 데모</span>
+  <span class="sub" style="opacity:.6">· 팀 save the pet</span>
+  <span class="env" id="env">연결 확인 중…</span>
+</header>
+
+<nav>
+  <button class="on" data-t="ask">질의응답</button>
+  <button data-t="record">기록 입력</button>
+  <button data-t="report">기간 리포트</button>
+  <button data-t="levels">등급 기준</button>
+</nav>
+
+<main>
+  <!-- ── 질의응답 ─────────────────────────────────────── -->
+  <section id="ask" class="on">
+    <div class="card">
+      <div class="row">
+        <div>
+          <label>종 <span class="hint">(비워두면 시스템이 되묻습니다)</span></label>
+          <select id="species">
+            <option value="">— 선택 안 함 —</option>
+            <option value="dog">개</option>
+            <option value="cat">고양이</option>
+            <option value="bird">앵무새</option>
+          </select>
+        </div>
+        <div><label>체중 (kg)</label><input id="weight" type="number" step="0.1" min="0" placeholder="예: 5.2"></div>
+        <div><label>먹은 양 (g)</label><input id="amount" type="number" step="1" min="0" placeholder="예: 30"></div>
+      </div>
+      <label>질문</label>
+      <textarea id="q" placeholder="예) 강아지가 초콜릿을 먹었어요"></textarea>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:10px">
+        <button class="go" id="send">질문하기</button>
+        <button class="go" id="reset" style="background:var(--surface-2);color:var(--ink-2)">세션 초기화</button>
+        <span class="turn" id="sess"></span>
+      </div>
+    </div>
+    <div id="out"></div>
+  </section>
+
+  <!-- ── 기록 입력 ─────────────────────────────────────── -->
+  <section id="record">
+    <div class="card">
+      <div class="row">
+        <div><label>반려동물 ID <span class="hint">(가명 식별자)</span></label><input id="r_pet" value="pet-001"></div>
+        <div>
+          <label>종</label>
+          <select id="r_species"><option value="dog">개</option><option value="cat">고양이</option><option value="bird">앵무새</option></select>
+        </div>
+        <div><label>일시</label><input id="r_at" type="datetime-local"></div>
+      </div>
+      <div class="row">
+        <div><label>급여 (쉼표 구분)</label><input id="r_meals" placeholder="사료 80g, 닭가슴살"></div>
+        <div><label>증상 (쉼표 구분)</label><input id="r_symptoms" placeholder="구토 1회"></div>
+      </div>
+      <div id="dropwrap" style="display:none">
+        <label>배설물 상태 <span class="hint">— 조류 전용 필드 (02 §12)</span></label>
+        <input id="r_drop" placeholder="색·형태·양">
+      </div>
+      <label style="margin-top:10px">메모</label>
+      <textarea id="r_note"></textarea>
+      <div style="margin-top:10px"><button class="go" id="r_send">기록 저장</button></div>
+      <div id="r_out" class="hint"></div>
+    </div>
+    <div class="card">
+      <h2>설계 메모</h2>
+      <p style="color:var(--ink-2);margin:0;font-size:13px">
+        이 기록은 <b>장기 기억이 아니라 검색 대상 문서</b>다 (05 §3).
+        되묻기 슬롯(체중·섭취량)은 세션에만 남고 저장되지 않는다 (D-36 최소 수집).
+      </p>
+    </div>
+  </section>
+
+  <!-- ── 리포트 ───────────────────────────────────────── -->
+  <section id="report">
+    <div class="card">
+      <div class="row">
+        <div><label>반려동물 ID</label><input id="p_pet" value="pet-001"></div>
+        <div><label>시작</label><input id="p_from" type="date"></div>
+        <div><label>종료</label><input id="p_to" type="date"></div>
+      </div>
+      <button class="go" id="p_send">리포트 조회</button>
+    </div>
+    <div id="p_out"></div>
+  </section>
+
+  <!-- ── 등급 기준 ────────────────────────────────────── -->
+  <section id="levels">
+    <div class="card">
+      <h2>트리아지 등급 — 코퍼스에서 도출 (D-39)</h2>
+      <table id="lv_table"><tbody></tbody></table>
+      <p class="hint">
+        등급 이름을 발명하지 않았다. 자료 42건의 <b>행동 지시어</b>를 모아 4단계로 갈랐다.
+        숫자가 클수록 위험하며, 그래야 하향 금지 게이트가 <code>max()</code> 로 성립한다.
+      </p>
+    </div>
+    <div class="card">
+      <h2>급여 가부 — 별도 축</h2>
+      <table id="fl_table"><tbody></tbody></table>
+      <p class="hint" id="bird_note"></p>
+    </div>
+  </section>
+</main>
+
+<footer id="disclaimer">본 안내는 참고용이며 수의학적 진단이 아닙니다. 이상이 의심되면 수의사와 상담하세요.</footer>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let sessionId = null;
+
+// 탭
+document.querySelectorAll('nav button').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach((x) => x.classList.toggle('on', x === b));
+  document.querySelectorAll('main section').forEach((s) => s.classList.toggle('on', s.id === b.dataset.t));
+});
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error(path + ' → ' + r.status);
+  return r.json();
+}
+
+// ── 헬스 + 등급표: 등급 표현을 화면에 하드코딩하지 않는다 ──
+(async () => {
+  try {
+    const h = await api('/api/health');
+    $('env').textContent = `engine: ${h.engine} · v${h.version}`;
+  } catch { $('env').textContent = '서버 연결 실패'; }
+
+  try {
+    const d = await api('/api/triage-levels');
+    $('disclaimer').textContent = d.disclaimer;
+    $('lv_table').querySelector('tbody').innerHTML =
+      '<tr><th>등급</th><th>행동 지시</th><th>도출 근거 (원문)</th></tr>' +
+      d.levels.map((l) => `<tr>
+        <td><span class="badge lv${l.level}">${esc(l.badge)}</span> <span class="turn">${l.level}</span></td>
+        <td>${esc(l.message)}</td>
+        <td class="ev">“${esc(l.evidence.quote)}” <span class="turn">— ${esc(l.evidence.source_id)}</span></td>
+      </tr>`).join('');
+    const birdOK = new Set(d.bird_feeding_levels);
+    $('fl_table').querySelector('tbody').innerHTML =
+      '<tr><th>등급</th><th>표기</th><th>조류 적용</th></tr>' +
+      d.feeding_levels.map((f) => `<tr>
+        <td>${esc(f.name)}</td><td>${esc(f.label)}</td>
+        <td>${birdOK.has(f.level) ? '적용' : '<span class="turn">미노출</span>'}</td>
+      </tr>`).join('');
+    $('bird_note').textContent =
+      '조류는 SAFE를 노출하지 않는다 — 출처 두 곳이 동일 항목을 서로 다른 티어에 배정해, '
+      + '3단계를 보여주면 출처에 없는 정밀도를 주장하게 된다 (D-39).';
+  } catch (e) { console.error(e); }
+})();
+
+// ── 질의응답 ──
+function num(el) { const v = parseFloat($(el).value); return Number.isFinite(v) ? v : null; }
+
+function renderAnswer(d) {
+  const t = d.triage;
+  const conds = t.escalation_conditions.length
+    ? `<div class="cond"><b>상승 조건</b> — ${t.escalation_conditions.map(esc).join(' · ')}</div>` : '';
+  const cites = d.citations.map((c) => `
+    <div class="cite">
+      <b>${esc(c.publisher)}</b> · ${esc(c.source_id)}${c.title ? ' — ' + esc(c.title) : ''}
+      ${c.locator ? ' <span class="turn">(' + esc(c.locator) + ')</span>' : ''}
+      ${c.quote
+        ? '<div style="margin-top:4px">“' + esc(c.quote) + '”</div>'
+        : '<div class="noquote">경로 ②(사실 추출) 자료 — 원문을 적재하지 않아 인용문이 없다. 출처·위치로 역추적한다.</div>'}
+    </div>`).join('');
+  const lv = (v) => v ?? '미호출';
+  const audit = `<div class="audit">규칙 ${lv(t.rule_level)} · LLM ${lv(t.llm_level)} → 최종 ${t.level}
+    ${t.overridden ? '<span class="over"> · 게이트가 LLM의 하향을 차단했다</span>' : ''}</div>`;
+  return `<div class="card">
+    <span class="badge lv${t.level}">${esc(t.badge)}</span>
+    <div class="answer">${esc(d.answer)}</div>${conds}${cites}${audit}
+  </div>`;
+}
+
+function render(d) {
+  sessionId = d.session_id;
+  $('sess').textContent = 'session ' + d.session_id.slice(0, 8);
+  if (d.status === 'answered') return renderAnswer(d);
+  if (d.status === 'clarify') return `<div class="card clarify">
+      <div class="answer">${esc(d.clarify.question)}</div>
+      <div class="turn">되묻기 ${d.clarify.turn}/${d.clarify.max_turns} · 부족한 정보: ${d.clarify.missing.map(esc).join(', ')}</div>
+    </div>`;
+  return `<div class="card refused">
+      <div class="answer">${esc(d.refusal.message)}</div>
+      <div class="turn">사유: ${esc(d.refusal.reason)} — ${esc(d.refusal.advice)}</div>
+    </div>`;
+}
+
+$('send').onclick = async () => {
+  const btn = $('send'); btn.disabled = true;
+  try {
+    const d = await api('/api/ask', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        question: $('q').value.trim(),
+        species: $('species').value || null,
+        weight_kg: num('weight'), amount_g: num('amount'),
+        session_id: sessionId,
+      }),
+    });
+    $('out').innerHTML = render(d) + $('out').innerHTML;
+  } catch (e) {
+    $('out').innerHTML = `<div class="card refused"><div class="answer">서버에 연결하지 못했습니다.</div>
+      <div class="turn">${esc(e.message)}</div></div>` + $('out').innerHTML;
+  } finally { btn.disabled = false; }
+};
+
+$('reset').onclick = () => { sessionId = null; $('sess').textContent = ''; $('out').innerHTML = ''; };
+
+// ── 기록 ──
+$('r_species').onchange = () => {
+  $('dropwrap').style.display = $('r_species').value === 'bird' ? 'block' : 'none';
+};
+const split = (id) => $(id).value.split(',').map((s) => s.trim()).filter(Boolean);
+
+$('r_send').onclick = async () => {
+  try {
+    const d = await api('/api/records', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        pet_id: $('r_pet').value, species: $('r_species').value,
+        recorded_at: $('r_at').value || new Date().toISOString(),
+        note: $('r_note').value, meals: split('r_meals'), symptoms: split('r_symptoms'),
+        droppings: $('r_species').value === 'bird' ? ($('r_drop').value || null) : null,
+      }),
+    });
+    $('r_out').textContent = `저장됨 · ${d.record_id} · 벡터DB 적재: ${d.indexed ? '완료' : '대기 (WS1 연결 전)'}`;
+  } catch (e) { $('r_out').textContent = '저장 실패 — ' + e.message; }
+};
+
+// ── 리포트 ──
+$('p_send').onclick = async () => {
+  try {
+    const q = new URLSearchParams({pet_id: $('p_pet').value, period_from: $('p_from').value, period_to: $('p_to').value});
+    const d = await api('/api/report?' + q);
+    $('p_out').innerHTML = `<div class="card"><h2>${esc(d.pet_id)}</h2>
+      <p style="color:var(--ink-2)">${esc(d.summary)}</p>
+      <pre>${esc(JSON.stringify(d.timeline, null, 2))}</pre></div>`;
+  } catch (e) { $('p_out').innerHTML = `<div class="card refused">조회 실패 — ${esc(e.message)}</div>`; }
+};
+</script>
+</body>
+</html>

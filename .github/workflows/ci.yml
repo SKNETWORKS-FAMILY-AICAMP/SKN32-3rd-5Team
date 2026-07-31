@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install ruff==0.8.6
+      - run: ruff check src tests scripts
+      - run: ruff format --check src tests scripts
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      # 학습 의존성(torch·CUDA)은 설치하지 않는다.
+      # models/ 의 무거운 임포트가 함수 안에 있어야 이 job 이 성립한다 —
+      # 모듈 최상단으로 올리면 여기서 깨진다. 그것이 의도된 제약이다.
+      - run: pip install -e '.[api,dev]' -c constraints.txt
+      - name: 안전 장치 회귀 테스트
+        run: pytest -q
+      - name: 층 0 — 코퍼스 검증
+        run: python scripts/verify_corpus.py
+
+  no-data-committed:
+    #  공개 저장소이므로 자료 파일이 커밋되지 않았는지 확인한다 (D-29)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/check_no_data.sh
+
+  docker:
+    #  이미지가 실제로 빌드되고 뜨는지. 배포 직전에 처음 깨지는 일을 막는다.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: API 이미지 빌드
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: pettriage-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: 기동 확인
+        run: |
+          docker run -d --name api -p 8000:8000 pettriage-api:ci
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/api/health; then echo; exit 0; fi
+            sleep 2
+          done
+          echo "::error::API가 기동하지 않았다"
+          docker logs api
+          exit 1

@@ -1,0 +1,10 @@
+# 학습 프로파일 — GPU 환경.  PETTRIAGE_PROFILE=train
+#
+# default.yaml 위에 덮인다. 여기에는 **달라지는 값만** 적는다.
+
+model:
+  load_in_4bit: true   # QLoRA. 16GB VRAM 기준
+
+train:
+  batch_size: 2
+  grad_accum: 8        # 유효 배치 16

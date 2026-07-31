@@ -1,0 +1,21 @@
+# 🔴 자료 파일이 이미지에 구워지면 이미지를 배포하는 순간 유출이다 (D-29).
+data/
+!data/manifests/
+artifacts/
+.chroma/
+
+.git/
+.github/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
+.env
+*.zip
+notebooks/
+docs/

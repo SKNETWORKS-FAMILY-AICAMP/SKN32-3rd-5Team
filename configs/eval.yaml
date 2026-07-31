@@ -1,0 +1,15 @@
+# 평가 프로파일 — 골든셋 채점 (04).  PETTRIAGE_PROFILE=eval
+#
+# 평가는 **재현 가능해야 하므로** 무작위성을 줄인다.
+
+retrieval:
+  top_k: 5
+  rerank: false
+
+triage:
+  # 평가 중에는 되묻기를 끄고, 슬롯 결측을 거절로 집계한다.
+  # 되묻기가 섞이면 과소평가율 분모가 흔들린다 (04 §4.1).
+  max_clarify_turns: 0
+
+serve:
+  engine: graph

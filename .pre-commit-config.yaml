@@ -1,0 +1,33 @@
+# 커밋 전에 로컬에서 돈다.  설치:  pre-commit install
+#
+# CI와 같은 검사를 앞당겨 돌린다. 특히 **자료 파일 커밋 차단**은
+# 공개 저장소에서 되돌리기 어려운 실수라 커밋 시점에 막는 것이 맞다 (D-29).
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: detect-private-key
+
+  - repo: local
+    hooks:
+      - id: no-data-files
+        name: 자료 파일 커밋 차단 (D-29)
+        entry: scripts/check_no_data.sh
+        language: script
+        pass_filenames: false
+        always_run: true
