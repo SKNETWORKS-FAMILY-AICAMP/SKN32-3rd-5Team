@@ -41,6 +41,10 @@ retrieval:
   rerank: false
   chunk_strategy: substance      # D-14 물질 단위
   fixed_chunk_size: 500          # 비교군 전용 (04 E1)
+  # D-44 — 벡터DB는 Chroma. memory 는 모델·디스크 없이 도는 테스트용이다.
+  store: chroma
+  persist_dir: .chroma
+  collection: external
 
 triage:
   llm_fallback: true

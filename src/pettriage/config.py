@@ -106,6 +106,11 @@ class RetrievalConfig(BaseModel):
     rerank: bool = False  # 구현 2단계 이후
     chunk_strategy: Literal["substance", "fixed"] = "substance"  # D-14
     fixed_chunk_size: int = 500  # 비교군 전용 (04 E1)
+    #: 벡터DB (D-44). `memory` 는 모델·디스크 없이 도는 테스트용이다.
+    store: Literal["chroma", "memory"] = "chroma"
+    #: Chroma 영속 디렉터리. 지우고 `build_index.py` 로 통째로 재생성된다.
+    persist_dir: str = ".chroma"
+    collection: str = "external"
 
 
 class TriageConfig(BaseModel):
