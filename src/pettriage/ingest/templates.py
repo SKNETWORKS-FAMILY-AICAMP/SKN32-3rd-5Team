@@ -48,6 +48,67 @@ def _cite(f: Fact) -> str:
     return f"(출처: {f.publisher}, {f.source_id})"
 
 
+def _strip_trailing_paren(word: str) -> str:
+    """끝에 붙은 괄호 묶음을 떼어낸다. 중첩·다중 괄호도 반복해서 벗긴다."""
+    w = word.rstrip()
+    while w.endswith(")") or w.endswith("）"):
+        depth, cut = 0, None
+        for i in range(len(w) - 1, -1, -1):
+            if w[i] in ")）":
+                depth += 1
+            elif w[i] in "(（":
+                depth -= 1
+                if depth == 0:
+                    cut = i
+                    break
+        if cut is None or cut == 0:  # 여는 괄호가 없거나 통째로 괄호면 그대로 둔다
+            return w
+        w = w[:cut].rstrip()
+    return w or word
+
+
+def _has_batchim(word: str) -> bool | None:
+    """마지막 글자에 받침이 있는가. 판단할 수 없으면 `None`.
+
+    한글 음절은 유니코드에서 `0xAC00 + (초성*588 + 중성*28 + 종성)` 으로 배치된다.
+    따라서 `(코드 - 0xAC00) % 28` 이 0이 아니면 받침이 있다.
+
+    **끝의 괄호 묶음은 통째로 무시한다.** 조사는 괄호가 아니라 그 앞의 말로 고른다 —
+    `진통제(…아세트아미노펜)은` 이 아니라 `진통제(…아세트아미노펜)는` 이다.
+    """
+    word = _strip_trailing_paren(word)
+    for ch in reversed(word.strip()):
+        if ch.isspace() or ch in "[]{}<>·,.'\"":
+            continue
+        if "가" <= ch <= "힣":
+            return (ord(ch) - 0xAC00) % 28 != 0
+        if ch.isdigit():
+            # 숫자는 읽는 소리로 판단한다 — 0·1·3·6·7·8 이 받침으로 끝난다.
+            return ch in "013678"
+        return None  # 영문·기호로 끝나면 판단하지 않는다
+    return None
+
+
+def _josa(word: str, with_batchim: str, without: str) -> str:
+    """조사를 골라 붙인다. 판단이 안 되면 `은(는)` 형태로 병기한다.
+
+    벡터DB에 들어가는 문장이자 **사용자가 읽는 문장**이다.
+    `아보카도은(는)` 같은 표기는 검색 임베딩과 가독성을 함께 해친다.
+    """
+    b = _has_batchim(word)
+    if b is None:
+        return f"{word}{with_batchim}({without})"
+    return f"{word}{with_batchim if b else without}"
+
+
+def _eun(w: str) -> str:
+    return _josa(w, "은", "는")
+
+
+def _ga(w: str) -> str:
+    return _josa(w, "이", "가")
+
+
 #: 역치로 말할 수 있는 임계치 종류. 나머지는 정량 문장을 만들지 않는다.
 #:
 #: `증례 보고 범위` 를 "N 이상 섭취 시" 로 쓰면 **출처에 없는 주장을 하게 된다.**
@@ -82,7 +143,7 @@ TOXICITY_FOOD = Template(
         # "주의 대상"처럼 기본값을 채워 넣으면 출처에 없는 분류를 주장하게 된다.
         (
             _has("feeding_level"),
-            lambda f: f"{f.species_ko}에게 {f.substance}은(는) {f.feeding_level_ko}로 분류된다.",
+            lambda f: f"{f.species_ko}에게 {_eun(f.substance)} {f.feeding_level_ko}로 분류된다.",
         ),
         (
             lambda f: not f.feeding_level,
@@ -91,7 +152,7 @@ TOXICITY_FOOD = Template(
         # 정량 절 — 역치 성격이 확인된 값만. 조류는 임계치가 0건이라 항상 생략된다.
         (
             _has_threshold,
-            lambda f: f"{_dose_phrase(f)} 이상 섭취 시 {f.effect_ko}이(가) 보고되었다.",
+            lambda f: f"{_dose_phrase(f)} 이상 섭취 시 {_ga(f.effect_ko)} 보고되었다.",
         ),
         # 증례 보고 범위는 역치가 아니다 — 범위로만 말한다
         (
@@ -117,16 +178,18 @@ TOXICITY_PLANT = Template(
     clauses=[
         (
             lambda f: True,
+            # 조사는 **학명 괄호가 아니라 물질명**으로 고른다 —
+            # "백합(Lilium)는" 이 아니라 "백합(Lilium)은" 이 맞다.
             lambda f: (
                 f"{f.substance}"
                 + (f"({f.scientific_name})" if f.scientific_name else "")
-                + f"은(는) {f.species_ko}에게 독성이 있다."
+                + f"{'은' if _has_batchim(f.substance) else '는'} {f.species_ko}에게 독성이 있다."
             ),
         ),
-        (_has("toxic_part"), lambda f: f"{f.toxic_part}이(가) 독성 부위다."),
+        (_has("toxic_part"), lambda f: f"{_ga(f.toxic_part)} 독성 부위다."),
         (
             _has_threshold,
-            lambda f: f"{f.dose}{f.unit} 섭취 시 {f.effect_ko}이(가) 보고되었다.",
+            lambda f: f"{f.dose}{f.unit} 섭취 시 {_ga(f.effect_ko)} 보고되었다.",
         ),
         (
             _has_reported_range,
@@ -143,7 +206,7 @@ EMERGENCY = Template(
     clauses=[
         (
             lambda f: True,
-            lambda f: f"{f.species_ko}에서 {f.substance}은(는) {f.triage_ko} 상황이다.",
+            lambda f: f"{f.species_ko}에서 {_eun(f.substance)} {f.triage_ko} 상황이다.",
         ),
         (_has("signs"), lambda f: f"확인할 증상은 {', '.join(f.signs)}이다."),
         (
@@ -161,7 +224,7 @@ SYMPTOM = Template(
     clauses=[
         (
             lambda f: True,
-            lambda f: f"{f.species_ko}의 {f.substance}은(는) 관찰이 필요한 징후다.",
+            lambda f: f"{f.species_ko}의 {_eun(f.substance)} 관찰이 필요한 징후다.",
         ),
         (_has("signs"), lambda f: f"함께 나타날 수 있는 증상은 {', '.join(f.signs)}이다."),
         (
