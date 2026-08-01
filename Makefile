@@ -1,4 +1,4 @@
-.PHONY: help install serve test lint fmt verify train up down docker clean
+.PHONY: help install serve test todo lint fmt verify facts golden index train up down docker clean
 
 help:            ## 이 목록
 	@grep -E '^[a-z-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -15,6 +15,9 @@ serve:           ## FastAPI + 데모 프론트 → http://127.0.0.1:8000
 test:            ## 안전 장치 회귀 테스트
 	pytest
 
+todo:            ## 남은 일 목록 — 구현하면 초록이 된다
+	pytest -m todo
+
 lint:            ## 정적 검사
 	ruff check src tests scripts
 	ruff format --check src tests scripts
@@ -26,6 +29,15 @@ fmt:             ## 자동 정리
 verify:          ## 층 0 — 코퍼스 정합성 + 자료 유출 확인
 	python scripts/verify_corpus.py
 	bash scripts/check_no_data.sh
+
+facts:           ## 사실 표 검사 (WS1) — 01e 지침
+	python scripts/check_facts.py
+
+golden:          ## 골든셋 검사 (WS4) — 04a 지침
+	python scripts/check_goldenset.py
+
+index:           ## 사실 표 → 청크 (적재는 --store chroma)
+	python scripts/build_index.py
 
 train:           ## Qwen3-4B QLoRA 학습 (GPU 필요)
 	PETTRIAGE_PROFILE=train python -m pettriage.models.training.qlora \

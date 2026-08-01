@@ -1,0 +1,22 @@
+# 로컬 학습 프로파일 — RTX 3080 (10~12GB).  PETTRIAGE_PROFILE=train-local
+#
+#   용도는 **디버깅과 소규모 검증**이다. 본 학습은 RunPod/Colab 에서
+#   configs/train.yaml 로 돌린다 (D-42).
+#
+#   3080 에서 Qwen3-4B QLoRA 를 돌리려면 시퀀스를 줄여야 한다.
+#   그런데 ④ 근거 검증 태스크는 "답변 + 검색된 청크 여러 개"를 넣어야 해서
+#   2048 에 안 들어갈 수 있다 — **잘린 샘플은 학습에서 제외**하고 그 건수를 기록한다.
+#   조용히 잘라내면 "④ 태스크 성능이 낮다"의 원인을 영영 못 찾는다.
+
+model:
+  max_seq_len: 2048        # 4096 → 2048. VRAM 때문이지 설계 판단이 아니다
+  load_in_4bit: true
+
+train:
+  batch_size: 1
+  grad_accum: 16           # 유효 배치 16 — train.yaml 과 동일하게 맞춘다
+  # 학습률·에폭·시드는 default.yaml 을 그대로 쓴다.
+  # 로컬과 본 학습의 차이를 VRAM 관련 값으로만 한정해야 결과를 비교할 수 있다 (04 §8).
+
+serve:
+  engine: stub             # 학습 중에는 API 를 띄우지 않는다

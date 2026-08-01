@@ -39,13 +39,13 @@ def _build_engine() -> QAEngine:
     kind = get_config().serve.engine
     if kind == "graph":
         try:
-            from ..graph.engine import GraphEngine  # type: ignore[attr-defined]
+            from ..graph.engine import EngineNotReady, GraphEngine
 
             return GraphEngine()
-        except ImportError as e:
+        except (ImportError, EngineNotReady) as e:
             msg = (
-                "serve.engine=graph 인데 GraphEngine 을 임포트하지 못했다. "
-                "스텁으로 기동하면 평가 결과가 오염된다 (04 §8)."
+                "serve.engine=graph 인데 GraphEngine 을 쓸 수 없다 "
+                f"({type(e).__name__}). 스텁으로 기동하면 평가 결과가 오염된다 (04 §8)."
             )
             if os.getenv("PETTRIAGE_ALLOW_ENGINE_FALLBACK") != "1":
                 raise EngineUnavailable(msg) from e

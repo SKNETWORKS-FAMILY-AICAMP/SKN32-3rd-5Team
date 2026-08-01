@@ -44,6 +44,37 @@ jobs:
       - name: 층 0 — 코퍼스 검증
         run: pettriage-verify
 
+  rag-deps:
+    #  test 잡은 '.[api,dev]' 만 깐다. 그래서 rag 그룹(langchain·chromadb·
+    #  sentence-transformers)의 버전 충돌이 CI 를 통과해 팀원 PC 에서 처음 터졌다.
+    #  이 잡은 **설치가 실제로 해결되는지**를 본다 — 테스트는 여기서 돌리지 않는다.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: rag·ingest 그룹까지 설치가 해결되는가
+        run: pip install -e '.[api,rag,ingest,dev]' -c constraints.txt
+      - name: 임포트가 실제로 되는가
+        run: |
+          python -c "import chromadb, langchain_core, langchain_community, langgraph"
+          python -c "import sentence_transformers, transformers, numpy, pandas, PIL, piexif"
+      - name: 베이스 모델 아키텍처를 transformers 가 아는가 (D-42)
+        # Qwen3 지원은 transformers 4.51 부터다. 핀이 내려가면 학습 당일에야 발견된다.
+        run: |
+          python -c "
+          import sys, transformers
+          from transformers.models.auto.configuration_auto import CONFIG_MAPPING_NAMES
+          if 'qwen3' not in CONFIG_MAPPING_NAMES:
+              print(f'::error::transformers {transformers.__version__} 는 Qwen3 를 모른다 (D-42). 4.51 이상 필요')
+              sys.exit(1)
+          print(f'OK — transformers {transformers.__version__} · Qwen3 지원')
+          "
+      - name: 학습 그룹도 해결되는가 (설치는 하지 않는다)
+        run: pip install --dry-run -e '.[train]' -c constraints.txt
+
   no-data-committed:
     #  공개 저장소이므로 자료 파일이 커밋되지 않았는지 확인한다 (D-29)
     runs-on: ubuntu-latest
