@@ -43,8 +43,11 @@ train:           ## Qwen3-4B QLoRA 학습 (GPU 필요)
 	PETTRIAGE_PROFILE=train python -m pettriage.models.training.qlora \
 		--data data/train/samples.jsonl --out artifacts/adapters/qwen3-4b-mt
 
-up:              ## API + pgvector 기동
+up:              ## API + MySQL 기동
 	docker compose up --build
+
+db:              ## MySQL 만 기동 — 로컬에 설치하지 않는다 (D-48)
+	docker compose up -d db
 
 down:            ## 컨테이너 정리
 	docker compose down

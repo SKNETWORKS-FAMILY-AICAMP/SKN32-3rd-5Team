@@ -97,7 +97,19 @@ class Fact:
 
     @property
     def triage_ko(self) -> str:
-        return self.triage_level.badge if self.triage_level else "확인 필요"
+        """등급 배지. **없으면 빈 문자열이다 — 기본값을 만들지 않는다.**
+
+        예전에는 `"확인 필요"` 를 돌려주었다. 그런데 그것은 4등급 어디에도 없는 말이고,
+        **출처가 등급을 주지 않은 자료에 우리가 등급을 붙이는 것**이었다.
+
+            "앵무새에서 향초·왁스멜트·플러그인 방향제(VOC)는 **확인 필요 상황이다**."
+            ← S-078 은 등급을 표기하지 않는다. emergency 131행 중 **82행**이 이랬다.
+
+        `TOXICITY_FOOD` 의 급여 등급 절에는 같은 규율이 이미 적혀 있었다 —
+        *"등급이 없으면 생략한다. 기본값을 채워 넣으면 출처에 없는 분류를 주장하게 된다."*
+        `EMERGENCY` 에만 적용되지 않았다 (2026-08-01 골든셋 검수에서 발견).
+        """
+        return self.triage_level.badge if self.triage_level else ""
 
     @property
     def effect_ko(self) -> str:

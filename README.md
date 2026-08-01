@@ -57,7 +57,8 @@ make test                                             # 76 tests
 make serve                                            # http://127.0.0.1:8000
 ```
 
-컨테이너로 띄우려면 `make up` (API + pgvector). GPU 학습은 `make train`.
+컨테이너로 띄우려면 `make up` (API + MySQL). **MySQL 은 로컬에 설치하지 않는다** —
+`make db` 로 컨테이너만 띄우면 된다 (D-48). GPU 학습은 `make train`.
 
 | 설치 그룹 | 언제 |
 |---|---|

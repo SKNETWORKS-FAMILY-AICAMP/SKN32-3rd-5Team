@@ -43,7 +43,26 @@ def build_filter(state: GraphState) -> GraphState:
 
 
 def retrieve(state: GraphState, store: Any = None) -> GraphState:
-    """벡터 검색 + 임계값 적용.
+    """벡터 검색 → 임계값 → **중복 접기.** 이 순서다.
+
+    ```python
+    hits = store.search(q, top_k=k, where=state["where"])
+    hits = filter_by_threshold(hits, cfg.retrieval.score_threshold)
+    hits = dedupe_by_substance(hits)          # ← 빠뜨리기 쉬운 단계
+    ```
+
+    **접기를 빠뜨리면 문맥이 같은 말로 채워진다.**
+
+        `양파` 청크가 코퍼스에 8건이고, 고양이 질의는 D-39 병합으로 4건을 함께 본다.
+        실측에서 상위 5가 `사람 음식 · 양파 · 양파 · 양파 · 토란` 으로 나왔다 —
+        **`top_k=5` 가 실질 3종이다** (04 §2.5.6).
+
+    접기는 **버리는 것이 아니다.** 흡수한 자료는 `Hit.merged_sources` 에 남고
+    인용 화면은 `Hit.all_sources` 를 쓴다 — 근거가 하나뿐인 주장과
+    넷이 같은 말을 하는 주장은 무게가 다르다 (02 §12).
+
+    **접기를 임계값 뒤에 두는 이유** — 앞에 두면 임계 미달 청크가
+    대표로 남아 통과할 수 있다. 자를 것을 먼저 자른다.
 
     Returns:
         `{"hits": [...]}`. 임계 통과분이 0건이면 부르는 쪽이

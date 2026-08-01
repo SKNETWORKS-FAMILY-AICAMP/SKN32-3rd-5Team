@@ -7,8 +7,9 @@
 
 model:
   # D-42 — Qwen3-4B. revision 을 비워두면 재현이 깨지므로 학습 착수 시 커밋 해시를 박는다.
+  # 2026-08-01 스모크 테스트 시점 HF 캐시에서 확인한 해시 (refs/main).
   base_id: Qwen/Qwen3-4B
-  revision: null
+  revision: 1cfa9a7208912126459214e8b04321603b3df60c
   max_seq_len: 4096
   dtype: bfloat16
   load_in_4bit: true
@@ -53,6 +54,12 @@ triage:
   max_clarify_turns: 2
   # 조류는 체중당 임계치가 0건이라 정량 슬롯을 요구하지 않는다 (D-09 개정).
   quantitative_species: [dog, cat]
+
+# 토큰 파라미터 (D-41). **비밀은 여기 없다** — 서명 키는 .env 의 JWT_SECRET_KEY 다.
+auth:
+  algorithm: HS256
+  # 응급 도메인이라 세션을 짧게 잡는다. 길수록 탈취 토큰의 유효기간이 길어진다.
+  expire_minutes: 60
 
 serve:
   host: 127.0.0.1
