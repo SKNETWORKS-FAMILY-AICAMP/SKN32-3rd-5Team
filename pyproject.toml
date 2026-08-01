@@ -17,6 +17,12 @@ dependencies = [
   "pydantic>=2.10,<3",
   "pydantic-settings>=2.7,<3",
   "PyYAML>=6.0,<7",
+  # `contracts.py` 가 EmailStr 을 쓴다. **핵심 의존성이다.**
+  #   contracts.py 는 배달 계층의 단일 계약 출처라 app.main 이 항상 임포트한다 (D-40).
+  #   처음에는 [db] extra 에 넣었는데, 그러면 `.[api]` 만 깐 CI test·docker 잡이
+  #   `ImportError: email-validator is not installed` 로 죽는다 (2026-08-02 PR#3 CI).
+  #   순수 파이썬이고 작아서 핵심에 두는 비용이 거의 없다.
+  "email-validator>=2.2,<3",
 ]
 
 [project.optional-dependencies]
@@ -49,8 +55,6 @@ db = [
   # **9바이트 비밀번호에서도 ValueError 가 난다.** bcrypt 를 직접 쓴다 (app/auth.py).
   "bcrypt>=4.2,<5",
   "PyJWT>=2.10,<3",
-  # 이메일 형식 검증(EmailStr). 없으면 pydantic 이 런타임에 죽는다.
-  "email-validator>=2.2,<3",
 ]
 ingest = [
   "pypdf>=5.1,<6",
