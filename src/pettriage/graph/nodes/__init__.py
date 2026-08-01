@@ -12,6 +12,12 @@ pytest -m todo          # 남은 일 목록
 pytest -m todo -k slot  # 한 노드만
 ```
 
+## 상수도 여기서 내보낸다
+
+`ALLOWED_INTENTS`(①의 허용목록)·`MAX_RETRY`(④의 재검색 상한)는 각 노드 파일에 있지만
+**`tests/todo` 가 이 패키지에서 임포트한다.** 여기 안 실으면 테스트가 본문에 닿기도 전에
+`ImportError` 로 죽어, 착수하는 사람이 **자기 코드 문제로 오해한다** (2026-08-02 발견).
+
 ## 노드 순서 (02 §2)
 
 ```
@@ -34,13 +40,13 @@ classify_intent → extract_slots ─┬─ 결측 → ask_clarify (상한 2회)
 - **사용자에게 나가는 문장은 존댓말이다.** 청크의 평서체(`~다`)를 그대로 내보내지 않는다
 """
 
-from .classify import classify_intent
+from .classify import ALLOWED_INTENTS, classify_intent
 from .compute import compute_metrics
 from .generate import compress_context, finalize, generate_draft, simplify
 from .retrieve import build_filter, retrieve
 from .slots import ask_clarify, extract_slots
 from .triage import decide_triage
-from .verify import verify_grounding
+from .verify import MAX_RETRY, verify_grounding
 
 #: 노드 구현이 끝나면 **WS2 가 True 로 바꾼다.**
 #: 이 값이 False 인 동안 `GraphEngine` 은 생성 자체가 실패한다 —
@@ -48,6 +54,8 @@ from .verify import verify_grounding
 NODES_IMPLEMENTED = False
 
 __all__ = [
+    "ALLOWED_INTENTS",
+    "MAX_RETRY",
     "NODES_IMPLEMENTED",
     "ask_clarify",
     "build_filter",
