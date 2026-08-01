@@ -149,6 +149,10 @@ class Secrets(BaseSettings):
     langchain_api_key: SecretStr | None = None
     database_url: str | None = None
 
+    jwt_secret_key: str = "change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60
+
     data_dir: Path = Field(default_factory=paths.data_dir)
     vectorstore_dir: Path = Field(default_factory=lambda: paths.data_dir().parent / ".chroma")
 

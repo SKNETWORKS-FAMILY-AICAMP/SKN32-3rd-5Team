@@ -96,3 +96,6 @@ htmlcov/
 .idea/
 .DS_Store
 Thumbs.db
+
+# - 임시 폴더입니다. 잠깐 데이터 보관할 폴더여서 제외로 추가합니다. lgj
+temp/
