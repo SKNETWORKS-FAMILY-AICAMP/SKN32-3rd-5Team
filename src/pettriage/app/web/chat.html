@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PetTriage — 위험 체크</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #FAF6EF;
+    --surface: #FFFFFF;
+    --ink: #2C2A26;
+    --ink-soft: #6B6558;
+    --ink-faint: #A39C8C;
+    --moss: #4F6B4A;
+    --moss-dark: #3A4F37;
+    --moss-soft: #E4EBE1;
+    --honey: #D89B3D;
+    --honey-soft: #FBEEDA;
+    --clay: #B3542F;
+    --clay-soft: #F6E4DB;
+    --amber: #C98A1E;
+    --amber-soft: #FBF0D9;
+    --line: #E5DFD2;
+    --sidebar-w: 268px;
+  }
+  *{ box-sizing:border-box; }
+  html, body{ height:100%; }
+  body{
+    margin:0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family:'Noto Sans KR', sans-serif;
+    display:flex;
+  }
+
+  /* ============ 왼쪽 사이드바 (데스크톱: 항상 표시) ============ */
+  .sidebar{
+    width: var(--sidebar-w); flex-shrink:0;
+    background: var(--moss-dark); color:#fff;
+    display:flex; flex-direction:column;
+    height:100vh; position:sticky; top:0;
+  }
+  .sidebar-top{ padding: 22px 18px 16px; border-bottom:1px solid rgba(255,255,255,0.14); }
+  .logo{ display:flex; align-items:center; gap:9px; margin-bottom:20px; }
+  .logo-mark{ width:32px; height:32px; border-radius:9px; background: rgba(255,255,255,0.14); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .logo-mark svg{ width:17px; height:17px; }
+  .logo-text{ font-family:'Noto Serif KR', serif; font-weight:700; font-size:16px; }
+
+  .sidebar-profile{ display:flex; align-items:flex-start; gap:11px; }
+  .sidebar-profile .av{
+    width:44px; height:44px; border-radius:50%; background: var(--honey);
+    display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0;
+  }
+  .sidebar-profile .nm{ font-weight:700; font-size:14px; }
+  .sidebar-profile .meta{ font-size:11px; color: rgba(255,255,255,0.65); margin-top:3px; line-height:1.55; }
+  .sidebar-notes{
+    display:none; margin-top:12px; background: rgba(216,155,61,0.18); border:1px solid rgba(216,155,61,0.4);
+    border-radius:10px; padding:8px 10px; font-size:10.5px; line-height:1.5; color: rgba(255,255,255,0.92);
+  }
+  .sidebar-notes.show{ display:block; }
+
+  .sidebar-list{ padding: 12px 10px; display:flex; flex-direction:column; gap:2px; flex:1; overflow-y:auto; }
+  .sidebar-item{
+    display:flex; align-items:center; gap:12px; padding: 10px 12px; border-radius:12px;
+    font-size:13px; color: rgba(255,255,255,0.82); cursor:pointer; background:none; border:none;
+    font-family:inherit; text-align:left; width:100%;
+  }
+  .sidebar-item:hover{ background: rgba(255,255,255,0.08); }
+  .sidebar-item.active{ background: rgba(255,255,255,0.14); color:#fff; font-weight:700; }
+  .sidebar-item .ic{ width:17px; text-align:center; opacity:.9; font-size:14px; }
+
+  .sidebar-section-label{ font-size:10.5px; color: rgba(255,255,255,0.42); font-weight:700; padding: 14px 12px 4px; letter-spacing:.4px; }
+
+  .sidebar-foot{ padding: 14px 18px 18px; border-top:1px solid rgba(255,255,255,0.14); }
+  .sidebar-foot button{
+    width:100%; background: rgba(255,255,255,0.1); color:#fff; border:none; border-radius:999px;
+    padding:9px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit;
+  }
+  .sidebar-foot button:hover{ background: rgba(255,255,255,0.18); }
+
+  /* 모바일 전용 오버레이 토글(좁은 화면에서만 동작) */
+  .overlay{ display:none; }
+
+  /* ============ 메인 영역 ============ */
+  .main{
+    flex:1; min-width:0; display:flex; flex-direction:column; height:100vh;
+  }
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 18px 36px; border-bottom:1px solid var(--line); flex-shrink:0;
+    background: var(--surface);
+  }
+  .menu-btn{ display:none; }
+  .topbar-copy .eyebrow{
+    font-size:11px; font-weight:700; color: var(--moss-dark);
+    background: var(--moss-soft); display:inline-block; padding:4px 10px; border-radius:999px; margin-bottom:8px;
+  }
+  .topbar-copy h1{ font-family:'Noto Serif KR', serif; font-size:20px; font-weight:700; margin:0 0 4px; }
+  .topbar-copy p{ font-size:12.5px; color: var(--ink-soft); margin:0; }
+
+  .legend-row-wrap{ display:flex; gap:14px; flex-shrink:0; }
+  .legend-item{ display:flex; align-items:center; gap:6px; font-size:11.5px; color: var(--ink-soft); }
+  .legend-dot{ width:8px; height:8px; border-radius:50%; }
+
+  .chat-body{ flex:1; overflow-y:auto; display:flex; justify-content:center; }
+  .chat-log{
+    width:100%; max-width: 760px; padding: 28px 36px 12px;
+    display:flex; flex-direction:column; gap:18px;
+  }
+
+  .bubble-row{ display:flex; flex-direction:column; max-width:72%; }
+  .bubble-row.user{ align-self:flex-end; align-items:flex-end; }
+  .bubble-row.bot{ align-self:flex-start; align-items:flex-start; }
+  .bubble{ padding:13px 16px; font-size:14px; line-height:1.65; border-radius:16px; }
+  .bubble-row.user .bubble{ background:var(--honey); color:#3a2a0e; border-bottom-right-radius:4px; }
+  .bubble-row.bot .bubble{ background:var(--moss-soft); color:var(--ink); border:1px solid #d8e3d5; border-bottom-left-radius:4px; }
+
+  .type-badge{
+    display:inline-flex; align-items:center; gap:4px; font-size:10.5px; font-weight:700;
+    color: var(--ink-soft); background:#fff; border:1px solid #d8e3d5; padding:2px 8px 2px 6px;
+    border-radius:999px; margin-bottom:8px;
+  }
+
+  .risk-row{ display:flex; align-items:center; gap:6px; font-size:13px; font-weight:700; margin-bottom:8px; }
+  .risk-dot{ width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+  .risk-row.safe .risk-dot{ background: var(--moss); } .risk-row.safe{ color: var(--moss-dark); }
+  .risk-row.caution .risk-dot{ background: var(--amber); } .risk-row.caution{ color:#8a5c10; }
+  .risk-row.danger .risk-dot{ background: var(--clay); } .risk-row.danger{ color: var(--clay); }
+  .risk-row.info .risk-dot{ background: #8b8578; } .risk-row.info{ color: #6b6558; }
+
+  .explain{ font-size:13.5px; line-height:1.7; color: var(--ink); margin-bottom:10px; }
+
+  .amount-box{
+    display:flex; align-items:center; gap:8px;
+    background:#fff; border:1px solid #d8e3d5; border-radius:11px; padding:9px 12px; margin-bottom:10px;
+  }
+  .amount-box.warn{ border-color:#e7d4b8; }
+  .amount-box .ic{ font-size:16px; }
+  .amount-box .txt{ font-size:12.5px; color: var(--moss-dark); font-weight:600; }
+  .amount-box.warn .txt{ color:#8a5c10; }
+
+  .source-line{
+    font-size:11.5px; color: var(--ink-faint); border-top: 1px dashed #d8d2c2; padding-top:8px; margin-top:2px;
+  }
+
+  /* 감사 정보 — 하향 금지 게이트가 작동했다는 증거 (팀장님 원본 .audit 대응) */
+  .audit-line{
+    font-size:10.5px; color: var(--ink-faint); margin-top:8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .audit-line .gate{ color:#8a5c10; font-weight:700; }
+
+  /* 되묻기·거절 말풍선 — 정상 흐름임을 나타내는 왼쪽 포인트선 (에러 스타일 아님) */
+  .bubble-row.bot .bubble.clarify{ border-left: 3px solid var(--honey); }
+  .bubble-row.bot .bubble.refused{ border-left: 3px solid var(--ink-faint); }
+  .sub-note{ font-size:11px; color: var(--ink-faint); margin-top:6px; }
+
+  .share-cta{
+    display:none; align-items:center; gap:8px; margin-top:10px;
+    background:#fff; border:1px solid var(--line); border-radius:12px; padding:9px 11px 9px 13px;
+  }
+  .share-cta.show{ display:flex; }
+  .share-cta span{ font-size:12px; color: var(--ink-soft); flex:1; }
+  .share-cta button{
+    background: var(--moss); color:#fff; border:none; border-radius:999px;
+    font-size:11.5px; font-weight:700; padding:7px 12px; cursor:pointer; font-family:inherit; white-space:nowrap;
+  }
+
+  .bottom-area{ display:flex; justify-content:center; flex-shrink:0; background: var(--surface); border-top:1px solid var(--line); }
+  .bottom-inner{ width:100%; max-width:760px; padding: 14px 36px 22px; }
+
+  .chip-row{ display:flex; gap:8px; flex-wrap:wrap; padding-bottom:12px; }
+  .chip{
+    font-size:12.5px; padding:8px 14px; border-radius:999px; background: var(--bg);
+    border:1px solid var(--line); color: var(--ink-soft); cursor:pointer; font-family:inherit;
+  }
+  .chip:hover{ border-color: var(--moss); color: var(--moss-dark); }
+
+  .chat-input-bar{ display:flex; gap:10px; }
+  .chat-input-bar input{
+    flex:1; border:1px solid var(--line); background:var(--bg); border-radius:999px;
+    padding:13px 18px; font-size:14px; font-family:inherit; color:var(--ink); outline:none;
+  }
+  .chat-input-bar input:focus{ border-color: var(--moss); }
+  .send-btn{
+    width:46px; height:46px; border-radius:50%; background:var(--moss); border:none;
+    display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0;
+  }
+  .send-btn svg{ width:18px; height:18px; }
+  .send-btn:active{ transform:scale(.94); }
+
+  .disclaimer-bar{
+    margin-top:10px; text-align:center; font-size:10.5px; color: var(--ink-faint);
+    line-height:1.5;
+  }
+
+  /* ============ 좁은 화면 (모바일/태블릿) ============ */
+  @media (max-width: 900px){
+    .sidebar{
+      position:fixed; left:0; top:0; bottom:0; z-index:30;
+      transform: translateX(-100%); transition: transform .26s ease;
+      box-shadow: 20px 0 40px rgba(0,0,0,0.18);
+    }
+    .sidebar.open{ transform: translateX(0); }
+    .overlay{
+      display:block; position:fixed; inset:0; background: rgba(44,42,38,0.35);
+      opacity:0; pointer-events:none; transition:.22s ease; z-index:29;
+    }
+    .overlay.open{ opacity:1; pointer-events:auto; }
+    .menu-btn{
+      display:flex; width:38px; height:38px; border-radius:12px; border:1px solid var(--line);
+      background: var(--surface); align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; margin-right:12px;
+    }
+    .menu-btn svg{ width:18px; height:18px; }
+    .topbar{ padding: 16px 18px; }
+    .topbar-left{ display:flex; align-items:center; }
+    .legend-row-wrap{ display:none; }
+    .chat-log, .bottom-inner{ padding-left:18px; padding-right:18px; }
+    .bubble-row{ max-width:88%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="overlay" id="overlay"></div>
+
+<!-- ============ 사이드바 ============ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-top">
+    <div class="logo">
+      <span class="logo-mark">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 14c-3.5 0-6.5 2.2-6.5 5.2 0 1 .8 1.8 1.8 1.8h9.4c1 0 1.8-.8 1.8-1.8 0-3-3-5.2-6.5-5.2Z" fill="#fff"/><circle cx="6" cy="8" r="2.3" fill="#fff"/><circle cx="18" cy="8" r="2.3" fill="#fff"/><circle cx="9.3" cy="4.6" r="2" fill="#fff"/><circle cx="14.7" cy="4.6" r="2" fill="#fff"/></svg>
+      </span>
+      <span class="logo-text">PetTriage</span>
+    </div>
+    <div class="sidebar-profile">
+      <div class="av" id="sbAvatar">🐶</div>
+      <div>
+        <div class="nm" id="sbName">콩이</div>
+        <div class="meta" id="sbMeta">소형견 · 2살</div>
+      </div>
+    </div>
+    <div class="sidebar-notes" id="sbNotes"></div>
+  </div>
+
+  <div class="sidebar-list">
+    <div class="sidebar-section-label">메뉴</div>
+    <button class="sidebar-item active"><span class="ic">🔍</span>위험 체크</button>
+    <button class="sidebar-item" id="navDiary"><span class="ic">📖</span>기록장</button>
+    <div class="sidebar-section-label" id="sbManageLabel">콩이 관리</div>
+    <button class="sidebar-item"><span class="ic">⚙️</span>프로필 설정</button>
+    <button class="sidebar-item"><span class="ic">🐾</span>반려동물 전환 / 추가</button>
+  </div>
+
+  <div class="sidebar-foot">
+    <button id="logoutBtn">로그아웃</button>
+  </div>
+</aside>
+
+<!-- ============ 메인 영역 ============ -->
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-left" style="display:flex; align-items:center;">
+      <button class="menu-btn" id="menuBtn" aria-label="메뉴 열기">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 7H20M4 12H20M4 17H20" stroke="#2C2A26" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+      <div class="topbar-copy">
+        <span class="eyebrow">위험 체크</span>
+        <h1 id="topH1">이거, 콩이한테 위험할까요?</h1>
+        <p>음식, 식물, 생활가전까지 뭐든 물어보세요. 종류를 자동으로 구분해서 알려드릴게요.</p>
+      </div>
+    </div>
+    <div class="legend-row-wrap" id="legendRow">
+      <!-- /api/triage-levels 응답으로 채워짐 -->
+    </div>
+  </div>
+
+  <div class="chat-body">
+    <div class="chat-log" id="chatLog"></div>
+  </div>
+
+  <div class="bottom-area">
+    <div class="bottom-inner">
+      <div class="chip-row" id="chipRow"></div>
+      <div class="chat-input-bar">
+        <input type="text" id="chatInput" placeholder="예: 강아지가 초콜릿을 먹었어요" />
+        <button class="send-btn" id="sendBtn" aria-label="전송">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M4 12L20 4L14 20L11 13L4 12Z" fill="#fff"/></svg>
+        </button>
+      </div>
+      <div class="disclaimer-bar" id="disclaimerBar"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---- 로그인 여부 확인 ---- */
+const authToken = sessionStorage.getItem('ptt_token');
+if(!authToken){
+  window.location.href = '/';
+}
+function authHeader(){
+  return { 'Authorization': 'Bearer ' + authToken };
+}
+async function api(path, opts){
+  const r = await fetch(path, opts);
+  if(r.status === 401){
+    sessionStorage.removeItem('ptt_token');
+    window.location.href = '/';
+    throw new Error('로그인이 만료됐어요.');
+  }
+  if(!r.ok){
+    let detail = '';
+    try{ detail = (await r.json()).detail || ''; } catch(e){}
+    throw new Error(detail || `요청 실패 (${r.status})`);
+  }
+  return r.json();
+}
+
+/* ---------------- 사이드바 (좁은 화면 토글) ---------------- */
+const sidebar = document.getElementById('sidebar');
+const overlay = document.getElementById('overlay');
+const menuBtn = document.getElementById('menuBtn');
+function openSidebar(){ sidebar.classList.add('open'); overlay.classList.add('open'); }
+function closeSidebar(){ sidebar.classList.remove('open'); overlay.classList.remove('open'); }
+menuBtn.addEventListener('click', openSidebar);
+overlay.addEventListener('click', closeSidebar);
+document.getElementById('logoutBtn').addEventListener('click', ()=>{
+  sessionStorage.removeItem('ptt_token');
+  window.location.href = '/';
+});
+
+/* ---------------- 화면 간 연동: URL 파라미터로 프로필 정보 전달받기 ---------------- */
+const urlParams = new URLSearchParams(window.location.search);
+const speciesEmojiMap = { dog:'🐶', cat:'🐱', bird:'🦜' };
+const sizeKorean = { small:'소형', medium:'중형', large:'대형' };
+const speciesKorean = { dog:'견', cat:'묘', bird:'앵무새' };
+
+function buildSizeLabel(species, size){
+  if(species === 'bird') return '앵무새';
+  return (sizeKorean[size] || '') + (speciesKorean[species] || '');
+}
+
+const currentPet = {
+  petId: urlParams.get('pet_id') || '',
+  name: urlParams.get('name') || '콩이',
+  species: urlParams.get('species') || 'dog',
+  breed: urlParams.get('breed') || '',
+  size: urlParams.get('size') || '',
+  age: urlParams.get('age') || '',
+  gender: urlParams.get('gender') || '',
+  weight: urlParams.get('weight') || '',
+  notes: urlParams.get('notes') || '',
+};
+currentPet.emoji = speciesEmojiMap[currentPet.species] || '🐾';
+currentPet.sizeLabel = currentPet.breed || buildSizeLabel(currentPet.species, currentPet.size);
+
+/* 사이드바/헤더에 실제 프로필 정보 반영 */
+document.getElementById('sbAvatar').textContent = currentPet.emoji;
+document.getElementById('sbName').textContent = currentPet.name;
+const metaParts = [currentPet.sizeLabel, currentPet.age, currentPet.gender, currentPet.weight ? `${currentPet.weight}kg` : ''].filter(Boolean);
+document.getElementById('sbMeta').textContent = metaParts.join(' · ');
+document.getElementById('sbManageLabel').textContent = `${currentPet.name} 관리`;
+document.getElementById('topH1').textContent = `이거, ${currentPet.name}한테 위험할까요?`;
+
+const sbNotes = document.getElementById('sbNotes');
+if(currentPet.notes){
+  sbNotes.textContent = `⚠️ 특이사항: ${currentPet.notes}`;
+  sbNotes.classList.add('show');
+}
+
+/* 기록장으로 이동할 때도 지금 프로필 정보를 그대로 들고 가기 */
+document.getElementById('navDiary').addEventListener('click', ()=>{
+  window.location.href = '/static/diary.html?' + urlParams.toString();
+});
+
+/* ---------------- 등급 정보: 하드코딩 금지, /api/triage-levels 에서 받아옴 ----------------
+   D-39 원칙 — 등급 이름·문구는 여기서 지어내지 않는다. 색상만 프론트에서 정한다 (표시 전용). */
+let levelMeta = {}; // { [level:int]: { name, badge, message } }
+const levelColor = { 1:'var(--moss)', 2:'var(--amber)', 3:'var(--clay)', 4:'var(--clay)' };
+const levelClass = { 1:'safe', 2:'caution', 3:'danger', 4:'danger' };
+
+async function loadTriageLevels(){
+  try{
+    const data = await api('/api/triage-levels');
+    const legend = document.getElementById('legendRow');
+    legend.innerHTML = '';
+    data.levels.forEach(lv=>{
+      levelMeta[lv.level] = lv;
+      const item = document.createElement('div');
+      item.className = 'legend-item';
+      item.innerHTML = `<span class="legend-dot" style="background:${levelColor[lv.level] || 'var(--ink-faint)'}"></span>${lv.badge}`;
+      legend.appendChild(item);
+    });
+    document.getElementById('disclaimerBar').textContent = data.disclaimer;
+  } catch(e){
+    console.error('등급 정보를 불러오지 못했어요', e);
+  }
+}
+
+/* ---------------- 채팅 상태 ---------------- */
+let sessionId = null;
+let pendingQuestion = null;   // 되묻기 중일 때, 원래 질문을 계속 들고 있어야 규칙엔진이 키워드 매칭을 함
+let knownWeightKg = currentPet.weight ? parseFloat(currentPet.weight) : null;
+let knownAmountG = null;
+let activeClarify = null;     // 지금 되묻는 중이면 clarify 객체, 아니면 null
+
+/* ---------------- 채팅 UI ---------------- */
+const chatLog = document.getElementById("chatLog");
+const chatInput = document.getElementById("chatInput");
+const sendBtn = document.getElementById("sendBtn");
+const chipRow = document.getElementById("chipRow");
+const chatBody = document.querySelector(".chat-body");
+
+["강아지가 초콜릿을 먹었어요","고양이가 백합 화분을 씹었어요","전선을 물어뜯어요","포도를 먹었어요"].forEach(s=>{
+  const chip = document.createElement("button");
+  chip.className = "chip";
+  chip.textContent = s;
+  chip.addEventListener("click", ()=>{ chatInput.value = s; sendMessage(); });
+  chipRow.appendChild(chip);
+});
+
+function scrollToBottom(){ chatBody.scrollTop = chatBody.scrollHeight; }
+
+function addUserBubble(text){
+  const row = document.createElement("div");
+  row.className = "bubble-row user";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.textContent = text;
+  row.appendChild(bubble);
+  chatLog.appendChild(row);
+  scrollToBottom();
+}
+
+function addLoadingBubble(){
+  const row = document.createElement("div");
+  row.className = "bubble-row bot";
+  row.id = "loadingBubble";
+  row.innerHTML = `<div class="bubble"><span class="risk-row info"><span class="risk-dot"></span>확인하고 있어요…</span></div>`;
+  chatLog.appendChild(row);
+  scrollToBottom();
+}
+function removeLoadingBubble(){
+  const el = document.getElementById("loadingBubble");
+  if(el) el.remove();
+}
+
+/* answered 상태 렌더링 */
+function renderAnswered(data){
+  const t = data.triage;
+  const meta = levelMeta[t.level] || { badge: t.badge, message: t.message };
+  const row = document.createElement("div");
+  row.className = "bubble-row bot";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+
+  const riskRow = document.createElement("div");
+  riskRow.className = "risk-row " + (levelClass[t.level] || 'info');
+  riskRow.innerHTML = `<span class="risk-dot" style="background:${levelColor[t.level] || '#8b8578'}"></span>${meta.badge} — ${t.message}`;
+  bubble.appendChild(riskRow);
+
+  const explain = document.createElement("div");
+  explain.className = "explain";
+  explain.textContent = data.answer;
+  bubble.appendChild(explain);
+
+  if(t.escalation_conditions && t.escalation_conditions.length){
+    const box = document.createElement("div");
+    box.className = "amount-box warn";
+    box.innerHTML = `<span class="ic">⚠️</span><span class="txt">이런 증상이 보이면 즉시 알려주세요: ${t.escalation_conditions.join(', ')}</span>`;
+    bubble.appendChild(box);
+  }
+
+  data.citations.forEach(c=>{
+    const src = document.createElement("div");
+    src.className = "source-line";
+    const loc = [c.publisher, c.source_id, c.title].filter(Boolean).join(' · ')
+      + (c.locator ? ` (${c.locator})` : '');
+    if(c.quote){
+      src.textContent = `"${c.quote}" — ${loc}`;
+    } else {
+      src.textContent = `출처: ${loc} — 사실 추출 자료라 원문 인용이 없어요`;
+    }
+    bubble.appendChild(src);
+  });
+
+  /* 감사 정보 — 규칙·LLM 판정과 최종 등급. 하향 금지 게이트 작동 여부를 남긴다 (팀장님 원본 audit 대응) */
+  const lv = (v)=> v ?? '미호출';
+  const audit = document.createElement("div");
+  audit.className = "audit-line";
+  audit.innerHTML = `규칙 ${lv(t.rule_level)} · LLM ${lv(t.llm_level)} → 최종 ${t.level}`
+    + (t.overridden ? ` <span class="gate">· 게이트가 LLM의 하향을 차단했어요</span>` : '');
+  bubble.appendChild(audit);
+
+  row.appendChild(bubble);
+  chatLog.appendChild(row);
+
+  /* food 카테고리 공유 CTA는 백엔드에 카테고리 필드가 없어 지금은 생략 —
+     안전 등급(레벨 1~2)일 때만 기록 유도 문구를 보여줌 */
+  if(t.level <= 2){
+    const cta = document.createElement("div");
+    cta.className = "share-cta show";
+    cta.innerHTML = `<span>오늘 있었던 일, 기록장에 남겨볼까요?</span><button>기록하기</button>`;
+    cta.querySelector('button').addEventListener('click', ()=>{
+      window.location.href = '/static/diary.html?' + urlParams.toString();
+    });
+    row.appendChild(cta);
+  }
+
+  scrollToBottom();
+}
+
+/* clarify 상태 렌더링 — 되묻기는 정상 대화 흐름, 절대 에러처럼 보이면 안 됨 */
+const missingKorean = { species:'종', weight_kg:'체중', amount_g:'먹은 양', pet_id:'반려동물 정보' };
+function renderClarify(data){
+  activeClarify = data.clarify;
+  const missingList = (data.clarify.missing || []).map(m => missingKorean[m] || m).join(', ');
+  const row = document.createElement("div");
+  row.className = "bubble-row bot";
+  row.innerHTML = `
+    <div class="bubble clarify">
+      <div class="risk-row info"><span class="risk-dot" style="background:var(--honey)"></span>조금만 더 알려주세요 (${data.clarify.turn}/${data.clarify.max_turns})</div>
+      <div class="explain">${data.clarify.question}</div>
+      ${missingList ? `<div class="sub-note">부족한 정보: ${missingList}</div>` : ''}
+    </div>`;
+  chatLog.appendChild(row);
+  scrollToBottom();
+}
+
+/* refused 상태 렌더링 — 거절은 장애가 아니라 정상 화면. 빨간 에러로 그리지 않는다 (02 §9) */
+function renderRefused(data){
+  activeClarify = null;
+  pendingQuestion = null;
+  const row = document.createElement("div");
+  row.className = "bubble-row bot";
+  row.innerHTML = `
+    <div class="bubble refused">
+      <div class="risk-row info"><span class="risk-dot"></span>답변을 드리기 어려워요</div>
+      <div class="explain">${data.refusal.message}</div>
+      <div class="explain" style="margin-bottom:0">${data.refusal.advice}</div>
+      <div class="sub-note">사유: ${data.refusal.reason}</div>
+    </div>`;
+  chatLog.appendChild(row);
+  scrollToBottom();
+}
+
+/* ---------------- /api/ask 호출 ---------------- */
+async function askHazard(questionText){
+  addLoadingBubble();
+  try{
+    const data = await api('/api/ask', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', ...authHeader()},
+      body: JSON.stringify({
+        question: questionText,
+        species: currentPet.species || null,
+        pet_id: currentPet.petId || null,
+        weight_kg: knownWeightKg,
+        amount_g: knownAmountG,
+        session_id: sessionId,
+      }),
+    });
+    removeLoadingBubble();
+    sessionId = data.session_id;
+
+    if(data.status === 'answered'){
+      activeClarify = null;
+      pendingQuestion = null;
+      renderAnswered(data);
+    } else if(data.status === 'clarify'){
+      renderClarify(data);
+    } else {
+      renderRefused(data);
+    }
+  } catch(e){
+    removeLoadingBubble();
+    const row = document.createElement("div");
+    row.className = "bubble-row bot";
+    row.innerHTML = `<div class="bubble"><div class="explain">요청을 처리하지 못했어요 — ${e.message}</div></div>`;
+    chatLog.appendChild(row);
+    scrollToBottom();
+  }
+}
+
+/* 되묻는 중 사용자가 준 답에서 숫자(체중·섭취량)를 뽑아내고, 원래 질문을 다시 보낸다.
+   규칙엔진이 question 텍스트의 키워드로 판정하기 때문에, 되묻기 응답 자체가 아니라
+   원래 질문 + 새로 채워진 슬롯을 함께 다시 보내야 한다. */
+function absorbClarifyReply(text){
+  if(!activeClarify) return;
+  const numbers = text.match(/[\d.]+/g) || [];
+  const missing = activeClarify.missing || [];
+  let idx = 0;
+  if(missing.includes('weight_kg') && numbers[idx] !== undefined){
+    knownWeightKg = parseFloat(numbers[idx]); idx++;
+  }
+  if(missing.includes('amount_g') && numbers[idx] !== undefined){
+    knownAmountG = parseFloat(numbers[idx]); idx++;
+  }
+  if(missing.includes('species') && !currentPet.species){
+    if(text.includes('강아지') || text.includes('개')) currentPet.species = 'dog';
+    else if(text.includes('고양이')) currentPet.species = 'cat';
+    else if(text.includes('앵무') || text.includes('새')) currentPet.species = 'bird';
+  }
+}
+
+/* 질문 정규화 — 서버(stub)의 단순 키워드 매칭을 돕는다.
+   "5g"처럼 붙은 숫자+단위도 공백 유무와 무관하게 추출한다.
+   WS2 슬롯 추출 노드가 붙으면 이 보완은 제거해도 된다. */
+function normalizeQuestion(text){
+  let q = text;
+
+  // 숫자+g/그램 패턴 추출 (공백 유무 무관: "5g", "5 g", "5그램" 모두 인식)
+  const amountMatch = q.match(/([\d.]+)\s*(g|그램)/i);
+  if(amountMatch && knownAmountG === null){
+    knownAmountG = parseFloat(amountMatch[1]);
+  }
+  const weightMatch = q.match(/([\d.]+)\s*(kg|키로|킬로)/i);
+  if(weightMatch && knownWeightKg === null){
+    knownWeightKg = parseFloat(weightMatch[1]);
+  }
+
+  return q;
+}
+
+function sendMessage(){
+  const text = chatInput.value.trim();
+  if(!text) return;
+  addUserBubble(text);
+  chatInput.value = "";
+
+  if(activeClarify){
+    absorbClarifyReply(text);
+    askHazard(pendingQuestion);
+  } else {
+    normalizeQuestion(text);   // 전송 전에 양·체중 미리 추출
+    pendingQuestion = text;
+    askHazard(text);
+  }
+}
+sendBtn.addEventListener("click", sendMessage);
+chatInput.addEventListener("keydown", e=>{ if(e.key==="Enter") sendMessage(); });
+
+/* ---------------- 초기화 ---------------- */
+loadTriageLevels();
+
+(function(){
+  const row = document.createElement("div");
+  row.className = "bubble-row bot";
+  row.innerHTML = `<div class="bubble">안녕하세요! 음식, 식물, 생활가전까지 뭐든 물어보세요. ${currentPet.name}한테 위험한지, 왜 위험한지, 어떻게 하면 좋을지 알려드릴게요 🐾</div>`;
+  chatLog.appendChild(row);
+})();
+</script>
+</body>
+</html>

@@ -1,3 +1,5 @@
+# 0801 권소라 내용추가 : RecordCreate 클래스에 weight 내용추가
+
 """API 계약 — 프론트(WS5)와 파이프라인(WS2)의 인터페이스.
 
 설계 근거: docs/02_시스템-아키텍처.md §9 · §12 · docs/00 §9.3
@@ -62,6 +64,8 @@ class RecordCreate(BaseModel):
     note: str = Field(default="", max_length=4000)
     meals: list[str] = Field(default_factory=list)
     symptoms: list[str] = Field(default_factory=list)
+    #: 선택 입력 — 체중 그래프용. 없어도 기록 저장을 막지 않는다.
+    weight_kg: float | None = Field(default=None, gt=0, le=200)
     #: 조류 전용 — 배설물 상태 (02 §12). 종이 bird가 아니면 무시된다.
     droppings: str | None = None
 
