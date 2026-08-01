@@ -101,11 +101,20 @@ class RetrievalConfig(BaseModel):
     embedding_model: str = "BAAI/bge-m3"
     top_k: int = 5
     #: 이 값 미만이면 **검색 실패로 간주하고 거절한다** (02 §8.3·§9).
-    #: 낮은 유사도 문서로 답을 만들지 않는다.
-    score_threshold: float = 0.35
+    #:
+    #: ⚠️ **임계값 하나로는 거절을 만들 수 없다** (D-46 실측).
+    #: 근거 있음 0.547~0.733 / 근거 없음 0.494~0.659 로 분포가 겹친다.
+    #: 올리면 근거가 있는 질의가 거절되어 **과소평가**가 된다 (D-13).
+    #: 거절은 ① 의도 분류와 ④ 근거 검증이 만든다. 이 값은 최소 방어선일 뿐이다.
+    score_threshold: float = 0.50
     rerank: bool = False  # 구현 2단계 이후
     chunk_strategy: Literal["substance", "fixed"] = "substance"  # D-14
     fixed_chunk_size: int = 500  # 비교군 전용 (04 E1)
+    #: 벡터DB (D-44). `memory` 는 모델·디스크 없이 도는 테스트용이다.
+    store: Literal["chroma", "memory"] = "chroma"
+    #: Chroma 영속 디렉터리. 지우고 `build_index.py` 로 통째로 재생성된다.
+    persist_dir: str = ".chroma"
+    collection: str = "external"
 
 
 class TriageConfig(BaseModel):
