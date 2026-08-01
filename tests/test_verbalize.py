@@ -449,3 +449,54 @@ class TestUnitJosa:
             c.chunk_id for c in chunks if any(x in c.text for x in ("이다(다)", "은(는)", "이(가)"))
         ]
         assert not bad, bad[:5]
+
+
+class TestTriageNotInvented:
+    """등급이 없는 자료에 **등급을 붙이지 않는다.**
+
+    `triage_ko` 가 `None` 일 때 `"확인 필요"` 를 돌려줬고, 그래서
+    `emergency` 131행 중 **82행**이 *"…는 확인 필요 상황이다"* 로 나갔다.
+    **4등급 어디에도 없는 말이고, 출처가 주지 않은 분류다.**
+
+    `TOXICITY_FOOD` 의 급여 등급 절에는 같은 규율이 이미 적혀 있었다 —
+    *"기본값을 채워 넣으면 출처에 없는 분류를 주장하게 된다."* `EMERGENCY` 에만 빠져 있었다.
+    """
+
+    def _fact(self, **kw):
+        from pettriage.schemas import Fact
+
+        base = dict(
+            fact_id="F-TEST-003",
+            source_id="S-078",
+            publisher="테스트",
+            doc_type="emergency",
+            species="bird",
+            substance="향초·플러그인 방향제(VOC)",
+        )
+        base.update(kw)
+        return Fact(**base)
+
+    def _render(self, f) -> str:
+        from pettriage.ingest.templates import TEMPLATES
+
+        return TEMPLATES["emergency"].render(f)
+
+    def test_등급이_없으면_등급을_말하지_않는다(self):
+        out = self._render(self._fact(triage_level=None))
+        assert "확인 필요" not in out, out
+        assert "상황이다" not in out, out
+        assert "응급 안전 정보다" in out
+
+    def test_등급이_있으면_그대로_쓴다(self):
+        from pettriage.triage.levels import TriageLevel
+
+        out = self._render(self._fact(triage_level=TriageLevel.EMERGENCY))
+        assert "응급 상황이다" in out
+
+    def test_triage_ko_는_기본값을_만들지_않는다(self):
+        assert self._fact(triage_level=None).triage_ko == ""
+
+    def test_증상은_등급과_무관하게_남는다(self):
+        """등급이 없어도 **증상은 원문에 있다** — 그것까지 잃으면 안 된다."""
+        out = self._render(self._fact(triage_level=None, signs=["호흡곤란", "개구호흡"]))
+        assert "호흡곤란" in out

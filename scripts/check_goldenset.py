@@ -21,6 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 GOLDEN_DIR = ROOT / "eval" / "goldenset"
 MANIFEST_DIR = ROOT / "data" / "manifests"
+FACTS_DIR = ROOT / "data" / "facts"
 
 
 def known_source_ids() -> set[str]:
@@ -45,6 +46,31 @@ def known_source_ids() -> set[str]:
         p = MANIFEST_DIR / name
         if not p.exists():
             continue
+        for row in csv.DictReader(p.open(encoding="utf-8-sig")):
+            sid = (row.get("source_id") or "").strip()
+            if sid:
+                ids.add(sid)
+    return ids
+
+
+def indexed_source_ids() -> set[str]:
+    """**사실 표에 실제로 행이 있는** `source_id`. 곧 인덱스에 청크가 있는 자료다.
+
+    대장에 있다는 것과 검색으로 찾을 수 있다는 것은 **다르다.**
+
+        S-001 `Plants Safe for Birds`      대장 O · 사실 표 **0행**
+        S-025 `Toxic and Non-Toxic Plants` 대장 O · 사실 표 **0행**
+        S-057 `Household Hazards for Pet Birds`  대장 O · 사실 표 **0행**
+        S-083 `Top 10 Toxic Household Plants`    대장 O · 사실 표 **0행**
+
+    수집은 했는데 추출을 안 한 자료들이다. 여기를 `must_cite` 에 적으면
+    **그 케이스는 영원히 통과할 수 없다** — 인용할 청크가 인덱스에 없기 때문이다.
+    대장만 보던 검사는 이걸 통과시켰다 (2026-08-01 골든셋 검수에서 발견).
+    """
+    ids: set[str] = set()
+    if not FACTS_DIR.is_dir():
+        return ids
+    for p in sorted(FACTS_DIR.glob("facts_*.csv")):
         for row in csv.DictReader(p.open(encoding="utf-8-sig")):
             sid = (row.get("source_id") or "").strip()
             if sid:
@@ -79,7 +105,12 @@ class Issue:
         return f"  {'✗' if self.level == 'ERROR' else '⚠'} [{self.where}] {self.message}"
 
 
-def check_row(r: dict[str, str], where: str, known: set[str] | None = None) -> list[Issue]:
+def check_row(
+    r: dict[str, str],
+    where: str,
+    known: set[str] | None = None,
+    indexed: set[str] | None = None,
+) -> list[Issue]:
     out: list[Issue] = []
     g = lambda k: (r.get(k) or "").strip()  # noqa: E731
 
@@ -135,6 +166,17 @@ def check_row(r: dict[str, str], where: str, known: set[str] | None = None) -> l
                     "ERROR",
                     where,
                     f"must_cite 의 {sid} 가 대장에 없다 — 오타이거나 미수집 자료다",
+                )
+            )
+        elif indexed and sid not in indexed:
+            # 대장에는 있으나 사실 표에 0행 — **인덱스에 청크가 없다.**
+            out.append(
+                Issue(
+                    "ERROR",
+                    where,
+                    f"must_cite 의 {sid} 가 사실 표에 0행이다 — "
+                    "수집했으나 추출하지 않은 자료다. 인용할 청크가 없어 "
+                    "이 케이스는 통과할 수 없다",
                 )
             )
 
@@ -242,8 +284,16 @@ def main() -> int:
 
     print("골든셋 검사 (04a 지침)\n")
     known = known_source_ids()
+    indexed = indexed_source_ids()
     if not known:
         print("  ⚠ 대장을 읽지 못했다 — must_cite 실재 검사를 건너뛴다 (04 §8)\n")
+    if not indexed:
+        print("  ⚠ 사실 표를 읽지 못했다 — 인덱스 실재 검사를 건너뛴다 (04 §8)\n")
+    elif known:
+        gap = sorted(known - indexed)
+        if gap:
+            print(f"  · 대장에는 있으나 사실 표에 0행인 자료 {len(gap)}건: {', '.join(gap)}")
+            print("    must_cite 에 쓰면 그 케이스는 통과할 수 없다\n")
     issues: list[Issue] = []
     rows: list[dict[str, str]] = []
     for p in paths:
@@ -255,7 +305,7 @@ def main() -> int:
         file_issues = [
             i
             for n, r in enumerate(file_rows, start=2)
-            for i in check_row(r, f"{p.name}:{n}", known)
+            for i in check_row(r, f"{p.name}:{n}", known, indexed)
         ]
         issues += file_issues
         print(f"[{p.name}]  {len(file_rows)}건")

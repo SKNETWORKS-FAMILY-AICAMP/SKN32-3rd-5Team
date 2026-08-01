@@ -12,7 +12,16 @@
     문장화 충실도     원문에 없는 내용이 포함된 비율        목표 0
     역추적 가능성     source_id + 원문 위치 보유 비율       목표 100%
 
-실행:  make verify   ·   pettriage-verify   ·   python -m pettriage.tools.verify_corpus
+실행 — **세 방법이 같지 않다.**
+
+    make verify                            저장소의 src/ 를 쓴다  ← 권장
+      (= python scripts/verify_corpus.py, 래퍼가 sys.path 앞에 넣는다)
+    pettriage-verify                       설치된 패키지를 쓴다
+    python -m pettriage.tools.verify_corpus  설치된 패키지를 쓴다
+
+`pip install -e` 가 다른 경로를 가리키고 있으면 아래 둘은 **엉뚱한 루트를 잡아**,
+자료를 제대로 풀었는데도 "자료 파일이 로컬에 없다" 가 나온다.
+`paths.py` 덕분에 거짓 통과는 아니지만 **검사가 조용히 축소된다** (04 §8).
 """
 
 from __future__ import annotations

@@ -317,8 +317,15 @@ EMERGENCY = Template(
     doc_type="emergency",
     clauses=[
         (
-            lambda f: True,
+            lambda f: f.triage_level is not None,
             lambda f: f"{f.species_ko}에서 {_eun(f.substance)} {f.triage_ko} 상황이다.",
+        ),
+        # 등급이 없으면 **등급을 말하지 않는다.** 기본값을 채우면 출처에 없는 분류가 된다.
+        # `emergency` 131행 중 82행이 등급 없이 들어오는데, 예전에는 전부
+        # "확인 필요 상황이다" 로 나갔다 — 4등급에 없는 말이다.
+        (
+            lambda f: f.triage_level is None,
+            lambda f: f"{f.species_ko}에서 {f.substance}에 관한 응급 안전 정보다.",
         ),
         (_has("signs"), lambda f: f"확인할 증상은 {', '.join(f.signs)}이다."),
         (
