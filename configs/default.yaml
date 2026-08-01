@@ -37,11 +37,17 @@ train:
 retrieval:
   embedding_model: BAAI/bge-m3
   top_k: 5
-  # 이 값 미만이면 검색 실패로 보고 거절한다 (02 §8.3). 골든셋으로 튜닝한다.
-  score_threshold: 0.35
+  # D-46 — 실측으로 정했다. 근거 있음 0.547~0.733 / 근거 없음 0.494~0.659 로 **겹친다.**
+  # 임계값만으로는 거절을 만들 수 없다. 근거 있는 질의를 거절하지 않는 쪽으로 낮게 둔다.
+  # 재현: python scripts/calibrate_threshold.py
+  score_threshold: 0.50
   rerank: false
   chunk_strategy: substance      # D-14 물질 단위
   fixed_chunk_size: 500          # 비교군 전용 (04 E1)
+  # D-44 — 벡터DB는 Chroma. memory 는 모델·디스크 없이 도는 테스트용이다.
+  store: chroma
+  persist_dir: .chroma
+  collection: external
 
 triage:
   llm_fallback: true

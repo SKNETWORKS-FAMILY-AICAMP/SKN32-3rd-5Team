@@ -5,6 +5,9 @@ D-38의 핵심 두 가지를 테스트가 지킨다.
 
 from __future__ import annotations
 
+import pytest
+
+from pettriage.ingest import templates
 from pettriage.ingest.verbalize import to_chunk, verbalize
 from pettriage.schemas import Fact
 from pettriage.triage.levels import FeedingLevel
@@ -133,3 +136,41 @@ class TestChunk:
         assert chunk.quote is None
         assert chunk.source_id == "S-034"  # 역추적은 source_id로
         assert chunk.fact_ids == ["F-001"]
+
+
+# ── 조사 선택 (D-38 — 문장화도 검증 대상) ──────────────────
+
+
+class TestJosa:
+    """벡터DB에 들어가는 문장이자 **사용자가 읽는 문장**이다.
+
+    `아보카도은(는)` 같은 표기는 검색 임베딩과 가독성을 함께 해친다.
+    """
+
+    @pytest.mark.parametrize(
+        ("word", "expected"),
+        [
+            ("백합", "백합은"),
+            ("아보카도", "아보카도는"),
+            ("초콜릿", "초콜릿은"),
+            ("포도", "포도는"),
+            # 끝의 괄호는 조사 판단에서 제외한다 — 조사는 그 앞의 말로 고른다
+            ("주목(Yew)", "주목(Yew)은"),
+            ("사람용 진통제(이부프로펜)", "사람용 진통제(이부프로펜)는"),
+            ("저철분 식이(로리·투칸)", "저철분 식이(로리·투칸)는"),
+            # 판단할 수 없으면 병기한다 — 틀린 조사를 붙이지 않는다
+            ("Xylitol", "Xylitol은(는)"),
+        ],
+    )
+    def test_eun_neun(self, word: str, expected: str) -> None:
+        assert templates._eun(word) == expected
+
+    def test_ga(self) -> None:
+        assert templates._ga("급성 신부전") == "급성 신부전이"
+        assert templates._ga("구토") == "구토가"
+
+    def test_rendered_sentence_has_no_literal_placeholder(self) -> None:
+        """한글 물질명이면 `은(는)` 병기가 문장에 남지 않아야 한다."""
+        text = verbalize(_dog_chocolate(substance="아보카도", threshold_type="", dose="", unit=""))
+        assert "아보카도는" in text
+        assert "은(는)" not in text

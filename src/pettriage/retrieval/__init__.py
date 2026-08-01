@@ -9,7 +9,14 @@ store.py      VectorStore 프로토콜 · InMemoryStore(테스트) · ChromaStor
 """
 
 from .embedder import BGEEmbedder, Embedder, HashEmbedder, get_embedder
-from .store import ChromaStore, Hit, InMemoryStore, VectorStore, filter_by_threshold
+from .store import (
+    ChromaStore,
+    Hit,
+    InMemoryStore,
+    VectorStore,
+    filter_by_threshold,
+    to_chroma_where,
+)
 
 __all__ = [
     "BGEEmbedder",
@@ -21,4 +28,5 @@ __all__ = [
     "VectorStore",
     "filter_by_threshold",
     "get_embedder",
+    "to_chroma_where",
 ]

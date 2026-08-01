@@ -21,6 +21,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 FACTS_DIR = ROOT / "data" / "facts"
+MANIFEST_DIR = ROOT / "data" / "manifests"
+
+#: 인용 근거로 쓸 수 있는 스냅샷 품질 (D-30). `요약`·`빈약`·`부적합` 은 제외된다.
+CITABLE_QUALITY = {"완전", "부분"}
 
 REQUIRED = ("fact_id", "source_id", "publisher", "doc_type", "species", "substance", "locator")
 
@@ -40,8 +44,58 @@ THRESHOLD_TYPES = {
 #: 규칙 테이블에 넣어도 되는 임계치 종류. 나머지는 정량 문장을 만들지 않는다.
 USABLE_THRESHOLDS = {"임상징후 발현", "중증", "치사"}
 
-#: 원문 적재가 허용된 자료 (D-37 판정). 이 목록 밖의 자료에 quote 를 실으면 안 된다.
-ROUTE1_SOURCES = {"S-001", "S-012", "S-023", "S-042", "S-043", "S-055", "S-064", "S-070"}
+#: 경로① 스위치 (D-45). **이번 산출물 범위에서는 끈다.**
+#:
+#: 두 경로를 함께 켜면 같은 사실이 두 번 적재되어 top-k 를 잠식하고,
+#: 원문의 완화 표현("an occasional apple seed will not harm")과
+#: 사실 표의 `NEVER` 가 ④ 근거 검증에서 모순으로 판정될 수 있다.
+#: 되돌릴 때는 이 값만 True 로 바꾼다 — 자격은 아래에서 원장이 정한다.
+ROUTE1_ENABLED = False
+
+#: 원문 복제를 허용하는 라이선스 표기 (01d §2.1 제출용 포함 기준).
+_OPEN_LICENSE = ("CC BY", "정부", "보도자료", "공공누리", "public domain")
+
+
+def route1_eligible() -> set[str]:
+    """경로①(원문 청크 적재) 자격이 있는 `source_id` — **원장에서 유도한다.**
+
+    하드코딩하지 않는 이유가 있다. 이전 판은 목록을 코드에 박아두었는데
+    **8건 중 6건이 원장과 어긋나 있었다** — 삭제된 자료(`S-001`)가 남아 있었고,
+    복제 금지(`B 가공활용`) 자료가 허용 목록에 들어 있었다.
+    목록과 원장이 따로 놀면 어긋난 사실을 아무도 모른다 (D-22 단일 출처).
+
+    자격 기준 세 가지를 **모두** 만족해야 한다.
+
+    1. 원장이 배포 가능으로 표시했다 — 스냅샷은 `submit_ok=O`,
+       원본은 `license` 가 오픈 라이선스·정부 간행물
+    2. 품질이 `완전` 또는 `부분` 이다 — `요약` 을 원문으로 인용하면 그게 곧 환각이다 (D-30)
+    3. 삭제 이력에 없다 (D-33 · G1a)
+
+    원장을 읽지 못하면 **빈 집합**을 돌려준다. 자격이 없는 쪽으로 실패한다.
+    """
+    deleted: set[str] = set()
+    dl = MANIFEST_DIR / "DELETION_LOG.csv"
+    if dl.exists():
+        rows = csv.DictReader(dl.open(encoding="utf-8-sig"))
+        deleted = {(r.get("source_id") or "").strip() for r in rows}
+
+    ok: set[str] = set()
+    snap = MANIFEST_DIR / "SNAPSHOT_MANIFEST.csv"
+    if snap.exists():
+        for r in csv.DictReader(snap.open(encoding="utf-8-sig")):
+            if (r.get("submit_ok") or "").strip() == "O" and (
+                r.get("quality") or ""
+            ).strip() in CITABLE_QUALITY:
+                ok.add((r.get("source_id") or "").strip())
+
+    raw = MANIFEST_DIR / "MANIFEST.csv"
+    if raw.exists():
+        for r in csv.DictReader(raw.open(encoding="utf-8-sig")):
+            lic = r.get("license") or ""
+            if any(k in lic for k in _OPEN_LICENSE):
+                ok.add((r.get("source_id") or "").strip())
+
+    return {s for s in ok if s and s not in deleted}
 
 
 @dataclass
@@ -59,7 +113,7 @@ def _split(value: str) -> list[str]:
     return [p.strip() for p in (value or "").split("|") if p.strip()]
 
 
-def check_row(row: dict[str, str], where: str) -> list[Issue]:
+def check_row(row: dict[str, str], where: str, eligible: set[str] | None = None) -> list[Issue]:
     out: list[Issue] = []
     g = lambda k: (row.get(k) or "").strip()  # noqa: E731
 
@@ -136,15 +190,24 @@ def check_row(row: dict[str, str], where: str) -> list[Issue]:
             )
         )
 
-    # ── 경로 ② 는 원문을 싣지 않는다 (D-37) ──────────────────
-    if g("quote") and g("source_id") not in ROUTE1_SOURCES:
-        out.append(
-            Issue(
-                "ERROR",
-                where,
-                f"{g('source_id')} 는 사실추출 한정 자료다 — quote 를 비울 것 (D-37)",
+    # ── 원문(quote)을 실을 수 있는가 (D-37 · D-45) ───────────
+    if g("quote"):
+        if not ROUTE1_ENABLED:
+            out.append(
+                Issue(
+                    "ERROR",
+                    where,
+                    "경로①(원문 적재)은 이번 범위에서 꺼져 있다 (D-45) — quote 를 비울 것",
+                )
             )
-        )
+        elif g("source_id") not in (eligible or set()):
+            out.append(
+                Issue(
+                    "ERROR",
+                    where,
+                    f"{g('source_id')} 는 사실추출 한정 자료다 — quote 를 비울 것 (D-37)",
+                )
+            )
 
     # ── 단위 오식 ───────────────────────────────────────────
     if unit and unit.replace(" ", "") not in {
@@ -165,11 +228,13 @@ def check_row(row: dict[str, str], where: str) -> list[Issue]:
     return out
 
 
-def check_file(path: Path) -> tuple[list[Issue], list[dict[str, str]]]:
+def check_file(
+    path: Path, eligible: set[str] | None = None
+) -> tuple[list[Issue], list[dict[str, str]]]:
     rows = list(csv.DictReader(path.open(encoding="utf-8-sig")))
     issues: list[Issue] = []
     for i, row in enumerate(rows, start=2):  # 헤더가 1행
-        issues += check_row(row, f"{path.name}:{i}")
+        issues += check_row(row, f"{path.name}:{i}", eligible)
     return issues, rows
 
 
@@ -203,6 +268,9 @@ def main() -> int:
         return 1
 
     print("사실 표 검사 (01e 지침)\n")
+    eligible = route1_eligible()
+    if ROUTE1_ENABLED:
+        print(f"  · 경로① 켜짐 — 자격 {len(eligible)}건: {', '.join(sorted(eligible))}\n")
     issues: list[Issue] = []
     all_rows: list[dict[str, str]] = []
 
@@ -210,7 +278,7 @@ def main() -> int:
         if not p.exists():
             print(f"  ✗ 파일 없음: {p}")
             return 1
-        file_issues, rows = check_file(p)
+        file_issues, rows = check_file(p, eligible)
         all_rows += rows
         issues += file_issues
         print(f"[{p.name}]  {len(rows)}행")
