@@ -29,10 +29,21 @@ class Hit:
 
     chunk: Chunk
     score: float
+    #: 중복 접기로 흡수한 **다른 자료의 `source_id`** (D-22 · 02 §12 근거 보기).
+    #:
+    #: 같은 물질이 여러 자료에 있다는 사실은 **버리면 안 되는 정보다** —
+    #: 근거가 하나뿐인 주장과 넷이 같은 말을 하는 주장은 무게가 다르고,
+    #: 인용 화면은 그것을 보여줘야 한다.
+    merged_sources: list[str] = field(default_factory=list)
 
     @property
     def source_id(self) -> str:
         return self.chunk.source_id
+
+    @property
+    def all_sources(self) -> list[str]:
+        """이 히트가 대표하는 **모든** 출처. 인용 목록은 이것을 쓴다."""
+        return [self.source_id, *self.merged_sources]
 
 
 @runtime_checkable
@@ -243,3 +254,49 @@ def filter_by_threshold(hits: list[Hit], threshold: float) -> list[Hit]:
     부르는 쪽이 `refused / 근거없음` 으로 보내야 한다.
     """
     return [h for h in hits if h.score >= threshold]
+
+
+def dedupe_by_substance(hits: list[Hit]) -> list[Hit]:
+    """같은 (물질 × 종) 히트를 **하나로 접는다.** 점수가 가장 높은 것을 남긴다.
+
+    설계 근거: docs/06 D-14 · D-22 · D-39 · docs/04 §2.5.6
+
+    **왜 필요한가** — 같은 물질이 여러 자료에 흩어져 있다.
+
+        `양파` 청크가 8건이다 (S-010 · S-019 · S-029 · S-034 ×2 · S-063 · S-098 ×2).
+        고양이 질의는 D-39 병합(`cat`+`mammal`+`all`)으로 그중 4건을 함께 본다.
+
+        실측: `고양이가 베란다에 둔 파란 알갱이를 주워 먹었어요`
+              → 상위 5 = 사람 음식 · **양파 · 양파 · 양파** · 토란
+              **`top_k=5` 가 실질 3종이 됐다.**
+
+    검색이 틀린 것은 아니다. **문맥 예산을 같은 말로 채우는 것**이 문제다 —
+    압축·생성으로 넘어가는 근거가 그만큼 좁아진다.
+
+    **접되 버리지 않는다.** 흡수한 자료의 `source_id` 는 `merged_sources` 에 남긴다.
+    근거가 하나뿐인 주장과 넷이 같은 말을 하는 주장은 무게가 다르고,
+    02 §12의 '근거 보기' 화면은 그 차이를 보여줘야 한다.
+
+    **종을 열쇠에 넣는 이유** — 개 양파(15-30 g/kg)와 고양이 양파(5 g/kg)는
+    **다른 수치**다 (D-39). 종까지 같을 때만 접는다.
+
+    **물질명이 없는 청크는 접지 않는다.** 응급 지침처럼 `substance` 가 빈 청크를
+    한 덩어리로 묶으면 서로 다른 내용이 사라진다.
+
+    입력 순서(=점수 내림차순)를 유지한다.
+    """
+    out: list[Hit] = []
+    seen: dict[tuple[str, str], Hit] = {}
+    for h in hits:
+        substance = (h.chunk.substance or "").strip()
+        if not substance:
+            out.append(h)
+            continue
+        key = (substance, h.chunk.species)
+        first = seen.get(key)
+        if first is None:
+            seen[key] = h
+            out.append(h)
+        elif h.source_id not in first.all_sources:
+            first.merged_sources.append(h.source_id)
+    return out

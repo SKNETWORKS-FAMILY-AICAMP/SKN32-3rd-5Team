@@ -14,6 +14,9 @@ from __future__ import annotations
 import logging
 import os
 
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
 from ..config import get_config
 from .engine import QAEngine, StubEngine
 from .records_store import RecordStore
@@ -93,3 +96,49 @@ def allowed_origins() -> list[str]:
     와일드카드를 기본값으로 두지 않는다.
     """
     return [o for o in get_config().serve.cors_origins if o and o != "*"]
+
+
+# ─────────────────────────────────────────────────────────────
+# DB · 인증 주입 (WS5 백엔드)
+#
+# 라우터가 `database.get_db` 를 직접 부르지 않는다 — **주입 지점은 이 파일 하나다** (D-40).
+# 테스트가 `app.dependency_overrides[get_db]` 로 인메모리 세션을 끼울 수 있어야 하고,
+# 그러려면 라우터가 참조하는 심볼이 한 곳이어야 한다.
+# ─────────────────────────────────────────────────────────────
+def get_db():
+    """DB 세션. `database.get_db` 를 감싼다.
+
+    여기서 임포트하는 이유 — 모듈 최상단에서 하면 `[db]` extra 없이는
+    `deps` 전체가 임포트 실패한다. DB 를 안 쓰는 구성이 정상이므로 그러면 안 된다.
+    """
+    from .database import get_db as _get_db
+
+    yield from _get_db()
+
+
+#: 모듈 전역 싱글턴. 인자 기본값에서 호출하면 요청마다 새로 만들어진다 (B008).
+_bearer = HTTPBearer()
+_bearer_dep = Depends(_bearer)
+
+
+def get_current_user_id(credentials: HTTPAuthorizationCredentials = _bearer_dep) -> str:
+    """Bearer 토큰 → `user_id`. 실패하면 401.
+
+    **`jwt` 를 여기서 임포트하지 않는다** (D-40). `app.auth` 가 우리 예외로 번역해 주고
+    이 함수는 그것만 본다. 라이브러리를 바꿔도 배달 계층은 그대로다.
+
+    실패 사유를 나눠 말하되 **원본 예외는 `from None` 으로 끊는다** —
+    스택에 서명 키·알고리즘이 실려 응답이나 로그로 새면 안 된다.
+    """
+    from .auth import TokenExpiredError, TokenInvalidError, decode_access_token
+
+    try:
+        return decode_access_token(credentials.credentials)
+    except TokenExpiredError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="토큰이 만료되었습니다."
+        ) from None
+    except TokenInvalidError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 토큰입니다."
+        ) from None

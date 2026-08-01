@@ -17,9 +17,17 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    computed_field,
+    model_validator,
+)
 
 from ..triage.levels import TriageLevel
 
@@ -254,3 +262,66 @@ class HealthResponse(BaseModel):
     @property
     def degraded(self) -> bool:
         return self.engine != self.engine_configured
+
+
+# ─────────────────────────────────────────────────────────────
+# 계정 · 반려동물 프로필 (WS5 백엔드)
+#
+# 라우터 파일 안에 스키마를 두지 않는다 — **계약은 여기 하나다** (D-40 · D-22).
+# 처음 들어올 때는 `routes/auth.py`·`routes/pets.py` 가 각자 6종을 들고 있었고,
+# `Species` 도 `Literal["dog","cat","bird"]` 로 다시 적혀 있었다 (2026-08-01 흡수).
+# ─────────────────────────────────────────────────────────────
+class SignupRequest(BaseModel):
+    """회원가입.
+
+    비밀번호 상한 64자는 **bcrypt 가 72바이트를 넘는 부분을 조용히 버리기** 때문이다.
+    한글은 3바이트/자라 25자부터 뒤가 무시된다 — 사용자가 긴 비밀번호를 썼다고
+    믿는 채 앞부분만 쓰이는 상황을 만들지 않는다.
+    """
+
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=64)
+    nickname: str = Field(min_length=1, max_length=50)
+
+
+class SignupResponse(BaseModel):
+    user_id: str
+    nickname: str
+    message: str = "회원가입이 완료되었습니다."
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=64)
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    nickname: str
+
+
+class PetCreate(BaseModel):
+    """반려동물 등록.
+
+    **동물등록번호를 받지 않는다** (D-36 조치 1) — 등록번호에는 소유자
+    성명·주민등록번호·주소·전화번호가 함께 묶여 있다. 식별은 앱 내부 UUID 로 한다.
+
+    `weight_kg` 단위는 D-17 개정본을 따른다 — 체중은 kg, 섭취량은 g.
+    """
+
+    name: str = Field(min_length=1, max_length=50)
+    species: Species
+    breed: str | None = Field(default=None, max_length=50)
+    weight_kg: float | None = Field(default=None, gt=0, le=200)
+
+
+class PetResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    pet_id: str
+    name: str
+    species: str
+    breed: str | None = None
+    weight_kg: float | None = None
+    created_at: datetime

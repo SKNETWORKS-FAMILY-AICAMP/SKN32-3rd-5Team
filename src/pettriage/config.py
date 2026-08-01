@@ -128,6 +128,17 @@ class TriageConfig(BaseModel):
     quantitative_species: list[str] = Field(default_factory=lambda: ["dog", "cat"])
 
 
+class AuthConfig(BaseModel):
+    """토큰 파라미터. **비밀이 아니다** — 값이 새도 위조에 쓸 수 없다 (D-41).
+
+    비밀은 서명 키 하나뿐이고 그건 `Secrets` 에 있다.
+    """
+
+    algorithm: Literal["HS256", "HS384", "HS512"] = "HS256"
+    #: 응급 도메인이라 세션이 짧다. 길게 잡으면 탈취 토큰의 유효기간이 길어진다.
+    expire_minutes: int = Field(default=60, ge=5, le=1440)
+
+
 class ServeConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = 8000
@@ -143,6 +154,7 @@ class AppConfig(BaseModel):
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     triage: TriageConfig = Field(default_factory=TriageConfig)
     serve: ServeConfig = Field(default_factory=ServeConfig)
+    auth: AuthConfig = Field(default_factory=AuthConfig)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -157,6 +169,17 @@ class Secrets(BaseSettings):
     anthropic_api_key: SecretStr | None = None
     langchain_api_key: SecretStr | None = None
     database_url: str | None = None
+
+    #: JWT 서명 키. **기본값을 주지 않는다.**
+    #:
+    #: `"change-me-in-production"` 같은 자리표시자를 기본값으로 두면
+    #: **아무도 안 바꾼 채 그대로 배포된다.** 키를 아는 사람은 누구나 토큰을 위조한다.
+    #: 없으면 `app.auth` 가 명시적으로 실패한다 — 조용히 약한 키로 도는 것보다 낫다.
+    #: 만들 때: `python -c "import secrets; print(secrets.token_urlsafe(32))"`
+    #:
+    #: 알고리즘·만료 시간은 **여기 없다.** 비밀이 아니므로 `configs/*.yaml` 의
+    #: `auth` 절로 옮겼다 (D-41 — 파라미터는 설정, 비밀은 환경변수).
+    jwt_secret_key: SecretStr | None = None
 
     data_dir: Path = Field(default_factory=paths.data_dir)
     vectorstore_dir: Path = Field(default_factory=lambda: paths.data_dir().parent / ".chroma")

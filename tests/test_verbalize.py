@@ -158,12 +158,30 @@ class TestJosa:
             ("주목(Yew)", "주목(Yew)은"),
             ("사람용 진통제(이부프로펜)", "사람용 진통제(이부프로펜)는"),
             ("저철분 식이(로리·투칸)", "저철분 식이(로리·투칸)는"),
-            # 판단할 수 없으면 병기한다 — 틀린 조사를 붙이지 않는다
-            ("Xylitol", "Xylitol은(는)"),
+            # 알파벳도 읽는 소리로 고른다 — 자일리톨(L=엘)은 받침으로 끝난다
+            ("Xylitol", "Xylitol은"),
+            ("Vitamin A", "Vitamin A는"),
+            # 숫자로 끝나면 읽는 소리로 — 삼은 받침이 있다
+            ("Ω-3", "Ω-3은"),
+            # 그 밖의 기호로 끝나면 그때만 병기한다 — 틀린 조사를 붙이지 않는다
+            ("Ω", "Ω은(는)"),
         ],
     )
     def test_eun_neun(self, word: str, expected: str) -> None:
         assert templates._eun(word) == expected
+
+    @pytest.mark.parametrize(
+        ("word", "expected"),
+        [
+            ("반려동물", "반려동물과"),
+            ("개", "개와"),
+            ("고양이", "고양이와"),
+            ("앵무새", "앵무새와"),
+        ],
+    )
+    def test_wa_gwa(self, word: str, expected: str) -> None:
+        """`반려동물와 부동액에 관한 자료다` 가 실제로 나갔다 — 하드코딩된 `와` 였다."""
+        assert templates._wa(word) == expected
 
     def test_ga(self) -> None:
         assert templates._ga("급성 신부전") == "급성 신부전이"
@@ -255,3 +273,179 @@ class TestComposition:
             onset="",
         )
         assert "임상 징후" not in verbalize(f)
+
+
+class TestFeedingLevelNotDropped:
+    """급여 가부(축 B)를 문장에서 빠뜨리지 않는다.
+
+    **여기 없으면 `NEVER` 가 "권장량이다"로 뒤집힌다.** 실제로 그랬다 —
+    S-003 의 소금 블록(앵무새 급여 금지)이
+
+        "앵무새 전 생애단계의 소금 블록(salt block) 권장량이다."
+
+    로 적재돼 있었다. 원문은 **주지 말라**고 한다.
+    2026-08-01 검색 점검 확장 중 발견. 04 §2.5.1 문장화 충실도 목표는 **0** 이다.
+    """
+
+    def _fact(self, **kw):
+        from pettriage.schemas import Fact
+
+        base = dict(
+            fact_id="F-TEST-001",
+            source_id="S-003",
+            publisher="AAV",
+            doc_type="nutrition",
+            species="bird",
+            substance="소금 블록(salt block)",
+        )
+        base.update(kw)
+        return Fact(**base)
+
+    def _render(self, f) -> str:
+        from pettriage.ingest.templates import TEMPLATES
+
+        return TEMPLATES["nutrition"].render(f)
+
+    def test_금지가_권장으로_뒤집히지_않는다(self):
+        from pettriage.triage.levels import FeedingLevel
+
+        out = self._render(self._fact(feeding_level=FeedingLevel.NEVER))
+        assert "급여 금지" in out
+        assert "권장량이다" not in out, out
+
+    def test_조건부는_조건부라고_말한다(self):
+        from pettriage.triage.levels import FeedingLevel
+
+        out = self._render(self._fact(feeding_level=FeedingLevel.CAUTION))
+        assert "조건부 급여" in out
+        assert "권장량이다" not in out, out
+
+    def test_급여가부가_없고_수량이_있으면_권장량_문장(self):
+        out = self._render(
+            self._fact(substance="트립토판", feeding_level=None, dose="0.50", unit="g")
+        )
+        assert "권장량이다" in out
+
+    def test_수량도_급여가부도_없으면_권장이라고_말하지_않는다(self):
+        """**"권장량이다" 라고 단언하면 안 되는 행이 45건 있었다.**
+
+        `구리 간병증 식단에서 **제한하는** 식품 권장량이다` 처럼
+        substance 자체가 부정문인데 권장으로 나갔다.
+        `대사에너지 계산식(1단계 총에너지) 권장량이다` 는 계산식을 급여량이라 한 것이다.
+        """
+        out = self._render(
+            self._fact(substance="구리 간병증 식단에서 제한하는 식품", feeding_level=None)
+        )
+        assert "권장량이다" not in out, out
+        assert "영양 지침이다" in out
+
+    def test_두_축을_섞지_않는다(self):
+        """`조건부 급여다. 권장량이다.` 는 축 A·B 를 뒤섞은 말이다 (levels.py)."""
+        from pettriage.triage.levels import FeedingLevel
+
+        out = self._render(self._fact(feeding_level=FeedingLevel.CAUTION))
+        assert out.count("급여") >= 1
+        assert "권장량이다" not in out
+
+    def test_생애단계가_없으면_절을_뺀다(self):
+        """`앵무새 전 생애단계에게` 는 사람이 쓰는 말이 아니다."""
+        from pettriage.triage.levels import FeedingLevel
+
+        out = self._render(self._fact(feeding_level=FeedingLevel.NEVER))
+        assert "전 생애단계에게" not in out
+
+
+class TestAmountWithoutUnit:
+    """단위 없는 수량을 **버리지 않는다.**
+
+    `max_value="얇은 조각 1~2쪽"` 처럼 값에 단위가 들어 있으면 `unit` 이 빈다.
+    예전 템플릿은 `bool(f.unit)` 로 막아 **급여량이 통째로 사라졌다** (S-047 과일 6종).
+    """
+
+    def _render(self, **kw) -> str:
+        from pettriage.ingest.templates import TEMPLATES
+        from pettriage.schemas import Fact
+        from pettriage.triage.levels import FeedingLevel
+
+        base = dict(
+            fact_id="F-TEST-002",
+            source_id="S-047",
+            publisher="Hill's",
+            doc_type="nutrition",
+            species="dog",
+            substance="사과",
+            feeding_level=FeedingLevel.CAUTION,
+        )
+        base.update(kw)
+        return TEMPLATES["nutrition"].render(Fact(**base))
+
+    def test_단위가_없어도_수량이_나온다(self):
+        out = self._render(max_value="얇은 조각 1~2쪽", unit=None)
+        assert "얇은 조각 1~2쪽" in out, out
+
+    def test_단위가_있으면_붙인다(self):
+        out = self._render(max_value="10", unit="%")
+        assert "10%" in out, out
+
+    def test_수량이_없으면_절이_없다(self):
+        out = self._render(max_value=None)
+        assert "권장량은" not in out
+
+
+class TestUnitJosa:
+    """단위를 **읽는 소리**로 조사를 고른다.
+
+    `기준은 10%이다(다).` 가 실제로 나갔다 — `%` 가 기호라 판단 불가가 되어
+    병기가 붙은 것이다. 사람은 "십 퍼센트다" 라고 읽는다.
+    """
+
+    @pytest.mark.parametrize(
+        ("word", "expect"),
+        [
+            ("10%", "10%이다"),
+            ("0.5g", "0.5g이다"),
+            ("2.3kg", "2.3kg이다"),
+            ("20mg", "20mg이다"),
+            ("100mL", "100mL다"),
+            ("300kcal", "300kcal다"),
+            ("5IU", "5IU다"),
+        ],
+    )
+    def test_이다_다(self, word: str, expect: str) -> None:
+        from pettriage.ingest.templates import _ida
+
+        assert _ida(word) == expect
+
+    def test_병기가_남지_않는다(self) -> None:
+        """`이다(다)` 가 문장에 보이면 판정에 실패한 것이다."""
+        from pettriage.ingest.templates import _ida
+
+        for w in ("10%", "0.5g", "100mL", "300kcal"):
+            assert "(" not in _ida(w)
+
+    @pytest.mark.parametrize(
+        ("word", "expect"),
+        [("BER", "BER이다"), ("RER", "RER이다"), ("ME", "ME다"), ("DHA", "DHA다")],
+    )
+    def test_알파벳도_읽는_소리로(self, word: str, expect: str) -> None:
+        """`RER = 1.25 × BER이다(다)` 가 실제로 나갔다.
+
+        받침으로 끝나는 알파벳은 **L·M·N·R** 넷뿐이다 (엘·엠·엔·알).
+        """
+        from pettriage.ingest.templates import _ida
+
+        assert _ida(word) == expect
+
+    def test_전체_코퍼스에_병기가_없다(self) -> None:
+        """888청크 전수 검사. **하나라도 남으면 사람이 쓴 글로 안 보인다.**"""
+        from pettriage import paths
+        from pettriage.ingest.facts_io import build_chunks, load_all
+
+        root = paths.find_root()
+        if root is None or not (root / "data" / "facts").is_dir():
+            pytest.skip("사실 표 없음")
+        chunks = build_chunks(load_all(root / "data" / "facts"))
+        bad = [
+            c.chunk_id for c in chunks if any(x in c.text for x in ("이다(다)", "은(는)", "이(가)"))
+        ]
+        assert not bad, bad[:5]

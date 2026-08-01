@@ -146,6 +146,29 @@ def check_row(r: dict[str, str], where: str, known: set[str] | None = None) -> l
     if st == "clarify" and g("species") and "체중" not in g("must_contain"):
         pass  # 종 되묻기일 수도 있다. 강제하지 않는다
 
+    # ── 증상 질의가 원인을 지목하게 두지 않는다 (D-11 · D-49) ──
+    #
+    # 코퍼스는 물질 단위라 각 청크가 "이 물질 → 이런 증상" 이다. 증상만 주면
+    # 그 화살표를 거꾸로 타는데 **역방향은 일대일이 아니다** —
+    # 고양이 청크 418건 중 21건이 같은 증상 조합(구토·식욕부진·침흘림·복통)을 나열한다.
+    #
+    # 실제로 '고양이가 토하고 밥을 안 먹고 배를 아파해요' 의 1위가 **토마토**였다.
+    # 검색은 맞게 일했다 — 증상이 실제로 겹친다. 그걸 근거로 답하면
+    # *"토마토 중독일 수 있습니다"* 가 되고, **증상에서 원인을 지목하는 것이 곧 진단이다.**
+    #
+    # 증상 질의에 `answered` 자체는 정당하다 — 물질을 몰라도 **등급은 말할 수 있다** (D-39).
+    # 다만 그 정답에는 **무엇을 말하면 안 되는지**가 적혀 있어야 채점이 성립한다.
+    if g("intent") == "symptom" and st == "answered" and not g("must_not_contain"):
+        out.append(
+            Issue(
+                "WARN",
+                where,
+                "증상 질의인데 must_not_contain 이 비었다 — "
+                "증상만으로 원인 물질·질환을 지목하면 진단이다 (D-11 · D-49). "
+                "금지 문구를 적어야 채점된다",
+            )
+        )
+
     if tri == "MONITOR" and "연락" not in g("must_contain") and "증상" not in g("must_contain"):
         out.append(
             Issue("WARN", where, "MONITOR 정답인데 상승 조건 문구가 must_contain 에 없다 (D-39)")
