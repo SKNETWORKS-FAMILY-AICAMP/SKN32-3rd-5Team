@@ -21,6 +21,7 @@ classify_intent → extract_slots ─┬─ 결측 → ask_clarify (상한 2회)
                                             → generate → triage
                                             → verify_grounding ─┬─ 통과 → simplify
                                                                 └─ 실패 → retrieve (1회)
+                                                                          simplify → finalize
 ```
 
 ## 절대 어기면 안 되는 것
@@ -29,11 +30,13 @@ classify_intent → extract_slots ─┬─ 결측 → ask_clarify (상한 2회)
 - **종이 없으면 검색하지 않는다** (D-10). `extract_slots` 에서 막는다
 - **유사도 임계 미만은 거절**이다 (02 §8.3). 낮은 점수 문서로 답을 만들지 않는다
 - **트리아지는 `apply_gate` 를 거친다** (D-09). `max()` 를 직접 쓰지 않는다
+- **`finalize` 가 마지막이다** (D-47). 이 뒤에 문장을 덧붙이면 연락처 차단이 무력해진다
+- **사용자에게 나가는 문장은 존댓말이다.** 청크의 평서체(`~다`)를 그대로 내보내지 않는다
 """
 
 from .classify import classify_intent
 from .compute import compute_metrics
-from .generate import compress_context, generate_draft, simplify
+from .generate import compress_context, finalize, generate_draft, simplify
 from .retrieve import build_filter, retrieve
 from .slots import ask_clarify, extract_slots
 from .triage import decide_triage
@@ -53,6 +56,7 @@ __all__ = [
     "compute_metrics",
     "decide_triage",
     "extract_slots",
+    "finalize",
     "generate_draft",
     "retrieve",
     "simplify",

@@ -174,3 +174,84 @@ class TestJosa:
         text = verbalize(_dog_chocolate(substance="아보카도", threshold_type="", dose="", unit=""))
         assert "아보카도는" in text
         assert "은(는)" not in text
+
+
+class TestComposition:
+    """`성분 함량` 은 **권장량도 섭취 역치도 아니다** (D-38 층 0).
+
+    구분하지 않으면 "어류기름 최소 100.71%가 권장된다" 같은 문장이 나온다 —
+    원문에 없는 주장이고 그대로 벡터DB에 들어가면 그 자체가 환각의 출처다.
+    """
+
+    def test_nutrition_composition_is_not_a_recommendation(self) -> None:
+        f = _dog_chocolate(
+            doc_type="nutrition",
+            substance="어류기름(어유)",
+            threshold_type="성분 함량",
+            dose="100.71",
+            unit="%",
+            basis="건물 기준",
+            feeding_level=None,
+            effect="",
+            signs=[],
+            onset="",
+        )
+        text = verbalize(f)
+        assert "권장" not in text
+        assert "성분 함량 정보" in text
+        assert "100.71% 수준으로 보고되었다" in text
+
+    def test_nutrition_recommendation_keeps_predicate(self) -> None:
+        """`기준은 …당다` 처럼 서술격 조사가 깨지지 않아야 한다."""
+        f = _dog_chocolate(
+            doc_type="nutrition",
+            substance="비타민 D",
+            threshold_type="",
+            dose="125",
+            unit="IU",
+            basis="1,000kcal 대사에너지 당",
+            life_stage="성견",
+            feeding_level=None,
+            effect="",
+            signs=[],
+            onset="",
+        )
+        text = verbalize(f)
+        assert "최소 125IU가 권장된다" in text
+        assert "기준은 1,000kcal 대사에너지 당이다" in text
+        assert "당다" not in text
+
+    def test_toxicity_composition_is_not_dropped(self) -> None:
+        """초콜릿 종류별 테오브로민 함량이 문장에서 사라지면 안 된다.
+
+        "다크가 왜 더 위험한가"의 근거가 그 수치다.
+        역치가 아니므로 "이상 섭취 시" 로 말해서도 안 된다.
+        """
+        f = _dog_chocolate(
+            substance="세미스위트 다크 초콜릿",
+            threshold_type="성분 함량",
+            dose="5",
+            unit="mg/g",
+            effect="테오브로민 함유",
+            signs=[],
+            onset="",
+        )
+        text = verbalize(f)
+        assert "5mg/g 수준의 함량이 보고되었다" in text
+        assert "이상 섭취 시" not in text
+
+    def test_empty_effect_does_not_leak_default(self) -> None:
+        """`effect_ko` 는 비었을 때 "임상 징후"를 돌려준다 — 성분 조성에 그 말은 없다."""
+        f = _dog_chocolate(
+            doc_type="nutrition",
+            substance="귀리(연맥)",
+            threshold_type="성분 함량",
+            dose="10.98",
+            unit="%",
+            basis="건물 기준",
+            feeding_level=None,
+            effect="",
+            signs=[],
+            onset="",
+        )
+        assert "임상 징후" not in verbalize(f)

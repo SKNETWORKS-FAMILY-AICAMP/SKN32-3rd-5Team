@@ -55,7 +55,7 @@ def check_manifest_vs_disk() -> list[Finding]:
     if not path.exists():
         return [Finding("ERROR", "manifest", "SNAPSHOT_MANIFEST.csv 가 없다")]
 
-    rows = list(csv.DictReader(path.open(encoding="utf-8")))
+    rows = list(csv.DictReader(path.open(encoding="utf-8-sig")))
     on_disk = (
         {str(p.relative_to(ROOT / "data")) for p in SNAPSHOTS.rglob("*.md")}
         if SNAPSHOTS.exists()
@@ -88,12 +88,12 @@ def check_deleted_not_present() -> list[Finding]:
     path = MANIFESTS / "DELETION_LOG.csv"
     if not path.exists():
         return out
-    deleted = {r["source_id"] for r in csv.DictReader(path.open(encoding="utf-8"))}
+    deleted = {r["source_id"] for r in csv.DictReader(path.open(encoding="utf-8-sig"))}
     for csv_name in ("SNAPSHOT_MANIFEST.csv", "MANIFEST.csv"):
         p = MANIFESTS / csv_name
         if not p.exists():
             continue
-        live = {r["source_id"] for r in csv.DictReader(p.open(encoding="utf-8"))}
+        live = {r["source_id"] for r in csv.DictReader(p.open(encoding="utf-8-sig"))}
         for sid in sorted(deleted & live):
             out.append(Finding("ERROR", "deletion", f"{sid} 는 삭제 판정인데 {csv_name} 에 있다"))
     if not out:
@@ -124,7 +124,7 @@ def check_traceability() -> list[Finding]:
     path = MANIFESTS / "SNAPSHOT_MANIFEST.csv"
     if not path.exists():
         return out
-    rows = list(csv.DictReader(path.open(encoding="utf-8")))
+    rows = list(csv.DictReader(path.open(encoding="utf-8-sig")))
     missing = [r for r in rows if not r.get("source_id") or not r.get("url")]
     ratio = (len(rows) - len(missing)) / len(rows) * 100 if rows else 0
     level = "INFO" if not missing else "ERROR"
@@ -140,7 +140,7 @@ def check_quality_grades() -> list[Finding]:
     path = MANIFESTS / "SNAPSHOT_MANIFEST.csv"
     if not path.exists():
         return out
-    rows = list(csv.DictReader(path.open(encoding="utf-8")))
+    rows = list(csv.DictReader(path.open(encoding="utf-8-sig")))
     from collections import Counter
 
     counts = Counter(r.get("quality", "?") for r in rows)

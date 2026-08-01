@@ -109,6 +109,14 @@ def _ga(w: str) -> str:
     return _josa(w, "이", "가")
 
 
+def _ida(w: str) -> str:
+    """서술격 조사. 받침이 있으면 `이다`, 없으면 `다`.
+
+    `기준은 1,000kcal 대사에너지 당다` 처럼 붙여 쓰면 문장이 깨진다.
+    """
+    return _josa(w, "이다", "다")
+
+
 #: 역치로 말할 수 있는 임계치 종류. 나머지는 정량 문장을 만들지 않는다.
 #:
 #: `증례 보고 범위` 를 "N 이상 섭취 시" 로 쓰면 **출처에 없는 주장을 하게 된다.**
@@ -134,6 +142,18 @@ def _dose_phrase(f: Fact) -> str:
     if "/kg" in unit.replace(" ", ""):
         return f"{f.dose}{unit}"
     return f"체중 1kg당 {f.dose}{unit}"
+
+
+def _is_composition(f: Fact) -> bool:
+    """**성분 조성**이지 권장량이 아니다.
+
+    같은 `doc_type=nutrition` 안에 성격이 다른 두 가지가 섞여 있다 —
+    S-043의 영양소 **권장량**과 S-044의 원료 **성분 함량**이다.
+
+    구분하지 않으면 *"어류기름 최소 100.71%가 권장된다"* 같은 문장이 나온다.
+    원문에 없는 주장이고, 그대로 벡터DB에 들어가면 그 자체가 환각의 출처다 (D-38).
+    """
+    return f.threshold_type == "성분 함량"
 
 
 TOXICITY_FOOD = Template(
@@ -166,6 +186,18 @@ TOXICITY_FOOD = Template(
         (
             lambda f: f.threshold_type == "역치 없음",
             lambda f: "안전한 최소 섭취량이 확립되어 있지 않아, 양과 무관하게 주의가 필요하다.",
+        ),
+        # 성분 함량 — **섭취 역치가 아니라 그 식품에 독성 성분이 얼마나 들었는가.**
+        #
+        # 이 절이 없으면 초콜릿 종류별 테오브로민 함량(다크 5mg/g vs 밀크 2mg/g)이
+        # 문장에서 통째로 사라진다. "다크가 왜 더 위험한가"의 근거가 그 수치다.
+        (
+            lambda f: _is_composition(f) and bool(f.dose) and bool(f.unit),
+            lambda f: f"{f.dose}{f.unit} 수준의 함량이 보고되었다.",
+        ),
+        (
+            lambda f: _is_composition(f) and not f.dose and bool(f.effect),
+            lambda f: f"{f.effect}.",
         ),
         (_has("signs"), lambda f: f"주요 증상은 {', '.join(f.signs)}이다."),
         (_has("onset"), lambda f: f"증상은 {f.onset} 이내에 나타난다."),
@@ -235,22 +267,42 @@ SYMPTOM = Template(
     ],
 )
 
+
 NUTRITION = Template(
     doc_type="nutrition",
     clauses=[
+        # 권장량 — 기준표에서 온 것
         (
-            lambda f: True,
+            lambda f: not _is_composition(f),
             lambda f: f"{f.species_ko} {f.life_stage or '전 생애단계'}의 {f.substance} 권장량이다.",
         ),
         (
-            lambda f: bool(f.dose) and bool(f.unit),
+            lambda f: bool(f.dose) and bool(f.unit) and not _is_composition(f),
             lambda f: f"최소 {f.dose}{f.unit}가 권장된다.",
         ),
         (
-            lambda f: bool(f.max_value) and bool(f.unit),
+            lambda f: bool(f.max_value) and bool(f.unit) and not _is_composition(f),
             lambda f: f"최대 허용량은 {f.max_value}{f.unit}다.",
         ),
-        (_has("basis"), lambda f: f"기준은 {f.basis}다."),
+        # 성분 조성 — 급여 기준이 아니라 그 물질에 무엇이 얼마나 들었는가
+        (
+            _is_composition,
+            lambda f: f"{f.substance}의 성분 함량 정보다.",
+        ),
+        (
+            lambda f: _is_composition(f) and bool(f.dose) and bool(f.unit),
+            lambda f: (
+                (f"{f.basis} " if f.basis else "")
+                + f"{f.dose}{f.unit} 수준으로 보고되었다."
+                # `effect_ko` 는 비었을 때 "임상 징후"를 돌려준다 — 성분 조성에는 없는 말이다.
+                # 원본 필드로 판단한다.
+                + (f" {f.effect}." if f.effect else "")
+            ),
+        ),
+        (
+            lambda f: bool(f.basis) and not _is_composition(f),
+            lambda f: f"기준은 {_ida(f.basis)}.",
+        ),
         (lambda f: True, _cite),
     ],
 )

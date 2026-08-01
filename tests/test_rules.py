@@ -1,0 +1,133 @@
+"""규칙 테이블 조회 (D-16 · D-39 · D-46).
+
+이 테스트가 지키는 것은 **표의 값**이 아니라 **표를 읽는 방식**이다.
+값은 사실 표에서 파생되므로 바뀔 수 있지만, 읽는 규칙이 바뀌면 판정이 틀린다.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from pettriage.compute.rules import (
+    SEVERITY,
+    computable_for,
+    has_quantitative,
+    load_rules,
+    lookup,
+    parse_low,
+    qualitative_for,
+)
+
+
+class TestParseLow:
+    """**범위와 부등호는 낮은 쪽으로 읽는다.**
+
+    높은 쪽을 쓰면 40 mg/kg 을 먹은 개가 "아직 안전"으로 나온다.
+    """
+
+    @pytest.mark.parametrize(
+        ("dose", "expect"),
+        [
+            ("20", 20.0),
+            ("40-50", 40.0),
+            ("≥1", 1.0),
+            ("2-2.5", 2.0),
+            ("0.03", 0.03),
+            ("15-30", 15.0),
+            ("", None),
+            ("불명", None),
+        ],
+    )
+    def test_낮은_값을_고른다(self, dose: str, expect: float | None) -> None:
+        assert parse_low(dose) == expect
+
+
+class TestLoad:
+    def test_표가_비어_있지_않다(self) -> None:
+        assert len(load_rules()) >= 10
+
+    def test_조류는_한_행도_없다(self) -> None:
+        """D-09 — 코퍼스에 쓸 수 있는 조류 체중당 역치가 0건이다.
+
+        여기에 조류 행이 생기면 **D-09 종별 분기를 다시 검토해야 한다.**
+        """
+        assert not [r for r in load_rules() if r.species == "bird"]
+
+    def test_심각도_어휘가_스키마와_맞는다(self) -> None:
+        from pettriage.ingest.templates import THRESHOLD_TYPES
+
+        assert set(SEVERITY) == set(THRESHOLD_TYPES)
+        assert {r.threshold_type for r in load_rules()} <= set(THRESHOLD_TYPES)
+
+
+class TestLookup:
+    def test_부분_일치로_찾는다(self) -> None:
+        """표는 `초콜릿(테오브로민+카페인)`, 질의는 `초콜릿` 이다."""
+        assert computable_for("초콜릿", "dog")
+
+    def test_종을_넓혀서_본다(self) -> None:
+        """마늘은 `mammal` 행이다 — `dog` 질의에 걸려야 한다 (D-39)."""
+        assert [r for r in lookup("마늘", "dog") if r.species == "mammal"]
+
+    def test_종이_다르면_안_걸린다(self) -> None:
+        """란타나는 `dog` 행뿐이다. 고양이에게 개 수치를 주면 안 된다."""
+        assert not [r for r in lookup("란타나", "cat") if r.species == "dog"]
+
+    def test_중복_출처를_접는다(self) -> None:
+        """양파 `15-30 g/kg` 가 S-034·S-098 에 같은 값으로 있다."""
+        rules = lookup("양파", "dog")
+        doses = [(r.substance, r.dose, r.unit) for r in rules]
+        assert len(doses) == len(set(doses)), f"중복이 남았다: {doses}"
+
+    def test_없으면_빈_리스트다(self) -> None:
+        """**지어내지 않는다.**"""
+        assert lookup("존재하지않는물질", "dog") == []
+        assert computable_for("초콜릿", "bird") == []
+
+    def test_낮은_역치부터_나온다(self) -> None:
+        """초콜릿 개 — `임상징후 발현 20` → `중증 40-50` → `중증 60`."""
+        got = [(r.threshold_type, r.low) for r in computable_for("초콜릿", "dog")]
+        assert got == sorted(got, key=lambda t: (SEVERITY[t[0]], t[1]))
+        assert got[0][1] == 20.0
+
+
+class TestComputableGate:
+    """**계산 불가 행이 계산에 새어 들어가면 안 된다.**"""
+
+    def test_백합은_계산에서_빠진다(self) -> None:
+        """원문이 *"one or two leaves"* 로만 말했다 — 잎 무게를 우리가 정할 수 없다."""
+        assert not computable_for("백합", "cat")
+        assert [r.unit for r in qualitative_for("백합", "cat")] == ["leaves"]
+
+    def test_주목은_계산에서_빠진다(self) -> None:
+        """단위가 `g leaves/kg` 다. `g/kg` 로 읽으면 식물 전체 무게로 오독한다."""
+        rules = qualitative_for("주목", "dog")
+        assert rules and rules[0].unit == "g leaves/kg"
+        assert not computable_for("주목", "dog")
+
+    def test_계산_가능_행은_단위가_정형이다(self) -> None:
+        ok = {"mg/kg", "g/kg", "mL/kg", "%"}
+        for r in load_rules():
+            if r.computable:
+                assert r.unit in ok, f"{r.fact_id} 단위 {r.unit!r} 가 계산 가능으로 표시됐다"
+
+    def test_계산_가능_행은_수치가_있다(self) -> None:
+        for r in load_rules():
+            if r.computable:
+                assert r.low is not None, f"{r.fact_id} dose={r.dose!r}"
+
+
+class TestHasQuantitative:
+    """D-46 — 정량 질의에 정량 근거가 없다는 판정은 **검색이 아니라 여기 일이다.**"""
+
+    def test_개_초콜릿은_정량_가능(self) -> None:
+        assert has_quantitative("초콜릿", "dog")
+
+    def test_앵무새_초콜릿은_정량_불가(self) -> None:
+        """검색은 조류 초콜릿 청크를 잘 물어온다. 그래도 **수치는 없다.**"""
+        assert not has_quantitative("초콜릿", "bird")
+
+    def test_고양이_백합은_정량_불가(self) -> None:
+        """근거는 있으나 개수 단위다 — 정성 답변으로 내려가야 한다."""
+        assert not has_quantitative("백합", "cat")
+        assert qualitative_for("백합", "cat")

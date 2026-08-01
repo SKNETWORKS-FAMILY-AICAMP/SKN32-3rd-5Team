@@ -26,12 +26,22 @@ MANIFEST_DIR = ROOT / "data" / "manifests"
 def known_source_ids() -> set[str]:
     """코퍼스에 실재하는 `source_id` 집합.
 
-    두 대장의 **합집합**을 쓴다 — `SOURCES_CITED.csv` 는 인용 대장,
-    `MANIFEST.csv` 는 원본 보유 대장이라 한쪽에만 있는 자료가 있다.
+    **세 대장의 합집합**을 쓴다. 한 곳만 보면 멀쩡한 골든셋을 오류로 잡는다.
+
+    | 대장 | 무엇이 있나 |
+    |---|---|
+    | `SOURCES_CITED.csv` | 인용 대장 — 제출물에 나가는 출처 목록 |
+    | `SNAPSHOT_MANIFEST.csv` | 스냅샷 42건 |
+    | `MANIFEST.csv` | 원본 보유 6건 + 내부 산출물 |
+
+    `SNAPSHOT_MANIFEST` 를 빠뜨렸다가 **S-016·S-029·S-034·S-043~046·S-070 8건**이
+    "대장에 없다"로 잘못 잡혔다. 공교롭게 그 8건이 원문 배포가 가능한 자료들이라
+    인용 대장에 행을 안 만들어 둔 것이었다 (01d §2.2).
+
     대장을 못 읽으면 빈 집합을 돌려주고 검사를 건너뛴다 (04 §8: 검사 축소는 드러나야 한다).
     """
     ids: set[str] = set()
-    for name in ("SOURCES_CITED.csv", "MANIFEST.csv"):
+    for name in ("SOURCES_CITED.csv", "SNAPSHOT_MANIFEST.csv", "MANIFEST.csv"):
         p = MANIFEST_DIR / name
         if not p.exists():
             continue

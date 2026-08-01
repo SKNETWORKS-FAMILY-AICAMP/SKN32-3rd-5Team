@@ -69,6 +69,7 @@ class GraphState(TypedDict, total=False):
     status: Literal["answered", "clarify", "refused"]
     answer: str
     refusal_reason: str
+    removed_contacts: list[str]  # 연락처 차단으로 뺀 문장 (D-47). 비면 아무것도 안 뺐다
 
 
 def initial_state(question: str, session_id: str, **kw: Any) -> GraphState:
