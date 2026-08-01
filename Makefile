@@ -1,4 +1,4 @@
-.PHONY: help install serve test todo lint fmt verify facts golden index train up down docker clean
+.PHONY: help install serve test todo lint fmt verify facts golden eval index train up down docker clean
 
 help:            ## 이 목록
 	@grep -E '^[a-z-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -35,6 +35,9 @@ facts:           ## 사실 표 검사 (WS1) — 01e 지침
 
 golden:          ## 골든셋 검사 (WS4) — 04a 지침
 	python scripts/check_goldenset.py
+
+eval:            ## 평가 하네스 — 골든셋 채점 (04 §4). 엔진은 configs 의 serve.engine
+	python eval/harness/run_eval.py --json eval/reports/latest.json
 
 index:           ## 사실 표 → 청크 (적재는 --store chroma)
 	python scripts/build_index.py

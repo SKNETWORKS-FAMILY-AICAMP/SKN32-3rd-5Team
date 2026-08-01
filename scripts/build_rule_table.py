@@ -51,6 +51,7 @@ FIELDS = (
     "unit",
     "computable",
     "effect",
+    "signs",
     "onset",
     "source_id",
     "citation",
@@ -87,6 +88,10 @@ def build(facts_dir: Path) -> list[dict[str, str]]:
                     "unit": r["unit"],
                     "computable": "Y" if is_computable(r["unit"], r["dose"]) else "N",
                     "effect": r.get("effect", ""),
+                    # 역치 **미만**일 때 MONITOR 의 상승 조건으로 쓴다 (D-50).
+                    # 없으면 `apply_gate` 가 MonitorWithoutConditions 를 던지고
+                    # 부르는 쪽이 거절로 바꾼다 — **역치를 안 넘긴 질의가 전부 거절이 된다.**
+                    "signs": r.get("signs", ""),
                     "onset": r.get("onset", ""),
                     "source_id": r["source_id"],
                     "citation": r.get("citation", ""),

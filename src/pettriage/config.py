@@ -145,6 +145,12 @@ class ServeConfig(BaseModel):
     engine: Literal["stub", "graph"] = "stub"
     cors_origins: list[str] = Field(default_factory=list)
 
+    #: 기동 시 임베딩 모델을 미리 올린다 (D-53).
+    #: 끄면 **첫 질의가 로딩을 맞는다** — 02 §12.4 로 스트리밍이 없어 그 시간이 침묵이 된다.
+    #: 노드를 고치며 서버를 자주 재시작하는 개발 중에만 끈다:
+    #:     PETTRIAGE__SERVE__WARMUP=false make serve
+    warmup: bool = True
+
 
 class AppConfig(BaseModel):
     """YAML 전체 트리."""

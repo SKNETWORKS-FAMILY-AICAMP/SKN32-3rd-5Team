@@ -27,8 +27,23 @@ def compute_metrics(state: GraphState) -> GraphState:
         부르는 쪽이 **정성 답변으로 내려가거나 `refused / 판정불가`** 로 보낸다.
         **조류는 체중당 임계치가 코퍼스에 0건이다** (D-09 개정) — 수치를 만들어내면 그게 환각이다.
 
+    **바닥 등급까지 여기서 만든다** (D-50).
+
+    ```python
+    mg = to_mg_per_kg(amount_g * 1000 / weight_kg, "mg/kg")
+    verdict = rule_level_for(substance, species, mg)
+    ```
+
+    `verdict.level` 이 `None` 인 경우가 둘이고, **둘 다 실패가 아니다.**
+
+      1. 계산 가능한 역치가 없다 — **조류가 전부 여기다** (D-09)
+      2. 출처 간 수치가 10배 이상 벌어졌다 — 어느 쪽이 맞는지 모른다 (건포도 1,000배 사례)
+
+    부르는 쪽은 **정성 답변으로 내려가거나** `refused / 판정불가` 로 보낸다 (D-46).
+    `verdict.reason` 을 로그에 남긴다 — 왜 정량을 포기했는지가 오류 분석의 입력이다 (04 §7).
+
     Returns:
-        `{"computed": {"dose_per_kg": ..., "unit": ...}}`.
+        `{"computed": {"dose_per_kg": ..., "unit": ...}, "rule_level": ...}`.
         근거가 없으면 **빈 dict** — 지어낸 수치를 넣지 않는다.
     """
     raise NotImplementedError("WS2: tests/todo/test_graph_nodes.py::TestCompute 참조")

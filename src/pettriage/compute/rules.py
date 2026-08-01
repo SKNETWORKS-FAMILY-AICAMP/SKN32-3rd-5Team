@@ -39,6 +39,8 @@ from functools import lru_cache
 from importlib import resources
 from pathlib import Path
 
+from ..triage.levels import TriageLevel
+
 TABLE_NAME = "정량임계치.csv"
 
 #: 종 질의를 넓히는 규칙. `mammal` 은 개·고양이 공통 값, `all` 은 종 무관이다.
@@ -50,6 +52,46 @@ SPECIES_WIDEN: dict[str, tuple[str, ...]] = {
 
 #: 심각도 순서. 같은 물질에 여러 역치가 있으면 낮은 것부터 넘는다.
 SEVERITY: dict[str, int] = {"임상징후 발현": 1, "중증": 2, "치사": 3}
+
+#: **역치를 넘겼을 때의 바닥 등급** (D-50).
+#:
+#: `rule_level` 은 정밀한 판정이 아니라 **바닥**이다 — `final = max(rule, llm)` 이므로
+#: LLM 은 올릴 수만 있다 (D-09). 그래서 고를 때 물어야 할 것은
+#: *"이게 의학적으로 맞나"* 가 아니라 **"틀렸을 때 어느 쪽으로 틀리나"** 다.
+#:
+#: 계산 가능한 12행 중 **9행(75%)이 `임상징후 발현`** 이다 — 사실상 이것이 기본 등급이고,
+#: 여기를 `CALL_NOW` 로 두어 **LLM 상향 여지를 남긴다.** D-09 게이트의 증거가 여기서 나온다.
+#:
+#: `중증` 을 `EMERGENCY` 로 올린 이유는 값을 보면 분명하다 —
+#: 초콜릿 40-50 mg/kg 은 4kg 개가 다크초콜릿 20g 정도로 경련·부정맥 구간이고,
+#: 자일리톨 0.5 g/kg 은 간부전 구간이다. *"지금 전화"* 로 답하면 그것이 과소평가다.
+THRESHOLD_TO_LEVEL: dict[str, TriageLevel] = {
+    "임상징후 발현": TriageLevel.CALL_NOW,
+    "중증": TriageLevel.EMERGENCY,
+    "치사": TriageLevel.EMERGENCY,
+}
+
+#: 역치를 **안 넘겼을 때**의 바닥. 상승 조건(`signs`)이 반드시 함께 나간다 (D-39).
+#:
+#: `None` 으로 두지 않는 이유 — *"조금 먹었는데요"* 가 가장 흔한 질의인데,
+#: `rule_level=None` 이면 LLM 이 실패하는 순간 `apply_gate` 가 `ValueError` 로 거절한다.
+#: **가장 흔한 질문이 가장 잘 깨지는 설계**가 된다.
+BELOW_THRESHOLD_LEVEL: TriageLevel = TriageLevel.MONITOR
+
+#: 질량 단위를 `mg/kg` 으로 환산한다. `%` 는 **체중 대비 백분율**이라
+#: 1% = 10 g/kg = 10,000 mg/kg 이다.
+_MG_PER_KG: dict[str, float] = {"mg/kg": 1.0, "g/kg": 1000.0, "%": 10_000.0}
+
+#: 같은 (물질 × 종 × 역치종류)에서 최대/최소가 이 배수 이상 벌어지면
+#: **정량 판정을 포기한다** (D-50).
+#:
+#: S-034 는 건포도를 본문에서 `2.8 mg/kg`, 같은 논문 Table 1 에서 `2.8-36.4 g/kg` 로 적는다 —
+#: **1,000배 차이**다. 낮은 쪽을 바닥으로 쓰는 원칙을 그대로 두면
+#: 단위 오류가 섞인 순간 **거의 모든 섭취가 역치 초과**가 된다.
+#:
+#: 10배는 **단위 오류(1,000배)와 반올림 차이(1.2배)를 가르는 선**이다.
+#: 포기는 실패가 아니다 — 정성 답변으로 내려가고, 그 사실이 로그에 남는다 (D-46).
+CONFLICT_RATIO: float = 10.0
 
 
 class RuleTableMissingError(RuntimeError):
@@ -72,6 +114,8 @@ class Rule:
     unit: str
     computable: bool
     effect: str
+    #: `|` 로 이어 붙인 증상. **역치 미만일 때 MONITOR 의 상승 조건**이 된다 (D-39 · D-50).
+    signs: str
     onset: str
     source_id: str
     citation: str
@@ -137,6 +181,7 @@ def load_rules() -> tuple[Rule, ...]:
                     unit=r["unit"],
                     computable=(r.get("computable") or "").strip().upper() == "Y",
                     effect=r.get("effect", ""),
+                    signs=r.get("signs", ""),
                     onset=r.get("onset", ""),
                     source_id=r["source_id"],
                     citation=r.get("citation", ""),
@@ -200,3 +245,112 @@ def qualitative_for(substance: str, species: str) -> list[Rule]:
 def has_quantitative(substance: str, species: str) -> bool:
     """정량으로 답할 근거가 있나. **없으면 부르는 쪽이 정성 답변이나 거절로 내려간다** (D-46)."""
     return bool(computable_for(substance, species))
+
+
+# ─────────────────────────────────────────────────────────────
+# 바닥 등급 산출 (D-50)
+# ─────────────────────────────────────────────────────────────
+@dataclass(frozen=True)
+class RuleVerdict:
+    """규칙 테이블 1차 판정. **`level` 이 `None` 이면 정량 판정을 하지 않는다.**"""
+
+    level: TriageLevel | None
+    #: 넘긴 역치 행. 답변의 근거로 그대로 인용한다.
+    crossed: tuple[Rule, ...] = ()
+    #: `MONITOR` 일 때 함께 나가는 상승 조건. 비면 `apply_gate` 가 거부한다 (D-39).
+    escalation_conditions: tuple[str, ...] = ()
+    #: 출처 간 수치가 `CONFLICT_RATIO` 이상 벌어졌다.
+    conflict: bool = False
+    #: 사람이 읽는 사유. 로그·오류 분석에 쓴다 (04 §7).
+    reason: str = ""
+
+
+def to_mg_per_kg(dose: float, unit: str) -> float | None:
+    """질량 단위를 `mg/kg` 으로. 환산할 수 없으면 `None`."""
+    factor = _MG_PER_KG.get(unit.strip())
+    return None if factor is None else dose * factor
+
+
+def _signs_of(rules: list[Rule]) -> tuple[str, ...]:
+    """여러 행의 증상을 합친다. **순서를 유지하고 중복만 접는다.**"""
+    out: list[str] = []
+    for r in rules:
+        for sign in (x.strip() for x in r.signs.split("|")):
+            if sign and sign not in out:
+                out.append(sign)
+    return tuple(out)
+
+
+def _detect_conflict(rules: list[Rule]) -> str | None:
+    """같은 역치종류끼리 최대/최소가 `CONFLICT_RATIO` 이상 벌어졌나.
+
+    **역치종류를 넘어 비교하지 않는다** — `임상징후 발현 20` 과 `중증 60` 은
+    상충이 아니라 **단계**다. 섞어 재면 정상 데이터를 상충으로 잡는다.
+    """
+    by_type: dict[str, list[float]] = {}
+    for r in rules:
+        if r.low is None:
+            continue
+        mg = to_mg_per_kg(r.low, r.unit)
+        if mg is not None:
+            by_type.setdefault(r.threshold_type, []).append(mg)
+    for ttype, values in by_type.items():
+        lo, hi = min(values), max(values)
+        if lo > 0 and hi / lo >= CONFLICT_RATIO:
+            return (
+                f"'{ttype}' 값이 출처 간 {hi / lo:.0f}배 벌어졌다 "
+                f"({lo:g}~{hi:g} mg/kg) — 정량 판정을 포기한다"
+            )
+    return None
+
+
+def rule_level_for(substance: str, species: str, amount_mg_per_kg: float) -> RuleVerdict:
+    """체중당 섭취량 → **바닥 등급** (D-50).
+
+    Args:
+        amount_mg_per_kg: 이미 `mg/kg` 으로 환산된 섭취량.
+            `to_mg_per_kg()` 를 쓴다. 단위를 코드가 고르지 않는다 (D-17 후속).
+
+    `level=None` 인 경우는 둘이다.
+
+      1. 계산 가능한 역치가 없다 — 조류가 전부 여기다 (D-09)
+      2. **출처 간 수치가 10배 이상 벌어졌다** — 어느 쪽이 맞는지 모르므로 포기한다
+
+    둘 다 실패가 아니라 **정성 답변으로 내려가라는 신호**다 (D-46).
+    """
+    rules = computable_for(substance, species)
+    if not rules:
+        return RuleVerdict(None, reason=f"{substance}·{species} 에 계산 가능한 역치가 없다")
+
+    conflict = _detect_conflict(rules)
+    if conflict is not None:
+        return RuleVerdict(None, conflict=True, reason=f"{substance}·{species} — {conflict}")
+
+    normalized = {
+        i: mg
+        for i, r in enumerate(rules)
+        if r.low is not None and (mg := to_mg_per_kg(r.low, r.unit)) is not None
+    }
+    crossed = [
+        r for i, r in enumerate(rules) if i in normalized and amount_mg_per_kg >= normalized[i]
+    ]
+    if not crossed:
+        # **역치 미만도 답한다.** 상승 조건을 붙여 MONITOR 로 내린다.
+        conditions = _signs_of(rules)
+        return RuleVerdict(
+            BELOW_THRESHOLD_LEVEL if conditions else None,
+            escalation_conditions=conditions,
+            reason=(
+                f"가장 낮은 역치 {min(normalized.values()):g} mg/kg 미만"
+                if conditions
+                else "역치 미만이나 상승 조건이 없어 등급을 매기지 않는다 (D-39)"
+            ),
+        )
+
+    level = max(THRESHOLD_TO_LEVEL[r.threshold_type] for r in crossed)
+    top = max(crossed, key=lambda r: SEVERITY[r.threshold_type])
+    return RuleVerdict(
+        level,
+        crossed=tuple(crossed),
+        reason=f"'{top.threshold_type}' 역치 {top.dose}{top.unit} 초과 ({top.fact_id})",
+    )
