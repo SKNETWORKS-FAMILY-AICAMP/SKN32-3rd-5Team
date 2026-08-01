@@ -81,6 +81,31 @@ has_quantitative("초콜릿", "bird")  # False — 조류는 이 표에 0건이�
 
 ---
 
+## 역치를 넘으면 어느 등급인가 (D-50)
+
+| 조건 | 바닥 등급 |
+|---|---|
+| `치사` 초과 | `EMERGENCY` |
+| `중증` 초과 | `EMERGENCY` |
+| **`임상징후 발현` 초과** | **`CALL_NOW`** ← 상향 여지를 남긴다 |
+| 역치 미만 | `MONITOR` + `signs` 를 상승 조건으로 |
+
+**`rule_level` 은 정밀한 판정이 아니라 바닥이다** — `final = max(rule, llm)` 이므로
+LLM 은 올릴 수만 있다 (D-09). 그래서 `임상징후 발현`(9행, 75%)을 `CALL_NOW` 로 두어
+**게이트가 작동할 여지**를 남겼다. `signs` 열이 있는 이유도 여기다 —
+없으면 역치 미만이 전부 거절로 나간다.
+
+```python
+from pettriage.compute.rules import rule_level_for, to_mg_per_kg
+rule_level_for("초콜릿", "dog", to_mg_per_kg(30, "mg/kg"))   # → CALL_NOW
+```
+
+**출처가 어긋나면** — 같은 (물질 × 종 × 역치종류)에서 최대/최소가 **10배 이상** 벌어지면
+정량 판정을 포기하고 `level=None` 을 돌려준다. 건포도가 본문 `2.8 mg/kg` ·
+표 `2.8-36.4 g/kg` 로 1,000배 어긋나는 사례가 실재한다.
+
+---
+
 ## `threshold_type` — 편입되는 것과 아닌 것
 
 | 편입 | 안 됨 |

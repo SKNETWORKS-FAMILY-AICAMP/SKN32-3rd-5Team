@@ -259,9 +259,20 @@ class HealthResponse(BaseModel):
     profile: str  # PETTRIAGE_PROFILE
     version: str
 
+    #: 임베딩 모델이 메모리에 올라와 있는가 (D-53).
+    #: `None` 은 **해당 없음** — `engine=stub` 은 벡터 검색을 하지 않는다.
+    #: `False` 면 첫 질의가 로딩(수 초~수십 초)을 맞는다.
+    #: **시연 전에 이 값을 확인한다** — 스트리밍이 없어 그 시간이 침묵으로 나타난다 (02 §12.4).
+    model_loaded: bool | None = None
+
     @property
     def degraded(self) -> bool:
         return self.engine != self.engine_configured
+
+    @property
+    def cold(self) -> bool:
+        """워밍업이 안 된 상태. 첫 질의가 느리다."""
+        return self.model_loaded is False
 
 
 # ─────────────────────────────────────────────────────────────

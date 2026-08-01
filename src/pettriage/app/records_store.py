@@ -27,7 +27,20 @@ BIRD_ONLY_FIELDS = ("droppings",)
 
 
 class RecordStore:
-    """메모리 기록 저장소. WS1이 pgvector/Chroma 적재로 교체한다 (02 §11)."""
+    """메모리 기록 저장소. **일일 기록은 아직 어디에도 영구 저장되지 않는다.**
+
+    WS1 이 **Chroma `internal` 컬렉션** 적재로 교체한다 (02 §3 · §11.1).
+    ⚠️ 예전 주석은 *"pgvector/Chroma"* 였으나 **pgvector 는 D-44 로 걷어냈다.**
+
+    **MySQL 이 아니다.** 이 프로젝트의 저장소는 셋이고 담는 것이 다르다 (02 §11.1).
+
+        MySQL            계정 · 반려동물 프로필 (누가 · 무엇을 기르나)   ← D-48
+        Chroma external  공적 지식 888청크                              ← 완료
+        Chroma internal  일일 기록                                      ← 여기가 갈 자리
+
+    일일 기록을 MySQL 에 넣으면 **검색 대상이 아니게 된다** — 05 §3 이
+    *"일일 기록은 조각 3(기억)이 아니라 조각 4(RAG)"* 로 못박은 이유다.
+    """
 
     def __init__(self) -> None:
         self._data: dict[str, list[dict[str, Any]]] = {}

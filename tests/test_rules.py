@@ -16,7 +16,10 @@ from pettriage.compute.rules import (
     lookup,
     parse_low,
     qualitative_for,
+    rule_level_for,
+    to_mg_per_kg,
 )
+from pettriage.triage.levels import TriageLevel
 
 
 class TestParseLow:
@@ -131,3 +134,122 @@ class TestHasQuantitative:
         """근거는 있으나 개수 단위다 — 정성 답변으로 내려가야 한다."""
         assert not has_quantitative("백합", "cat")
         assert qualitative_for("백합", "cat")
+
+
+class TestRuleLevel:
+    """바닥 등급 산출 (D-50).
+
+    **`rule_level` 은 정밀한 판정이 아니라 바닥이다** — `final = max(rule, llm)` 이므로
+    LLM 은 올릴 수만 있다 (D-09). 그래서 이 테스트가 지키는 것은
+    "등급이 의학적으로 맞나"가 아니라 **"틀렸을 때 어느 쪽으로 틀리나"** 다.
+    """
+
+    def test_역치_미만은_MONITOR_에_상승조건이_붙는다(self) -> None:
+        """`None` 으로 두면 *"조금 먹었는데요"* 가 전부 거절이 된다.
+
+        가장 흔한 질의가 가장 잘 깨지는 설계가 된다.
+        """
+        v = rule_level_for("초콜릿", "dog", 5)
+        assert v.level is TriageLevel.MONITOR
+        assert v.escalation_conditions, "상승 조건이 없으면 apply_gate 가 거부한다 (D-39)"
+
+    def test_임상징후_발현은_CALL_NOW(self) -> None:
+        """계산 가능한 12행 중 9행이 여기다 — **사실상 기본 등급**이다."""
+        assert rule_level_for("초콜릿", "dog", 25).level is TriageLevel.CALL_NOW
+
+    def test_중증은_EMERGENCY(self) -> None:
+        """초콜릿 40-50 mg/kg 은 4kg 개가 다크초콜릿 20g — 경련·부정맥 구간이다."""
+        assert rule_level_for("초콜릿", "dog", 45).level is TriageLevel.EMERGENCY
+
+    def test_여러_역치를_넘기면_가장_높은_등급(self) -> None:
+        v = rule_level_for("초콜릿", "dog", 1000)
+        assert v.level is TriageLevel.EMERGENCY
+        assert len(v.crossed) >= 2
+
+    def test_상향_여지가_남아_있다(self) -> None:
+        """바닥이 천장이면 D-09 게이트가 할 일이 없어진다.
+
+        `임상징후 발현`(9행)이 `CALL_NOW` 라 LLM 이 `EMERGENCY` 로 올릴 수 있다.
+        """
+        assert rule_level_for("초콜릿", "dog", 25).level < TriageLevel.EMERGENCY
+
+    def test_조류는_바닥을_만들지_못한다(self) -> None:
+        """코퍼스에 조류 체중당 역치가 0건이다 (D-09). **수치를 지어내면 그게 환각이다.**"""
+        v = rule_level_for("초콜릿", "bird", 10_000)
+        assert v.level is None
+        assert "역치가 없다" in v.reason
+
+    def test_근거를_함께_돌려준다(self) -> None:
+        """답변이 어느 행을 근거로 삼았는지 남아야 추적이 된다 (04 §7)."""
+        v = rule_level_for("초콜릿", "dog", 25)
+        assert v.crossed and v.crossed[0].fact_id.startswith("F-")
+        assert "F-" in v.reason
+
+
+class TestUnitNormalization:
+    """`%` 는 체중 대비 백분율이다 — 1% = 10 g/kg = 10,000 mg/kg."""
+
+    def test_환산(self) -> None:
+        assert to_mg_per_kg(1, "mg/kg") == pytest.approx(1)
+        assert to_mg_per_kg(1, "g/kg") == pytest.approx(1000)
+        assert to_mg_per_kg(1, "%") == pytest.approx(10_000)
+
+    def test_모르는_단위는_None(self) -> None:
+        assert to_mg_per_kg(1, "seeds") is None
+
+    def test_서로_다른_출처가_같은_값으로_수렴한다(self) -> None:
+        """**우연이 아니라 검증이다.**
+
+        S-014 는 알리움류를 `0.5%`, S-034·S-098 은 양파를 `5 g/kg` 로 적는다.
+        환산하면 둘 다 5,000 mg/kg 이다 — 서로 다른 자료가 같은 값을 말한다.
+        어긋나면 `CONFLICT_RATIO` 가 잡는다.
+        """
+        assert to_mg_per_kg(0.5, "%") == pytest.approx(to_mg_per_kg(5, "g/kg"))
+        assert rule_level_for("양파", "cat", 6000).level is TriageLevel.CALL_NOW
+        assert rule_level_for("양파", "cat", 2000).level is TriageLevel.MONITOR
+
+
+class TestConflict:
+    """출처 간 수치가 10배 이상 벌어지면 **정량 판정을 포기한다** (D-50).
+
+    S-034 는 건포도를 본문 `2.8 mg/kg`, 같은 논문 표 `2.8-36.4 g/kg` 로 적는다 —
+    **1,000배 차이**다. 낮은 쪽을 바닥으로 쓰는 원칙만 두면
+    단위 오류가 섞인 순간 **거의 모든 섭취가 역치 초과**가 된다.
+    """
+
+    def _v(self, doses: list[tuple[str, str]]):
+        from pettriage.compute.rules import Rule, _detect_conflict
+
+        rules = [
+            Rule(
+                fact_id=f"F-T-{i:03}",
+                substance="테스트물질",
+                species="dog",
+                threshold_type="임상징후 발현",
+                dose=d,
+                unit=u,
+                computable=True,
+                effect="",
+                signs="구토",
+                onset="",
+                source_id=f"S-{i:03}",
+                citation="",
+                note="",
+            )
+            for i, (d, u) in enumerate(doses)
+        ]
+        return _detect_conflict(rules)
+
+    def test_1000배_차이는_포기한다(self) -> None:
+        assert self._v([("2.8", "mg/kg"), ("2.8", "g/kg")]) is not None
+
+    def test_반올림_차이는_포기하지_않는다(self) -> None:
+        """`20` 과 `25` 는 자료가 반올림을 다르게 한 것이지 상충이 아니다."""
+        assert self._v([("20", "mg/kg"), ("25", "mg/kg")]) is None
+
+    def test_정확히_10배는_포기한다(self) -> None:
+        assert self._v([("2", "mg/kg"), ("20", "mg/kg")]) is not None
+
+    def test_역치종류가_다르면_비교하지_않는다(self) -> None:
+        """`임상징후 발현 20` 과 `중증 60` 은 **상충이 아니라 단계다.**"""
+        assert rule_level_for("초콜릿", "dog", 25).level is TriageLevel.CALL_NOW
