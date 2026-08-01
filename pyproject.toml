@@ -26,10 +26,10 @@ api = [
 ]
 rag = [
   "langgraph>=0.2.62,<0.3",
-  "langchain-core>=0.3.29,<0.4",
-  "langchain-community>=0.3.14,<0.4",
+  "langchain-core>=0.3.59,<0.4",
+  "langchain-community>=0.3.24,<0.4",
   "sentence-transformers>=3.3,<4",
-  "chromadb>=0.5.23,<0.6",
+  "chromadb>=0.6.3,<0.7",
   "psycopg[binary]>=3.2,<4",
   "pgvector>=0.3.6,<0.4",
   "openai>=1.59,<2",
@@ -49,7 +49,8 @@ ingest = [
 # Qwen3-4B QLoRA (D-42). GPU 환경에서만 설치한다.
 train = [
   "torch>=2.5,<3",
-  "transformers>=4.48,<5",
+  # Qwen3 아키텍처 지원은 4.51 부터다. 하한을 내리면 모델 로드가 실패한다 (D-42).
+  "transformers>=4.51,<5",
   "peft>=0.14,<0.15",
   "trl>=0.13,<0.14",
   "bitsandbytes>=0.45,<0.46",
@@ -84,8 +85,10 @@ pettriage = ["compute/tables/*.csv", "app/web/*"]
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]
 testpaths = ["tests"]
-addopts = "-q"
+# todo 는 기본 실행에서 뺀다 — 구현 대기 테스트라 CI 를 빨갛게 만들면 안 된다.
+addopts = "-q -m 'not todo and not gpu'"
 markers = [
+  "todo: 구현 대기 — `pytest -m todo` 로 남은 일 목록을 본다",
   "gpu: GPU가 필요한 테스트 (기본 실행에서 제외)",
 ]
 

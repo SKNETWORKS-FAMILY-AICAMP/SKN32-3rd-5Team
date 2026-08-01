@@ -1,10 +1,15 @@
-# 학습 프로파일 — GPU 환경.  PETTRIAGE_PROFILE=train
+# 학습 프로파일 — RunPod / Colab (A100 · L4 등).  PETTRIAGE_PROFILE=train
 #
-# default.yaml 위에 덮인다. 여기에는 **달라지는 값만** 적는다.
+# 본 학습은 여기서 돌린다. 3080 로컬 검증은 configs/train-local.yaml (D-42).
+# default.yaml 위에 덮이므로 **달라지는 값만** 적는다.
 
 model:
-  load_in_4bit: true   # QLoRA. 16GB VRAM 기준
+  max_seq_len: 4096        # ④ 근거 검증은 답변 + 청크 여러 개가 들어간다
+  load_in_4bit: true       # QLoRA
 
 train:
   batch_size: 2
-  grad_accum: 8        # 유효 배치 16
+  grad_accum: 8            # 유효 배치 16
+
+serve:
+  engine: stub

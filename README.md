@@ -53,7 +53,7 @@ GPU가 없어도 API·테스트는 전부 돈다. 학습 의존성은 `[train]` 
 python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
 make install                                          # = pip install -e '.[api,rag,ingest,dev]' -c constraints.txt
 cp .env.example .env                                  # 키 입력
-make test                                             # 68 tests
+make test                                             # 76 tests
 make serve                                            # http://127.0.0.1:8000
 ```
 
@@ -101,6 +101,25 @@ status = answered   근거를 찾아 판정했다   → 배지 + 근거 + 감사
 엔진 교체는 [`app/deps.py`](src/pettriage/app/deps.py) **한 줄**이다.
 WS2의 LangGraph가 완성되면 `StubEngine` → `GraphEngine` 으로 바꾼다.
 계약·프론트·테스트는 손대지 않는다.
+
+## 팀원이 지금 할 일
+
+작업 배분은 **[`docs/07_작업배분.md`](docs/07_작업배분.md)** 에 있다. 마감은 **2026-08-04(화)**.
+
+| 담당 | 지금 | 읽을 것 |
+|---|---|---|
+| **이서은** | **골든셋 기준선 10건** — 제일 먼저 | [`04a`](docs/04a_골든셋작성지침.md) |
+| **오한빈** | 사실 표 추출 · 백엔드 · 검수 · 평가 실행 | [`01e`](docs/01e_사실표작성지침.md) |
+| **이근준** | 그래프 노드 (팀장과 파일 단위 분담) | `pytest -m todo` (남은 일 19건) |
+| **권소라** | UI 프론트 — 세 상태를 다 그린다 | `src/pettriage/app/web/index.html` |
+| **전원** | 골든셋 25건씩 — 기준선 확정 후 착수 | [`04a`](docs/04a_골든셋작성지침.md) |
+
+```bash
+make todo      # 남은 일 목록
+make facts     # 사실 표 검사
+make golden    # 골든셋 검사
+make index     # 사실 표 → 청크 (문장이 어떻게 나오는지 확인)
+```
 
 ## 저장소 구조
 
