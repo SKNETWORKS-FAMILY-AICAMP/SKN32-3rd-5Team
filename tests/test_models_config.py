@@ -50,6 +50,26 @@ def test_score_threshold_is_positive():
     assert load_config("default").retrieval.score_threshold > 0
 
 
+def test_score_threshold_does_not_reject_grounded_queries():
+    """근거가 있는 질의를 거절하는 임계값은 **과소평가를 만든다** (D-13 · D-46).
+
+    실측(`scripts/calibrate_threshold.py`)에서 근거 있는 질의의 최저 점수가 **0.547**
+    이었다 — "앵무새 앞에서 프라이팬을 태웠어요" → PTFE. 그 아래로 유지해야 한다.
+
+    **임계값을 올려 거절 정확도를 높이려는 시도를 이 테스트가 막는다.**
+    거절은 ① 의도 분류와 ④ 근거 검증이 만든다 (D-46).
+    """
+    lowest_grounded = 0.547
+    assert load_config("default").retrieval.score_threshold < lowest_grounded
+
+
+def test_config_and_module_default_agree_on_threshold():
+    """YAML 과 코드 기본값이 어긋나면 설치 형태에 따라 안전 동작이 달라진다 (D-41)."""
+    from pettriage.config import RetrievalConfig
+
+    assert load_config("default").retrieval.score_threshold == RetrievalConfig().score_threshold
+
+
 # ── 태스크·프롬프트 ──────────────────────────────────────────
 def test_every_default_task_has_spec():
     for t in DEFAULT_TASKS:

@@ -64,6 +64,35 @@ def _meta(chunk: Chunk) -> dict[str, Any]:
     }
 
 
+def to_chroma_where(where: dict[str, Any] | None) -> dict[str, Any] | None:
+    """우리 필터 표기를 Chroma 문법으로 옮긴다.
+
+    그래프 노드는 `{"species": ["cat", "mammal", "all"]}` 처럼 **목록을 그대로** 넘긴다
+    (D-39 고양이 병합 검색). Chroma 는 이걸 못 받고 `{"$in": [...]}` 를 요구하며,
+    조건이 둘 이상이면 `$and` 로 묶어야 한다.
+
+        {"species": ["cat", "mammal"], "doc_type": "toxicity_food"}
+        → {"$and": [{"species": {"$in": [...]}}, {"doc_type": "toxicity_food"}]}
+
+    **번역을 여기 한 곳에 둔다.** 노드가 저장소 문법을 알면 pgvector 로 옮길 때
+    노드를 전부 고쳐야 한다 — `VectorStore` Protocol 을 둔 이유가 그것이다.
+    """
+    if not where:
+        return None
+    clauses: list[dict[str, Any]] = []
+    for k, v in where.items():
+        if isinstance(v, list | tuple | set):
+            vals = [x for x in v if x is not None and x != ""]
+            if not vals:
+                continue
+            clauses.append({k: {"$in": list(vals)}} if len(vals) > 1 else {k: vals[0]})
+        else:
+            clauses.append({k: v})
+    if not clauses:
+        return None
+    return clauses[0] if len(clauses) == 1 else {"$and": clauses}
+
+
 def _matches(meta: dict[str, Any], where: dict[str, Any] | None) -> bool:
     if not where:
         return True
@@ -180,7 +209,8 @@ class ChromaStore:
         res = col.query(
             query_embeddings=self.embedder.encode([query]),
             n_results=top_k,
-            where=where or None,
+            # 목록 필터는 Chroma 문법으로 옮겨야 한다 — 그대로 넘기면 ValueError 다
+            where=to_chroma_where(where),
         )
         hits: list[Hit] = []
         for i, doc in enumerate(res["documents"][0]):
