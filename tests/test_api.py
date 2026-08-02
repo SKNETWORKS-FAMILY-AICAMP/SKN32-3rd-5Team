@@ -457,3 +457,48 @@ def test_연락처는_엔진을_거치는_모든_응답에서_제거된다(clien
     assert "764-7661" not in d["full_text"]
     assert "5 mg/g" in d["answer"]  # 안전한 정보는 살아남는다
     assert d["triage"]["escalation_conditions"] == ["구토"]  # 항목 단위로만 뺀다
+
+
+def test_밝히지_않은_추정은_응답을_만들_수_없다():
+    """추정 물질로 답하면서 그 가정을 숨길 수 없다 (D-59).
+
+    물질을 말하지 않는 질의(*"앵무새 앞에서 프라이팬을 태웠어요"*)에
+    후보 중 최고 등급으로 답하는 것은 D-13(과소평가 최우선)에 따른 선택이다.
+    그 선택이 정직하려면 **무엇을 가정했는지가 문장에 있어야** 한다.
+
+    문장 생성에 맡기면 LLM 이 한 줄을 빠뜨리는 순간 추측이 단정이 된다 —
+    그것이 곧 환각이다. 그래서 계약이 강제한다 (D-54 와 같은 방식).
+    """
+    cit = [Citation(source_id="S-071", publisher="AAV 미국조류수의사회")]
+    tri = TriageResult(level=4, message="지금 바로 동물병원으로 가세요")
+
+    # 가정을 밝히지 않으면 만들어지지 않는다
+    with pytest.raises(ValidationError, match="밝히지 않은 추정은 환각"):
+        AskResponse(
+            status="answered",
+            session_id="s",
+            answer="앵무새를 즉시 환기된 곳으로 옮기고 병원으로 가세요.",
+            triage=tri,
+            citations=cit,
+            assumed_substance="PTFE 흄",
+        )
+
+    # 밝히면 통과한다
+    r = AskResponse(
+        status="answered",
+        session_id="s",
+        answer="PTFE 흄(논스틱 코팅 과열 연기)으로 보고 안내드립니다. 즉시 병원으로 가세요.",
+        triage=tri,
+        citations=cit,
+        assumed_substance="PTFE 흄",
+    )
+    assert r.assumed_substance == "PTFE 흄"
+    assert "PTFE 흄" in r.full_text
+
+    # 추정이 없으면 검사 자체가 돌지 않는다 (기존 응답에 영향 0)
+    assert (
+        AskResponse(
+            status="answered", session_id="s", answer="답변", triage=tri, citations=cit
+        ).assumed_substance
+        is None
+    )

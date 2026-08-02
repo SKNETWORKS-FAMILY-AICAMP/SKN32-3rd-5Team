@@ -274,6 +274,13 @@ class AskResponse(_Strict):
     clarify: ClarifyPrompt | None = None
     refusal: Refusal | None = None
 
+    #: **확인받지 못한 추정 물질** (D-59). 사용자가 물질을 말하지 않았고 되묻기로도
+    #: 확정하지 못했을 때, 후보 중 최고 등급으로 답하면서 그 가정을 여기 남긴다.
+    #:
+    #: 값을 넣으면 `_assumption_must_be_stated` 가 **문장에 그 가정이 실렸는지 확인한다.**
+    #: 안 실렸으면 응답을 만들 수 없다 — **밝히지 않은 추정은 곧 환각이다.**
+    assumed_substance: str | None = None
+
     #: 02 §9 — 상태와 무관하게 항상 나간다.
     disclaimer: str = DISCLAIMER
 
@@ -344,6 +351,28 @@ class AskResponse(_Strict):
                 raise ValueError("거절하면서 트리아지 배지를 내보낼 수 없다 (02 §9).")
             if self.clarify is not None:
                 raise ValueError("refused 와 되묻기를 함께 실을 수 없다.")
+        return self
+
+    @model_validator(mode="after")
+    def _assumption_must_be_stated(self) -> AskResponse:
+        """추정 물질로 답하면서 **그 가정을 숨길 수 없다** (D-59).
+
+        물질을 말하지 않는 질의(*"앵무새 앞에서 프라이팬을 태웠어요"*)에
+        후보 중 최고 등급으로 답하는 것은 D-13(과소평가 최우선)에 따른 선택이다.
+        그 선택이 정직하려면 **무엇을 가정했는지가 문장에 있어야** 한다.
+
+        이것을 문장 생성에 맡기면 안 된다 — LLM 이 한 줄을 빠뜨리는 순간
+        추측이 단정으로 나가고, **그것이 곧 환각이다.** 그래서 계약이 강제한다
+        (D-54 와 같은 방식: *지키기로 한 것이 아니라 못 어기는 것*).
+
+        `full_text` 를 보는 이유는 `_no_foreign_contacts` 와 같다 — 화면 없는
+        클라이언트가 읽는 것이 그것이고, 가정은 거기에 실려야 의미가 있다.
+        """
+        if self.assumed_substance and self.assumed_substance not in self.full_text:
+            raise ValueError(
+                f"추정 물질 {self.assumed_substance!r} 로 답하면서 그 가정을 문장에 밝히지 않았다 "
+                "(D-59). 밝히지 않은 추정은 환각이다."
+            )
         return self
 
     @model_validator(mode="after")
