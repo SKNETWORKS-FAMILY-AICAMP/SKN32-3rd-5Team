@@ -81,6 +81,28 @@ PROBES: tuple[tuple[str, str, str], ...] = (
 #:
 #: `calibrate_threshold.py` 에도 음성이 있지만 그건 따로 돌리는 스크립트라
 #: **적재할 때마다 도는 관문이 아니다.**
+#: **D-46 이 정한 임계값 하한.** 이 아래로 내리면 근거가 없다.
+#:
+#: 임계값은 두 방향으로 틀릴 수 있고, 각각 다른 장치가 잡는다.
+#:
+#:   올리면 → 근거 있는 질의가 잘린다 (과소평가, D-13). **양성 프로브**가 잡는다
+#:   내리면 → 0.2대 문서로 답하는 경로가 열린다. **이 상수**가 잡는다
+#:
+#: D-46 이 (c)"임계값을 없앤다"를 버린 이유가 후자다 —
+#: *"임계값이 없으면 검색이 항상 무언가를 돌려준다."* 최소선은 남긴다.
+THRESHOLD_FLOOR: float = 0.50
+
+
+def probe_threshold(threshold: float) -> int:
+    """임계값이 D-46 의 하한 아래로 내려갔는지 본다. **설정값은 인덱서가 판정할 수 있다** (D-58)."""
+    if threshold >= THRESHOLD_FLOOR:
+        return 0
+    print(f"\n✗ score_threshold={threshold} 가 D-46 하한 {THRESHOLD_FLOOR} 미만이다.")
+    print("  내리려면 `scripts/calibrate_threshold.py` 로 재측정하고 D-46 을 갱신할 것.")
+    print("  근거 없이 내리면 0.2대 문서로 답하는 경로가 열린다 (configs/default.yaml).")
+    return 1
+
+
 NEGATIVE_PROBES: tuple[str, ...] = (
     "고양이 캣타워 추천해 주세요",
     "오늘 날씨 어때요",
@@ -206,39 +228,76 @@ def probe_unknown_substance(store, top_k: int) -> None:
     print("  → 이 질의들은 **되묻는다.** 서술로 물질을 특정하면 근거 없는 추측이다 (D-49 후속)")
 
 
-def probe_negative(store, threshold: float, top_k: int) -> int:
-    """음성 점검 — **1위가 임계값을 넘으면 실패다.**
+def probe_negative(store, top_k: int, positive_scores: list[float]) -> None:
+    """음성 점검 — **보고만 한다. 판정하지 않는다** (D-46 · D-58).
 
-    넘는다는 것은 관계없는 질의가 근거를 얻는다는 뜻이고,
-    그러면 파이프라인이 거절해야 할 자리에서 답을 만든다.
+    ⚠️ 2026-08-02 에 판정을 걷어냈다. 예전에는 이랬다.
+
+        print(f"음성 점검 — 1위가 {threshold} **미만**이어야 통과")
+        ok = top.score < threshold
+        fails += 0 if ok else 1
+        # 실패 메시지: "임계값을 넘었다 — 이 질의가 근거를 얻으면 거절이 안 된다 (D-46)"
+
+    **D-46 을 인용하면서 D-46 이 폐기한 기준을 강제하고 있었다.** D-46 은 실측으로
+    근거 있음(0.547~0.733)과 없음(0.494~0.659)이 **겹친다**는 것을 확인하고,
+    `0.50` 을 고르면서 *"근거 없는 것 중 최저 1건만 차단 · 방어 효과는 거의 없다 ·
+    **그 사실을 숨기지 않는다**"* 라고 적었다. 10건 중 1건이 예상값인데
+    이 검사는 4건 중 4건을 요구했다 — **상시 빨간불**이고, 상시 빨간불은 아무도 안 본다.
+
+    거절은 임계값이 아니라 ①`classify_intent`(범위밖)와 ④`verify_grounding`(근거없음)이
+    만든다. 검색 단계에서 판정할 수 있는 것이 아니다 (D-58).
+
+    그래서 여기서 재는 것은 **겹침 구간**이다. D-46 의 근거가 되는 숫자이고,
+    인덱스를 다시 만들 때마다 재측정되어야 한다. 겹침이 사라지면 그것이 뉴스다.
     """
-    print(f"\n음성 점검 — 1위가 {threshold} **미만**이어야 통과")
-    fails = 0
+    print("\n음성 점검 — **보고만 한다.** 임계값은 거절을 만들지 못한다 (D-46)")
+    negative_scores: list[float] = []
     for q in NEGATIVE_PROBES:
         hits = store.search(q, top_k=top_k)
         if not hits:
-            print(f"  ✓ {q!r} → 결과 없음")
+            print(f"  · {q!r} → 결과 없음")
             continue
         top = hits[0]
-        ok = top.score < threshold
-        fails += 0 if ok else 1
-        print(f"  {'✓' if ok else '✗'} {q!r}  1위 {top.score:.3f} · {top.chunk.substance}")
-        if not ok:
-            print("      임계값을 넘었다 — 이 질의가 근거를 얻으면 거절이 안 된다 (D-46)")
-    print(f"\n  → 음성 {len(NEGATIVE_PROBES)}건 중 실패 {fails}건")
-    return fails
+        negative_scores.append(top.score)
+        print(f"  · {q!r}  1위 {top.score:.3f} · {top.chunk.substance}")
+
+    if not (positive_scores and negative_scores):
+        print("\n  ▸ 겹침을 계산할 표본이 부족하다")
+        return
+    pos_lo, pos_hi = min(positive_scores), max(positive_scores)
+    neg_hi = max(negative_scores)
+    print(f"\n  ▸ 양성 {pos_lo:.3f}~{pos_hi:.3f}  /  음성 최고 {neg_hi:.3f}")
+    if neg_hi >= pos_lo:
+        print("    두 분포가 **겹친다** — D-46 재확인. 어떤 임계값도 이 둘을 가르지 못한다.")
+        print("    거절은 ①분류(범위밖)와 ④검증(근거없음)이 만든다. 이 값으로 만들지 않는다.")
+    else:
+        print("    겹치지 않는다 — **D-46 의 전제가 바뀌었다.** 재측정하고 결정을 갱신할 것.")
 
 
-def probe(store, threshold: float, top_k: int) -> int:
-    """점검 질의를 돌려 **실패 건수**를 돌려준다.
+def probe(store, threshold: float, top_k: int) -> tuple[int, list[float]]:
+    """점검 질의를 돌려 **실패 건수와 1위 점수 목록**을 돌려준다.
 
-    통과 기준 두 가지 —
-      1. 기대한 것이 상위 `top_k` 안에 있다
-      2. 1위 점수가 `score_threshold` 를 넘는다.
-         못 넘으면 파이프라인이 그 질의를 **거절로 보낸다** (02 §8.3)
+    통과 기준 두 가지 — **검색이 통제하는 것만 본다** (D-58).
+
+      1. 기대한 것이 상위 `top_k` 안에 있다 (`recall@k`)
+      2. 1위 점수가 `score_threshold` 를 넘는다. 못 넘으면 임계 필터가 전부 걷어내
+         **결과 0건**이 되고, 0건은 거절 신호다 (D-46 — 0건**만**이 거절이다)
+
+    ⚠️ **순위로 판정하지 않는다.** 기대값이 1위인지 3위인지는 검색의 계약이 아니다 —
+    `retrieve` 는 `{"hits": [...]}` 로 **후보 집합 전체**를 넘기고, 그 뒤
+    `compress_context`·`generate_draft` 가 상위 k 를 **전부** 읽는다.
+    등급은 `triage` 가 `apply_gate` 로 정한다. 순위를 여기서 판정하면
+    *"1위가 곧 답"* 이라는, 파이프라인에 존재하지 않는 모델을 강제하게 된다 (D-58).
+
+    (2026-08-02 검토 중 *"1위 등급 < 기대 등급이면 실패"* 를 넣으려다 취소했다.
+    등급 판정은 그래프와 평가 하네스의 일이고, 골든셋 `G-013` 이 이미 그 자리에 있다.)
+
+    아래 `기대` 줄은 **진단용**이다 — 어떤 청크가 후보에 들어왔는지 사람이 본다.
     """
     print(f"\n검색 점검 — top_k={top_k} · score_threshold={threshold}")
+    print("  판정은 recall@k 와 1위 점수 둘뿐이다. 순위·등급은 판정하지 않는다 (D-58)")
     fails = 0
+    top_scores: list[float] = []
     for q, expect, species in PROBES:
         where = {"species": [species, "mammal", "all"]} if species else None
         hits = store.search(q, top_k=top_k, where=where)
@@ -247,20 +306,53 @@ def probe(store, threshold: float, top_k: int) -> int:
             fails += 1
             continue
         top = hits[0]
-        found = any(expect in h.chunk.substance or expect in h.chunk.text for h in hits)
+        top_scores.append(top.score)
+        matched = [
+            (i, h)
+            for i, h in enumerate(hits, 1)
+            if expect in h.chunk.substance or expect in h.chunk.text
+        ]
         ok_score = top.score >= threshold
-        ok = found and ok_score
+        ok = bool(matched) and ok_score
         fails += 0 if ok else 1
         print(f"  {'✓' if ok else '✗'} {q!r}")
         print(f"      1위 {top.score:.3f} · {top.chunk.substance} ({top.source_id})")
-        if not found:
+        _print_expected(expect, matched, top_k)
+        if not matched:
             print(f"      기대한 {expect!r} 가 상위 {top_k} 안에 없다")
         if not ok_score:
-            print(f"      1위 점수가 임계값 {threshold} 미만 — 이 질의는 거절로 간다")
+            print(f"      1위 점수가 임계값 {threshold} 미만 — 임계 필터가 0건을 만든다")
     print(f"\n  → 점검 {len(PROBES)}건 중 실패 {fails}건")
     if fails:
         print("     임베딩·문장 템플릿·score_threshold 중 하나를 봐야 한다 (configs/default.yaml)")
-    return fails
+    return fails, top_scores
+
+
+def _print_expected(expect: str, matched: list, top_k: int) -> None:
+    """기대 계열이 후보 안에 **무엇으로** 들어왔는지 보여준다. **판정하지 않는다.**
+
+    문자열 하나(`"PTFE"`)에 걸리는 청크가 여러 개이고 **내용이 천차만별**이라 필요하다.
+    실측 (2026-08-02) — `PTFE` 계열 6건 중 3건은 등급도 증상도 없다.
+
+        F-071-005  응급   증상 4종   PTFE(폴리테트라플루오로에틸렌) 과열 흄
+        F-093-008  없음   증상 0종   PTFE(테플론) 흄        ← 문장이 사실상 비어 있다
+
+    `recall@k` 는 **아무거나 하나**만 들어와도 통과한다. 그것이 위협을 말하는 청크인지는
+    사람이 봐야 한다 — *"근거가 충분한가"* 는 ④`verify_grounding` 의 판단이지
+    인덱서의 판단이 아니다 (D-58). 그래서 **보여주기만** 한다.
+
+    등급 없는 청크가 있는 것은 결함이 아니다. 원문이 등급을 주지 않았으면 만들지 않는다
+    (D-38 · `Fact.triage_ko`).
+    """
+    if not matched:
+        return
+    print(f"      기대 {expect!r} 후보 안 {len(matched)}건  (② 슬롯 확장 **전** 기준)")
+    for rank, h in matched:
+        c = h.chunk
+        print(f"        {rank}/{top_k}위 {h.score:.3f} · {c.source_id} · {c.substance[:40]}")
+    last = max(r for r, _ in matched)
+    if last >= top_k:
+        print(f"        ⚠ 마지막이 {last}/{top_k}위 — 자료가 늘거나 중복이 접히면 후보에서 빠진다")
 
 
 def main() -> int:
@@ -345,11 +437,14 @@ def main() -> int:
     if args.no_probe:
         return 0
 
-    # 양성·음성을 **둘 다** 돌린다. 하나만 보면 임계값을 잘못 잡아도 초록이 나온다.
-    fails = probe(store, r.score_threshold, r.top_k)
-    fails += probe_negative(store, r.score_threshold, r.top_k)
-    probe_symptom(store, r.top_k)  # 판정하지 않는 보고 (D-49)
-    probe_unknown_substance(store, r.top_k)  # 판정하지 않는 보고 (D-49 후속)
+    # 판정하는 것 둘 — recall@k(양성)와 임계값 하한. **검색·설정이 통제하는 것뿐이다** (D-58).
+    fails = probe_threshold(r.score_threshold)
+    probe_fails, positive_scores = probe(store, r.score_threshold, r.top_k)
+    fails += probe_fails
+    # 아래는 전부 **보고**다. 판정하지 않는다.
+    probe_negative(store, r.top_k, positive_scores)  # 겹침 구간 재측정 (D-46)
+    probe_symptom(store, r.top_k)  # 증상 질의 모호도 (D-49)
+    probe_unknown_substance(store, r.top_k)  # 물질 서술 질의 (D-49 후속)
     print(f"\n{'✓ 전체 통과' if not fails else f'✗ 총 실패 {fails}건'}")
     return 1 if fails else 0
 
