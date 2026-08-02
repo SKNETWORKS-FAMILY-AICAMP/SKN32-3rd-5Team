@@ -118,6 +118,7 @@ class ModelConfig(_ConfigBase):
                 "04 §8 재현성 표에 실제로 쓴 커밋을 적을 것."
             )
         return self
+
     max_seq_len: int = 4096
     dtype: Literal["bfloat16", "float16", "auto"] = "bfloat16"
     load_in_4bit: bool = True
