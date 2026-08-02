@@ -35,7 +35,10 @@ class TriageDecision:
     rule_level: TriageLevel | None
     llm_level: TriageLevel | None
     escalation_conditions: tuple[str, ...] = field(default_factory=tuple)
-    overridden: bool = False  # LLM이 낮추려 한 것을 게이트가 막았는가
+    overridden: bool = False  # LLM이 **낮추려** 한 것을 게이트가 막았는가 (D-09)
+    #: LLM 이 **올리려** 한 것을 게이트가 막았는가 (D-80).
+    #: 규칙 등급이 **정량 계산**에서 나왔을 때만 참이 될 수 있다.
+    llm_capped: bool = False
 
     @property
     def badge(self) -> str:
@@ -61,13 +64,42 @@ def apply_gate(
     llm_level: TriageLevel | int | None,
     *,
     escalation_conditions: tuple[str, ...] = (),
+    rule_is_quantitative: bool = False,
 ) -> TriageDecision:
-    """규칙 판정과 LLM 판정을 병합한다. **상향만 수용한다.**
+    """규칙 판정과 LLM 판정을 병합한다. **하향은 언제나 막고, 상향은 조건부로 받는다.**
+
+    ## D-80 — 잰 자리에서는 규칙이, 못 잰 자리에서는 LLM 이 맞다
+
+    2026-08-03 골든셋 60건 실측 (`--arm A` · gpt-4o-mini) —
+
+        LLM 이 올렸다  10건   그중 **과대로 끝난 것 7건** (70%)
+        🔒 하향 차단     5건
+
+        틀린 상승 7건 중 6건이 `rule=3 llm=4` — CALL_NOW 를 EMERGENCY 로 한 칸씩
+        올렸다. 유형별로 `dose` 가 가장 나빴다 (과대 42.9%).
+
+        반대로 옳았던 상승도 있다 — 기준선에서 과소였던 G-011(백합·cat)·G-017
+        (아보카도·bird)이 LLM 상승으로 고쳐졌다. **둘 다 양이 없어 못 잰 자리**다.
+
+    경계가 선명하다 —
+
+        못 잰 자리(정성 표 · 양 미상 바닥)  → LLM 이 맞다. 그대로 올린다
+        잰 자리(섭취량 ÷ 체중 → 역치 비교)  → **규칙이 맞다. 올리지 않는다**
+
+    출처 달린 역치와 계산된 용량이 있는데 그 위로 올리는 것은 **근거 없는 상승**이고,
+    근거 없는 주장은 방향이 위든 아래든 자료 밖으로 나가는 것이다 (D-10 · D-16).
+    D-09 를 뒤집는 것이 아니라 **적용 범위를 정하는 개정**이다 — 하향 금지는 그대로다.
+
+    ⚠️ **막았다는 사실은 지우지 않는다.** `llm_level` 은 그대로 싣고 `llm_capped` 로
+    표시한다. 조용히 무시하면 *"LLM 이 규칙과 늘 같다"* 로 보이고, 그것은 거짓이다.
 
     Args:
         rule_level: 규칙 테이블 1차 판정. 미적용이면 None.
         llm_level:  LLM 판정. 규칙이 적중해 LLM을 부르지 않았으면 None.
         escalation_conditions: MONITOR일 때 함께 출력할 상승 조건.
+        rule_is_quantitative: `rule_level` 이 **실제 용량 계산**에서 나왔는가.
+            참이면 LLM 은 그 위로 올릴 수 없다. `compute_metrics` 만 이것을 세운다 —
+            정성 표·양 미상 바닥은 세우지 않는다.
 
     Raises:
         ValueError: 양쪽 모두 None (판정 근거가 아예 없음 — 거절 경로로 가야 한다).
@@ -89,6 +121,16 @@ def apply_gate(
 
     overridden = rule_level is not None and llm_level is not None and llm_level < rule_level
 
+    # **잰 자리에서는 올리지 않는다** (D-80). 하향 금지는 위에서 이미 `max` 가 지켰다.
+    llm_capped = (
+        rule_is_quantitative
+        and rule_level is not None
+        and llm_level is not None
+        and llm_level > rule_level
+    )
+    if llm_capped:
+        final = rule_level
+
     if final == TriageLevel.MONITOR and not escalation_conditions:
         raise MonitorWithoutConditions(
             "MONITOR는 상승 조건 없이 출력할 수 없다 (D-39). "
@@ -101,4 +143,5 @@ def apply_gate(
         llm_level=llm_level,
         escalation_conditions=escalation_conditions,
         overridden=overridden,
+        llm_capped=llm_capped,
     )

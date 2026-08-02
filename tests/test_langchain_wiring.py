@@ -104,3 +104,34 @@ def test_vector_store_is_deliberately_not_langchain():
     assert hasattr(retrieval, "filter_by_threshold")
     assert hasattr(retrieval, "dedupe_by_substance")
     assert hasattr(retrieval, "ChromaStore")
+
+
+def test_thinking_is_disabled_for_gemini_only():
+    """**사고 모드를 끈다 — Gemini 에만** (2026-08-02 실측).
+
+    안 끄면 사고 토큰이 `max_tokens` 를 먼저 다 쓰고 **본문 전에 잘린다.**
+    ①분류(`max_tokens=16`)가 빈 문자열을 돌려주고, 코드는 그것을 허용목록 밖으로
+    걸러 전부 `unknown` → 거절로 보냈다. Qwen3 로컬에서 만난 것과 같은 함정이다.
+
+    ⚠️ **OpenAI 본가에 보내면 400 이다.** 추론 모델이 아닌 모델은 이 인자를 모른다.
+    """
+    from pettriage.models.serving.client import APIClient
+
+    gem = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    assert APIClient("gemini-3.5-flash", gem)._thinking_off() == {"reasoning_effort": "none"}
+    assert APIClient("gpt-4o-mini")._thinking_off() == {}
+    assert APIClient("qwen/qwen3-4b", "https://openrouter.ai/api/v1")._thinking_off() == {}
+
+
+def test_both_clients_share_retry_and_thinking_rules():
+    """A 와 A-LC 는 **연동 방식만** 달라야 한다 (D-71 · D-22).
+
+    재시도 횟수나 사고 설정이 다르면 두 실행의 차이가 *"LangChain 때문"* 인지
+    *"조건이 달라서"* 인지 알 수 없다 — 비교가 성립하지 않는다.
+    """
+    from pettriage.models.serving import client as m
+
+    gem = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    lc = m.LangChainClient("gemini-3.5-flash", gem)._chat(max_tokens=16)
+    assert lc.max_retries == m._MAX_RETRIES
+    assert lc.reasoning_effort == "none"

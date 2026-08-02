@@ -283,3 +283,62 @@ class TestLabelsAreShared:
         for task in (Task.COMPRESS, Task.SIMPLIFY):
             assert SPECS[task].labels == ()
             assert "[라벨]" not in system_prompt(task)
+
+
+# ── 호출 간격 제한 ───────────────────────────────────────────
+class Test호출간격:
+    """저등급 API 의 429 를 **부딪히기 전에** 막는다.
+
+    2026-08-02 Gemini 실측 — 재시도 8회를 다 쓰고도 실패했고, 실행이 통째로 멈췄다.
+    재시도는 실패한 뒤의 대응이고, 간격 제한은 실패를 안 만드는 쪽이다.
+    """
+
+    def test_기본은_꺼져있다(self):
+        """기본값이 0이 아니면 **아무도 모르게 평가가 느려진다.**"""
+        assert load_config("default").model.min_interval_ms == 0
+
+    def test_0이면_기다리지_않는다(self, monkeypatch):
+        import time
+
+        from pettriage.models.serving import client as mod
+
+        monkeypatch.setattr(mod, "_last_call_at", 0.0)
+        t0 = time.monotonic()
+        mod._throttle()
+        assert time.monotonic() - t0 < 0.05
+
+    def test_설정한_간격만큼_기다린다(self, monkeypatch):
+        """`min_interval_ms` 를 코드가 **실제로 읽는지** 본다 (D-69).
+
+        설정에 키만 두고 아무도 안 읽던 전례가 있다. 여기서는 시간으로 확인한다.
+        """
+        import time
+
+        from pettriage.config import get_config, reset_caches
+        from pettriage.models.serving import client as mod
+
+        # **가짜 설정을 끼우지 않는다.** 환경변수 → 설정 → 코드까지 사슬을 통째로 태운다.
+        # 이 사슬의 마지막 칸이 끊겨 있던 것이 D-69 였다.
+        monkeypatch.setenv("PETTRIAGE__MODEL__MIN_INTERVAL_MS", "120")
+        reset_caches()
+        assert get_config().model.min_interval_ms == 120, "환경변수가 설정에 안 닿는다"
+
+        monkeypatch.setattr(mod, "_last_call_at", 0.0)
+        mod._throttle()  # 첫 호출은 기준점만 잡는다
+        t0 = time.monotonic()
+        mod._throttle()  # 두 번째는 간격을 채운다
+        waited = time.monotonic() - t0
+        assert waited >= 0.10, f"기다리지 않았다: {waited:.3f}s"
+
+    def test_설정을_못_읽어도_호출은_나간다(self, monkeypatch):
+        """간격 제한이 **호출을 막는 새 실패 원인이 되면 안 된다.**"""
+        import pettriage.config as cfgmod
+        from pettriage.models.serving import client as mod
+
+        def boom():
+            raise RuntimeError("설정 없음")
+
+        boom.cache_clear = lambda: None  # conftest 의 캐시 비우기가 이것을 부른다
+        monkeypatch.setattr(cfgmod, "get_config", boom)
+        monkeypatch.setattr(mod, "_last_call_at", 0.0)
+        mod._throttle()  # 예외가 새어 나오지 않는다

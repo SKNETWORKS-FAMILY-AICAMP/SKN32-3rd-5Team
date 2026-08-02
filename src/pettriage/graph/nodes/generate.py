@@ -17,6 +17,7 @@ import logging
 
 from ...models.tasks import Task
 from ...safety import scrub_contacts
+from ..fallbacks import LLM_FALLBACKS, RAW, note_fallback, reset_llm_fallbacks  # noqa: F401
 from ..state import GraphState
 
 log = logging.getLogger(__name__)
@@ -28,23 +29,18 @@ _COMPRESS_LEN_THRESHOLD = 800
 _SOFTENING_TERMS = ("괜찮", "지켜보", "관찰만", "별문제", "걱정 마")
 
 
-#: **LLM 없이 돈 노드 이름.** 프로세스 전역이고 하네스가 읽는다 (D-58 · `EngineUnavailable` 선례).
-#:
-#: 왜 남기나 — `generate_draft` 는 LLM 이 없으면 `draft = context` 로 폴백하고,
-#: `verify_grounding` 은 draft 와 context 의 2-gram 을 비교한다. **폴백 경로에서는
-#: 그 둘이 같으므로 판정이 항상 `근거있음`** 이다. 04 는 ④의 지표를
-#: *"근거없음 탐지 재현율 — 놓치면 환각이 나간다"* 로 정했는데, 폴백에서는
-#: 그 재현율이 **0인 채 100% 초록**으로 보인다.
-#:
-#: `deps.EngineUnavailable` 이 이미 같은 판단을 했다 —
-#: *"조용히 스텁으로 내려가면 평가 지표가 스텁으로 산출된다. 그 지표는 오염된 것이므로
-#: 기본은 실패다."* 같은 원칙을 LLM 폴백에도 적용한다. **끄지 않고 표시한다.**
-LLM_FALLBACKS: set[str] = set()
-
-
-def reset_llm_fallbacks() -> None:
-    """측정 시작 전에 비운다. 하네스·테스트가 부른다."""
-    LLM_FALLBACKS.clear()
+# **폴백 기록은 `graph/fallbacks.py` 가 갖는다** — 다섯 태스크가 같은 문을 쓴다.
+#
+# 왜 남기나 — `generate_draft` 는 LLM 이 없으면 `draft = context` 로 폴백하고,
+# `verify_grounding` 은 draft 와 context 의 2-gram 을 비교한다. **폴백 경로에서는
+# 그 둘이 같으므로 판정이 항상 `근거있음`** 이다. 04 는 ④의 지표를
+# *"근거없음 탐지 재현율 — 놓치면 환각이 나간다"* 로 정했는데, 폴백에서는
+# 그 재현율이 **0인 채 100% 초록**으로 보인다.
+#
+# ⚠️ 이 집합이 **이 파일 안에** 있던 동안 ①분류·②슬롯은 한 번도 기록하지 않았다.
+#    기록하는 자리가 한 노드 안에 있으면 다른 노드는 안 하는 것이 기본값이 된다.
+#    이름을 여기서 다시 내보내는 것은 예전 임포트 경로를 살려 두기 위해서다 —
+#    **가리키는 객체는 하나다** (D-22).
 
 
 #: 답변 초안 프롬프트. **5태스크 밖**이라 파인튜닝 대상이 아니다 (05 §4).
@@ -64,7 +60,17 @@ _TRIAGE_PROMPT = (
     "근거를 읽고 긴급도를 **하나만** 고른다.\n"
     "EMERGENCY(지금 병원) · CALL_NOW(지금 전화) · VISIT_SOON(오늘 중 진료) · MONITOR(관찰)\n"
     "라벨만 출력한다. 판단이 서지 않으면 아무것도 출력하지 않는다 — "
-    "**애매하면 비우는 것이 낮게 부르는 것보다 낫다** (D-13)."
+    "**애매하면 비우는 것이 낮게 부르는 것보다 낫다** (D-13).\n"
+    "\n"
+    "[코드가 계산한 값] 이 있으면 **그것을 다시 계산하지 않는다.** 자료의 역치에서 "
+    "코드가 낸 값이고, 네가 어림한 것보다 정확하다. 수치와 역치는 **같은 단위로 맞춰서** "
+    "주므로 그대로 견주면 된다.\n"
+    "계산된 값이 **모든 역치보다 낮으면 그 사실을 그대로 받아들인다.** 역치는 자료가 "
+    "정한 것이고 네가 다시 정하지 않는다 — 근거 없이 올리는 것도 근거 없이 내리는 것과 "
+    "같은 종류의 잘못이다. 근거에 적힌 위험 서술(사망·발작 등)은 **역치를 넘겼을 때의 "
+    "이야기**이지 그 자체로 등급을 올릴 이유가 아니다.\n"
+    "[확인 안 된 것] 이 있으면 **모르는 것을 안전으로 읽지 않는다** — "
+    "양을 모르는 독성물질 섭취는 관찰로 끝낼 일이 아니다."
 )
 
 
@@ -74,13 +80,13 @@ def _call_raw(system: str, user_input: str, max_tokens: int) -> str | None:
 
     client = get_client()
     if client is None:
-        LLM_FALLBACKS.add("(raw)")
+        note_fallback(RAW)
         return None
     try:
         return client.run_raw(system, user_input, max_tokens=max_tokens).strip()
     except Exception as e:  # noqa: BLE001
         log.warning("raw LLM 호출 실패: %s", type(e).__name__)
-        LLM_FALLBACKS.add("(raw)")
+        note_fallback(RAW)
         return None
 
 
@@ -89,11 +95,31 @@ def judge_triage(state: GraphState) -> GraphState:
 
     목록 밖이거나 LLM 이 없으면 `llm_level` 을 **세우지 않는다** — 지어내지 않는다 (D-38).
     그러면 `apply_gate` 가 `rule_level` 만으로 판정하고, 그것이 정직한 결과다.
+
+    ⚠️ **재검색 때는 다시 판정하지 않는다.** `build._after_retrieve` 가
+    *"재검색이면 계산·판정을 다시 하지 않는다 — 등급이 흔들린다"* 라고 적어 두고
+    `compute`·`rules` 만 건너뛰었다. 경로는 `compress → generate → judge` 라
+    **judge 는 그대로 다시 돌았다** (2026-08-02 확인). 주석이 막으려던 것을
+    막지 못하고 있었다.
+
+    재검색은 *근거 문장*을 다시 붙이려는 것이지 등급을 다시 매기려는 것이 아니다.
+    같은 입력에 LLM 판정이 한 번 더 끼어들면 **같은 질의가 회차마다 다른 등급**을 내고,
+    그러면 04 §8 의 재현성이 깨진다. 라우터가 아니라 여기서 막는다 —
+    간선을 하나 더 두면 *"어느 경로로 왔나"* 를 라우터 둘이 나눠 알게 된다 (D-40).
     """
+    if state.get("retry_count", 0) > 0:
+        return {}  # type: ignore[return-value]
     context = state.get("context", "")
     if not context:
         return {}  # type: ignore[return-value]
-    raw = _call_raw(_TRIAGE_PROMPT, context, max_tokens=16)
+
+    # **코드가 계산한 값을 함께 준다** (D-79). 등급은 주지 않는다 — 그러면
+    # LLM 이 규칙을 따라 읽게 되고 `overridden` 이 의미를 잃는다.
+    from .compute import numeric_evidence
+
+    evidence = numeric_evidence(state)
+    user_input = f"{evidence}\n\n[검색된 근거]\n{context}" if evidence else context
+    raw = _call_raw(_TRIAGE_PROMPT, user_input, max_tokens=16)
     if not raw:
         return {}  # type: ignore[return-value]
     from ...triage.levels import TriageLevel
@@ -111,14 +137,14 @@ def _call_llm(task: Task, user_input: str, max_tokens: int) -> str | None:
 
     client = get_client()
     if client is None:
-        LLM_FALLBACKS.add(task.value)
+        note_fallback(task)
         return None
 
     try:
         return client.run(task, user_input, max_tokens=max_tokens).strip()
     except Exception as e:
         log.warning("%s LLM 호출 실패: %s", task.value, type(e).__name__)
-        LLM_FALLBACKS.add(task.value)
+        note_fallback(task)
         return None
 
 

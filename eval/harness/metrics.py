@@ -96,8 +96,38 @@ class CaseResult:
     #: 노드별 분해 — 엔진이 제공할 때만. `{"retrieve": 193.0, "generate": 8200.0}`
     node_ms: tuple[tuple[str, float], ...] = ()
 
+    #: 이 건에서 **LLM 대신 폴백으로 처리된 태스크** (05 §6 · `AskResponse.llm_fallbacks`).
+    #:
+    #: 🔴 **성적을 해석하려면 이것이 있어야 한다.** 없으면 점수가 낮을 때
+    #:    *모델이 못한 것*인지 *모델이 안 불린 것*인지 구분이 안 된다.
+    #:    2026-08-02 까지 ①분류·②슬롯은 폴백을 아예 기록하지 않았고, 기록하던 셋도
+    #:    응답에 실리지 않아 **하네스가 한 번도 본 적이 없었다.**
+    llm_fallbacks: tuple[str, ...] = ()
+
+    #: 게이트가 무엇을 했나 (D-09 · `TriageResult`).
+    #:
+    #: 🔴 **이 셋이 없으면 등급 오류의 원인을 볼 수 없다.** 2026-08-02 프로브에서
+    #:    과대평가 4건이 나왔는데, 규칙이 틀린 건지 LLM 이 덮은 건지 **추론할 수밖에
+    #:    없었다** — `TriageResult` 는 셋 다 싣고 있었고 하네스만 안 읽었다 (D-75).
+    #:
+    #: 산출물 ④가 요구하는 *"하향 금지 게이트가 실제로 작동했다"* 의 증거이기도 하다.
+    rule_level: int | None = None
+    llm_level: int | None = None
+    gate_overridden: bool = False
+    #: LLM 이 **올리려** 한 것을 게이트가 막았나 (D-80 · 정량 계산이 있을 때만).
+    gate_capped: bool = False
+
     #: 예외로 죽은 경우. 계약 위반(pydantic ValidationError)도 여기 잡힌다.
     error: str | None = None
+
+    @property
+    def gate_raised(self) -> bool:
+        """LLM 이 규칙보다 **높게** 불러 최종 등급을 끌어올렸나 (`max` 가 LLM 을 골랐다)."""
+        return (
+            self.rule_level is not None
+            and self.llm_level is not None
+            and self.llm_level > self.rule_level
+        )
 
     @property
     def level_delta(self) -> int | None:
@@ -171,6 +201,11 @@ def score_case(
     citations: Sequence[str],
     latency_ms: float | None = None,
     node_ms: dict[str, float] | None = None,
+    llm_fallbacks: Sequence[str] = (),
+    rule_level: int | None = None,
+    llm_level: int | None = None,
+    gate_overridden: bool = False,
+    gate_capped: bool = False,
     error: str | None = None,
 ) -> CaseResult:
     """골든셋 행 + 엔진 응답 → 채점 결과 1건.
@@ -223,6 +258,11 @@ def score_case(
         not_contain_ok=not_contain_ok,
         latency_ms=latency_ms,
         node_ms=tuple(sorted((node_ms or {}).items())),
+        llm_fallbacks=tuple(llm_fallbacks),
+        rule_level=rule_level,
+        llm_level=llm_level,
+        gate_overridden=gate_overridden,
+        gate_capped=gate_capped,
         error=error,
     )
 
@@ -295,6 +335,23 @@ class Summary:
     not_contain_all_n: int = 0
     not_contain_all_ok: int = 0
 
+    #: 태스크 이름 → **폴백으로 처리된 건수.** 분모는 `n` 이다.
+    #: 값이 `n` 과 같으면 그 태스크는 이번 실행에서 **한 번도 모델을 타지 않았다.**
+    fallback_counts: Counter = field(default_factory=Counter)
+    #: 다섯 태스크가 전부 모델을 탄 건수. 0이면 LLM 성능을 잰 것이 아니다.
+    fully_llm: int = 0
+
+    #: 게이트 감사 (D-09). 분모는 `gate_n` — 규칙과 LLM 이 **둘 다** 등급을 낸 건이다.
+    gate_n: int = 0
+    gate_raised: int = 0  # LLM 이 올렸다 (최종 = llm)
+    gate_blocked: int = 0  # LLM 이 낮추려 했고 게이트가 막았다 (= overridden)
+    gate_agreed: int = 0
+    #: **LLM 이 올려서 과대평가가 된 건.** 올림이 언제나 옳지는 않다는 증거다.
+    gate_raised_wrong: int = 0
+    #: 🔒 **잰 자리라서 상승을 막은 건** (D-80). 막고도 과대면 규칙 쪽을 봐야 한다.
+    gate_capped: int = 0
+    gate_capped_wrong: int = 0
+
     confusion: Counter = field(default_factory=Counter)  # (정답등급, 예측등급)
     status_confusion: Counter = field(default_factory=Counter)
 
@@ -312,6 +369,11 @@ class Summary:
     @property
     def status_accuracy(self) -> float | None:
         return _rate(self.status_correct, self.n)
+
+    @property
+    def fully_llm_rate(self) -> float | None:
+        """다섯 태스크가 **전부** 모델을 탄 건의 비율. 0이면 LLM 을 잰 것이 아니다."""
+        return _rate(self.fully_llm, self.n)
 
     @property
     def level_accuracy(self) -> float | None:
@@ -404,6 +466,26 @@ def summarize(results: Iterable[CaseResult]) -> Summary:
         if r.status_ok:
             s.status_correct += 1
         s.status_confusion[(r.expected_status, r.actual_status)] += 1
+
+        for task in r.llm_fallbacks:
+            s.fallback_counts[task] += 1
+        if not r.llm_fallbacks:
+            s.fully_llm += 1
+
+        if r.rule_level is not None and r.llm_level is not None:
+            s.gate_n += 1
+            if r.gate_capped:
+                s.gate_capped += 1
+                if r.over or r.under:
+                    s.gate_capped_wrong += 1
+            elif r.gate_overridden:
+                s.gate_blocked += 1
+            elif r.gate_raised:
+                s.gate_raised += 1
+                if r.over:
+                    s.gate_raised_wrong += 1
+            else:
+                s.gate_agreed += 1
 
         if r.expected_level is not None and r.expected_level >= URGENT_FLOOR:
             s.urgent_n += 1

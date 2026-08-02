@@ -161,6 +161,33 @@ class Citation(_Strict):
         return self
 
 
+class ComputedMetrics(_Strict):
+    """**코드가 계산한 수치** (D-16 · 02 §7.1).
+
+    LLM 이 아니라 `compute/` 가 낸 값만 들어온다. 그래서 재현되고, 감사할 수 있다 —
+    04 §8 이 요구하는 *"같은 입력에 같은 숫자"* 는 이 경로에서만 보장된다.
+
+    ⚠️ 2026-08-02 까지 이 값은 **응답에 실리지 않았다.** `compute_metrics` 가
+        `GraphState["computed"]` 를 채웠지만 읽는 곳이 하나도 없었고, 같은 노드가
+        함께 내는 `rule_level` 만 살아남았다. 등급은 나가는데 **그 등급을 만든
+        수치는 안 나갔다** — 산출물 ④에서 *"코드가 계산했다"* 를 보일 물증이 없었다.
+
+    ⚠️ **비어 있어도 실패가 아니다.** 체중이나 섭취량을 모르면 계산할 것이 없고,
+        그때는 이 필드가 통째로 `None` 이다. 없는 값을 0으로 채우지 않는다 (D-10).
+
+    종에 따라 채워지는 칸이 다르다 (D-09) —
+      · 개·고양이 → `dose_per_kg` (g/kg). 독성 역치 판정에 쓴다
+      · 앵무새    → `daily_energy_kcal` (BER = K × Wkg^0.75). 정량 독성 판정은 안 한다
+    """
+
+    dose_per_kg: float | None = None
+    daily_energy_kcal: float | None = None
+    #: 값의 단위. **수치와 떨어뜨려 두지 않는다** — 단위 없는 숫자는 근거가 아니다.
+    unit: str | None = None
+    formula: str | None = None
+    k_value: float | None = None
+
+
 class TriageResult(_Strict):
     """트리아지 배지 + 감사 정보 (02 §7.2 · D-09 · D-39).
 
@@ -188,6 +215,12 @@ class TriageResult(_Strict):
     rule_level: int | None = None
     llm_level: int | None = None
     overridden: bool = False
+
+    #: LLM 이 **올리려** 한 것을 게이트가 막았는가 (D-80).
+    #: 규칙 등급이 **정량 계산**에서 나왔을 때만 참이다 — 출처 달린 역치와 계산된
+    #: 용량이 있는데 그 위로 올리는 것은 근거 없는 상승이기 때문이다 (D-16).
+    #: 참이면 `level` 이 `llm_level` 보다 **낮을 수 있다.** 그 경우에만 낮을 수 있다.
+    llm_capped: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -222,13 +255,34 @@ class TriageResult(_Strict):
         가 성립했다. D-09 를 우회하는 길은 *게이트를 안 부르는 것*이 아니라
         **부른 뒤 결과를 덮는 것**이었고, 계약이 그 문을 열어 두고 있었다.
         """
-        floor = max(self.rule_level or 0, self.llm_level or 0)
+        # **바닥은 규칙이다.** LLM 은 못 잰 자리에서만 그 위로 올릴 수 있다 (D-80).
+        # `llm_capped` 가 참이면 LLM 의 상승분은 바닥에 넣지 않는다 — 넣으면
+        # *올리지 않기로 한 결정*을 계약이 다시 강제하게 된다.
+        floor = self.rule_level or 0
+        if not self.llm_capped:
+            floor = max(floor, self.llm_level or 0)
         if self.level < floor:
             raise ValueError(
                 f"level={self.level} 이 게이트 바닥 {floor} 보다 낮다 — "
                 f"하향 금지 게이트의 결과를 덮을 수 없다 (D-09). "
-                f"rule_level={self.rule_level} llm_level={self.llm_level}"
+                f"rule_level={self.rule_level} llm_level={self.llm_level} "
+                f"llm_capped={self.llm_capped}"
             )
+        # 🔴 **막았다고 적었으면 실제로 막혀 있어야 한다.** 참인데 등급이 LLM 을
+        #    따라가 있으면 감사 정보가 거짓이 된다 (산출물 ④가 이 값을 근거로 쓴다).
+        if self.llm_capped:
+            if self.rule_level is None or self.llm_level is None:
+                raise ValueError("llm_capped 는 rule·llm 이 둘 다 있을 때만 참이 될 수 있다.")
+            if self.llm_level <= self.rule_level:
+                raise ValueError(
+                    f"llm_capped 인데 llm_level={self.llm_level} 이 "
+                    f"rule_level={self.rule_level} 을 넘지 않는다 — 막을 것이 없었다."
+                )
+            if self.level != self.rule_level:
+                raise ValueError(
+                    f"llm_capped 인데 level={self.level} 이 rule_level={self.rule_level} "
+                    "과 다르다 — 막았다면 규칙 등급이 그대로 나가야 한다 (D-80)."
+                )
         lv = TriageLevel(int(self.level))
         if self.name != lv.name or self.badge != lv.badge:
             raise ValueError(
@@ -313,6 +367,28 @@ class AskResponse(_Strict):
     #:
     #: **못 하는 것을 한다고 적지 않는다** (D-58).
     identified_substance: SubstanceName | None = None
+
+    #: **코드가 계산한 수치.** 계산할 슬롯이 없으면 `None` (D-16 · D-10).
+    computed: ComputedMetrics | None = None
+
+    #: 이 응답을 만들며 **LLM 대신 폴백으로 처리된 태스크** 이름 (05 §6 · 04 §3).
+    #:
+    #: 비어 있으면 다섯 태스크가 전부 모델을 탔다는 뜻이다. `(raw)` 는 5태스크 밖의
+    #: 호출(초안·트리아지 판정)이다.
+    #:
+    #: 🔴 **이것이 없으면 비교군 측정을 해석할 수 없다.** 성적이 나쁠 때
+    #:    *모델이 못한 것*인지 *모델이 안 불린 것*인지 구분이 안 된다 — 이서은 팀원이
+    #:    잡은 D-73(라벨 누락으로 LLM 이 키워드 폴백보다 나빴다)이 오래 안 보인 이유가
+    #:    그 구분이 없었기 때문이다. 하네스가 이 값을 집계해 리포트에 싣는다.
+    llm_fallbacks: list[str] = Field(default_factory=list)
+
+    #: D-47 로 **뺀 문장의 개수.** 0이면 아무것도 안 뺐다.
+    #:
+    #: 🔴 **뺀 문장 자체는 싣지 않는다.** 그 안에 방금 지운 번호가 그대로 들어 있어,
+    #:    목록으로 돌려주면 필드만 바꿔 다시 내보내는 꼴이 된다. 개수만으로도
+    #:    *"필터가 돌긴 했나"* 라는 질문에는 답할 수 있고, 무엇을 뺐는지는 로그에 남는다
+    #:    (`safety_engine.scrub_response` 의 경고).
+    removed_contact_count: int = Field(default=0, ge=0)
 
     #: 02 §9 — 상태와 무관하게 항상 나간다.
     disclaimer: str = DISCLAIMER

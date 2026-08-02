@@ -18,6 +18,7 @@ from ..app.contracts import (
     AskResponse,
     Citation,
     ClarifyPrompt,
+    ComputedMetrics,
     Refusal,
     TriageResult,
 )
@@ -127,7 +128,16 @@ class GraphEngine:
                 type(e).__name__,
                 session.session_id,
             )
-            return self._refused(session, "판정불가", _REFUSAL_MESSAGES["판정불가"])
+            # 터진 경우에도 폴백 기록은 남긴다 — **터지기 전까지 모델을 탔는지**가
+            # 원인 분석의 첫 갈래다 (API 한도로 죽은 것인가, 코드가 죽은 것인가).
+            from .fallbacks import current
+
+            return self._refused(
+                session,
+                "판정불가",
+                _REFUSAL_MESSAGES["판정불가"],
+                llm_fallbacks=current(),
+            )
 
         return self._build_response(state, session)
 
@@ -161,19 +171,42 @@ class GraphEngine:
 
         `reset_llm_fallbacks()` 는 그래프 **밖**에서 부른다 — 전역 카운터를 비우는
         것은 요청 하나의 경계에서 일어나는 일이고, 그 경계를 아는 것은 엔진이다.
+        **읽는 것도 같은 경계다.** 그래서 비우기와 읽기가 이 메서드 안에 나란히 있다.
+
+        ⚠️ 예전에는 성공 종료 노드(`build._answered`)가 폴백을 상태에 세웠다.
+            그 노드는 성공 경로에만 있어서 **되묻기·거절로 끝난 건은 기록을 잃었다.**
+            여기서 채우면 세 상태가 모두 같은 값을 갖는다 (D-22).
         """
         from .build import RECURSION_LIMIT, get_graph
-        from .nodes.generate import reset_llm_fallbacks
+        from .fallbacks import current, reset_llm_fallbacks
 
         reset_llm_fallbacks()
-        out = get_graph().invoke(state, config={"recursion_limit": RECURSION_LIMIT})
-        return dict(out)  # type: ignore[return-value]
+        out = dict(get_graph().invoke(state, config={"recursion_limit": RECURSION_LIMIT}))
+        out["llm_fallbacks"] = current()
+        return out  # type: ignore[return-value]
 
     # ── 응답 조립 ────────────────────────────────────────────
+
+    @staticmethod
+    def _audit(state: GraphState) -> dict:
+        """**세 상태에 공통으로 실리는 관측 필드.**
+
+        되묻기·거절에도 실어야 하는 이유 — 04 §3 이 확인해야 하는 것 중에는
+        *"거절된 건이 모델을 타긴 했나"* 가 있다. 성공한 건에만 붙이면
+        **폴백 때문에 거절된 건이 폴백 통계에서 빠진다.**
+
+        🔴 `removed_contacts` 는 **개수만** 넘긴다. 뺀 문장 안에 그 번호가 그대로 있어
+           목록으로 돌려주면 D-47 을 필드만 바꿔 되돌리는 꼴이 된다.
+        """
+        return {
+            "llm_fallbacks": list(state.get("llm_fallbacks") or []),
+            "removed_contact_count": len(state.get("removed_contacts") or []),
+        }
 
     def _build_response(self, state: GraphState, session: Session) -> AskResponse:
         """GraphState → AskResponse."""
         status = state.get("status", "refused")
+        audit = self._audit(state)
 
         if status == "clarify":
             session.clarify_turns = state.get("clarify_turns", 1)
@@ -185,6 +218,7 @@ class GraphEngine:
                     question=state.get("clarify_question", "추가 정보를 알려주세요."),
                     turn=state.get("clarify_turns", 1),
                 ),
+                **audit,
             )
 
         if status == "refused":
@@ -195,6 +229,7 @@ class GraphEngine:
                     state.get("refusal_reason", "판정불가"),
                     _REFUSAL_MESSAGES["판정불가"],
                 ),
+                **audit,
             )
 
         # answered — 성공한 경우 세션 되묻기 카운터 리셋
@@ -218,13 +253,23 @@ class GraphEngine:
             # 쓰게 되고, 그 순간 도약이 확정이 된다. 둘 중 **하나만** 찬다 (D-59 ⑤).
             assumed_substance=substance if assumed else None,
             identified_substance=None if assumed else substance,
+            # **코드가 계산한 수치를 응답에 남긴다** (D-16). 계산할 슬롯이 없으면 `None` —
+            # 빈 dict 을 모델로 만들면 *"계산했는데 값이 없다"* 로 읽힌다 (D-10).
+            computed=self._computed(state),
+            **audit,
         )
 
-    def _refused(self, session: Session, reason: str, message: str) -> AskResponse:
+    @staticmethod
+    def _computed(state: GraphState) -> ComputedMetrics | None:
+        raw = state.get("computed") or {}
+        return ComputedMetrics(**raw) if raw else None
+
+    def _refused(self, session: Session, reason: str, message: str, **audit: object) -> AskResponse:
         return AskResponse(
             status="refused",
             session_id=session.session_id,
             refusal=Refusal(reason=reason, message=message),  # type: ignore[arg-type]
+            **audit,  # type: ignore[arg-type]
         )
 
     def _triage_result(self, state: GraphState) -> TriageResult:
@@ -247,6 +292,9 @@ class GraphEngine:
             #    `llm_level` 이 늘 `None` 이라(D-65) 이 경로가 한 번도 안 돌아
             #    드러나지 않았다. 정의는 `gate.py` 한 곳에서 온다 (D-22).
             overridden=(rule is not None and llm is not None and llm < rule),
+            # **막았다는 사실을 지우지 않는다** (D-80). 조용히 무시하면
+            # *"LLM 이 규칙과 늘 같다"* 로 보이고, 그것은 거짓이다.
+            llm_capped=bool(state.get("llm_capped")),
         )
 
     def _citations_from_hits(self, hits: list) -> list[Citation]:

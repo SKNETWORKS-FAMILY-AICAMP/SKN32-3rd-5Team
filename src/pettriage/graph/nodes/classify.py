@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 
 from ...models.tasks import SPECS, Task
+from ..fallbacks import note_fallback
 from ..state import GraphState
 
 log = logging.getLogger(__name__)
@@ -156,6 +157,7 @@ def _llm_classify(question: str) -> str | None:
 
     client = get_client()
     if client is None:
+        note_fallback(Task.CLASSIFY)
         return None
 
     try:
@@ -163,6 +165,7 @@ def _llm_classify(question: str) -> str | None:
         return raw.strip().lower()
     except Exception as e:
         log.warning("classify LLM 호출 실패 — 키워드 폴백: %s", type(e).__name__)
+        note_fallback(Task.CLASSIFY)
         return None
 
 
@@ -174,7 +177,11 @@ def classify_intent(state: GraphState) -> GraphState:
     검색해 봐야 관련 없는 청크가 0.5대로 딸려 오기 때문이다.
 
     Returns:
-        `{"intent": ..., "risk": ...}` 만. 목록 밖이면 `intent="unknown"`.
+        `{"intent": ...}` 만. 목록 밖이면 `intent="unknown"`.
+
+    ⚠️ 예전에는 `{"intent": intent, "risk": intent}` 로 **같은 값을 두 키에** 넣었다.
+        `risk` 를 읽는 곳은 어디에도 없었고, 값이 `intent` 의 사본이라 읽을 것도 없었다.
+        상태에 남은 안 읽히는 키는 *"누군가 쓰고 있겠지"* 로 보여 지우기 어려워진다.
     """
     question = state.get("question", "")
 
@@ -191,4 +198,4 @@ def classify_intent(state: GraphState) -> GraphState:
         log.warning("intent 허용목록 밖: %r → 'unknown'", intent)
         intent = "unknown"
 
-    return {"intent": intent, "risk": intent}  # type: ignore[typeddict-item]
+    return {"intent": intent}  # type: ignore[typeddict-item]

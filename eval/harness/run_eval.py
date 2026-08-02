@@ -115,8 +115,18 @@ def _provenance() -> dict[str, object]:
 
     def git(*args: str) -> str:
         try:
+            # ⚠️ **`encoding` 을 반드시 준다.** 윈도우의 기본은 cp949 이고,
+            # 한글 경로·커밋메시지가 섞이면 읽는 스레드가 `UnicodeDecodeError` 로
+            # 죽는다 (2026-08-02 실측). 그러면 `dirty` 가 조용히 거짓이 되고,
+            # **재현 불가인 결과가 재현 가능한 것처럼 기록된다** (04 §8).
             return subprocess.run(
-                ["git", *args], capture_output=True, text=True, timeout=5, check=False
+                ["git", *args],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=5,
+                check=False,
             ).stdout.strip()
         except Exception:  # noqa: BLE001 — git 이 없거나 저장소가 아니면 그냥 비운다
             return ""
@@ -285,6 +295,11 @@ def run(rows: Iterable[dict[str, str]], engine) -> list[CaseResult]:
                     citations=[c.source_id for c in resp.citations],
                     latency_ms=elapsed,
                     node_ms=node_timings(resp),
+                    llm_fallbacks=resp.llm_fallbacks,
+                    rule_level=resp.triage.rule_level if resp.triage else None,
+                    llm_level=resp.triage.llm_level if resp.triage else None,
+                    gate_overridden=bool(resp.triage and resp.triage.overridden),
+                    gate_capped=bool(resp.triage and resp.triage.llm_capped),
                 )
             )
         except Exception as e:  # 계약 위반(ValidationError)도 여기 잡힌다 — 결과다
@@ -356,6 +371,45 @@ def report(results: list[CaseResult], *, engine_name: str, model_name: str = "?"
     L.append("    정답이 CALL_NOW 이상인데 거절·되묻기로 빠진 건이다.")
     L.append("    등급 오류가 아니라 **분모가 다르다** — 과소평가율에 섞지 않는다 (04 §1.2).")
 
+    # ── LLM 이 실제로 불렸나 ──────────────────────────────────────
+    #
+    # 🔴 **다른 모든 수치보다 먼저 읽어야 하는 칸이다.** 이것이 없으면 성적이 낮을 때
+    #    *모델이 못한 것*인지 *모델이 안 불린 것*인지 구분이 안 된다.
+    #    이서은 팀원이 잡은 D-73(라벨 누락으로 LLM 이 키워드 폴백보다 나빴다)이
+    #    오래 안 보인 이유가 정확히 그 구분이 없었기 때문이다.
+    # ── 게이트가 무엇을 했나 ────────────────────────────────────
+    #
+    # 산출물 ④ 가 요구하는 *"하향 금지 게이트가 실제로 작동했다"* 는 이 칸으로 보인다.
+    # 그리고 등급 오류의 **원인**이 여기서 갈린다 — 규칙이 틀렸나, LLM 이 덮었나.
+    if s.gate_n:
+        L.append(f"\n■ 하향 금지 게이트 (D-09 · 분모 {s.gate_n} — 규칙·LLM 둘 다 등급을 낸 건)")
+        L.append(f"  일치            {s.gate_agreed:>4}")
+        L.append(
+            f"  LLM 이 올렸다    {s.gate_raised:>4}   (그중 과대로 끝난 것 {s.gate_raised_wrong})"
+        )
+        L.append(f"  🔒 하향 차단     {s.gate_blocked:>4}   ← 게이트가 실제로 막은 횟수")
+        if s.gate_capped:
+            L.append(
+                f"  🔒 상승 차단     {s.gate_capped:>4}   "
+                f"← 잰 자리라 막았다 (D-80. 그중 여전히 어긋난 것 {s.gate_capped_wrong})"
+            )
+        if s.gate_raised_wrong:
+            L.append("    ▸ 올림이 언제나 옳지는 않다. 규칙이 정량 계산으로 낸 등급을")
+            L.append("      LLM 이 덮었다면 **근거 없는 상승**이다 (D-79 트레이드오프).")
+
+    L.append("\n■ LLM 실행 (05 §6 — 폴백은 끄지 않고 표시한다)")
+    L.append(f"  5태스크 전부 모델   {fmt(s.fully_llm_rate):>7}   ({s.fully_llm}/{s.n})")
+    if s.fallback_counts:
+        L.append("  폴백으로 처리된 태스크 (분모 = 전체 건수)")
+        for task, cnt in s.fallback_counts.most_common():
+            flag = "  ← 한 번도 모델을 타지 않았다" if cnt == s.n else ""
+            L.append(f"    {task:12} {cnt:>4}/{s.n}{flag}")
+    else:
+        L.append("  폴백 없음 — 모든 태스크가 모델을 탔다.")
+    if s.fully_llm == 0 and not model_name.startswith("none"):
+        L.append("  🔴 **모델을 붙였는데 전 건이 어딘가에서 폴백을 탔다.**")
+        L.append("     아래 지표는 비교군 성능이 아니다. 키·한도·프롬프트를 먼저 확인한다.")
+
     L.append("\n■ 근거·문구")
     L.append(f"  must_cite 적중(any)  {fmt(s.cite_any_rate):>7}   ({s.cite_any}/{s.cite_n})")
     L.append(f"  must_cite 적중(all)  {fmt(s.cite_all_rate):>7}   ({s.cite_all}/{s.cite_n})")
@@ -413,7 +467,19 @@ def report(results: list[CaseResult], *, engine_name: str, model_name: str = "?"
                 # **거절했는데 이유가 다르다** — 상태만 보면 통과로 보이는 자리다.
                 else f"거절이유 {r.expected_refusal_reason}→{r.actual_refusal_reason or '(없음)'}"
                 if r.reason_ok is False
-                else f"등급 {r.expected_level}→{r.actual_level}"
+                else (
+                    f"등급 {r.expected_level}→{r.actual_level}"
+                    # **원인을 한 줄에 같이 낸다** — 규칙이 틀렸나, LLM 이 덮었나.
+                    + (
+                        f" (rule={r.rule_level} llm={r.llm_level}"
+                        + (" ↑LLM" if r.gate_raised else "")
+                        + (" 🔒차단" if r.gate_overridden else "")
+                        + (" 🔒상승차단" if r.gate_capped else "")
+                        + ")"
+                        if r.rule_level is not None or r.llm_level is not None
+                        else ""
+                    )
+                )
                 if r.expected_level != r.actual_level
                 else "근거/문구"
             )
@@ -516,6 +582,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             "provenance": _provenance(),
             "goldenset": [p.name for p in paths],
             "n": len(results),
+            # **이 실행이 LLM 을 잰 것인가** (D-76). 리포트에서만 보이면 JSON 을 나중에
+            # 비교할 때 그 사실이 사라진다 — 04 §8 이 요구하는 것은 *숫자와 조건이 같이*다.
+            "llm": {
+                "fully_llm": summarize(results).fully_llm,
+                "fallback_counts": dict(summarize(results).fallback_counts),
+            },
+            # 산출물 ④ — **게이트가 작동했다는 증거**를 숫자로 남긴다 (D-09).
+            "gate": {
+                "n": summarize(results).gate_n,
+                "agreed": summarize(results).gate_agreed,
+                "raised": summarize(results).gate_raised,
+                "raised_wrong": summarize(results).gate_raised_wrong,
+                "blocked": summarize(results).gate_blocked,
+                "capped": summarize(results).gate_capped,
+                "capped_wrong": summarize(results).gate_capped_wrong,
+            },
             "latency": {
                 "p50_ms": summarize(results).p50_ms,
                 "p95_ms": summarize(results).p95_ms,

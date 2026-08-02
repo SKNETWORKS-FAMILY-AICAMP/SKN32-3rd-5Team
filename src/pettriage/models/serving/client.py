@@ -21,6 +21,41 @@ from ..tasks import Task
 
 log = logging.getLogger(__name__)
 
+#: 429(속도 제한) 재시도 횟수. SDK 기본은 2회이고, 60건 × 6회에는 모자란다.
+_MAX_RETRIES = 8
+#: 한 호출의 상한(초). 사고 모델은 느릴 수 있다.
+_TIMEOUT_S = 120.0
+
+#: 마지막 호출 시각. `model.min_interval_ms` 를 지키는 데 쓴다.
+#: 하네스는 단일 스레드라 모듈 변수로 충분하다 — 동시 호출이 생기면 락이 필요하다.
+_last_call_at = 0.0
+
+
+def _throttle() -> None:
+    """`model.min_interval_ms` 만큼 **기다린다.**
+
+    ⚠️ 저등급 API 에서 429 가 쏟아지면 재시도가 흡수하려 애쓰다 실행이 멈춘다.
+    **막고 기다리는 편이 맞고 부딪히고 재시도하는 것보다 낫다** — 재시도는
+    실패한 뒤의 대응이고, 이건 실패를 안 만드는 쪽이다.
+
+    설정이 0이면 아무것도 하지 않는다. 기본이 0이므로 **명시적으로 켜야** 한다.
+    """
+    global _last_call_at
+    import time
+
+    try:
+        from ...config import get_config
+
+        gap = get_config().model.min_interval_ms / 1000.0
+    except Exception:  # noqa: BLE001 — 설정을 못 읽어도 호출은 나가야 한다
+        return
+    if gap <= 0:
+        return
+    wait = gap - (time.monotonic() - _last_call_at)
+    if wait > 0:
+        time.sleep(wait)
+    _last_call_at = time.monotonic()
+
 
 @runtime_checkable
 class LLMClient(Protocol):
@@ -223,16 +258,43 @@ class APIClient:
         return OpenAI(
             api_key=key.get_secret_value() if key else None,
             base_url=self._base_url,  # None 이면 OpenAI 본가
+            # **429 는 실패가 아니라 기다리라는 신호다.** 기본 2회로는 60건 × 6회를
+            # 못 버틴다 — 2026-08-02 Gemini 실측에서 절반 이상이 RateLimitError 로
+            # 폴백했고, 그 실행은 *"LLM 을 붙였다"* 고 말할 수 없는 결과가 됐다.
+            max_retries=_MAX_RETRIES,
+            timeout=_TIMEOUT_S,
         )
+
+    def _thinking_off(self) -> dict:
+        """**사고 모드를 끈다** — 안 끄면 짧은 태스크가 빈 문자열을 돌려준다.
+
+        2026-08-02 실측 (Gemini 3.5 Flash · `max_tokens=16`) —
+
+            intent 허용목록 밖: '' → 'unknown'      ← 라벨이 아니라 **빈 문자열**
+
+        사고 토큰이 `max_tokens` 를 먼저 다 쓰고 **본문이 시작되기 전에 잘린다.**
+        ①분류(16)·④검증처럼 출력이 짧은 태스크가 통째로 죽는다. Qwen3 로컬에서
+        만난 것과 **같은 함정**이고(그쪽은 `enable_thinking=False`), 여기서는
+        `reasoning_effort` 다.
+
+        ⚠️ **OpenAI 본가에는 이 인자를 보내지 않는다.** 추론 모델이 아닌 모델에
+        보내면 400 이 난다. 엔드포인트를 보고 판단한다 — 완벽하진 않지만,
+        모르는 인자를 무조건 보내는 것보다 낫다.
+        """
+        if self._base_url and "generativelanguage.googleapis.com" in self._base_url:
+            return {"reasoning_effort": "none"}
+        return {}
 
     def run(self, task: Task, user_input: str, *, max_tokens: int = 512) -> str:
         from ..prompts import build_messages
 
+        _throttle()
         resp = self._client().chat.completions.create(
             model=self._model,
             messages=build_messages(task, user_input),  # type: ignore[arg-type]
             max_tokens=max_tokens,
             temperature=0,
+            **self._thinking_off(),
         )
         return resp.choices[0].message.content or ""
 
@@ -245,6 +307,7 @@ class APIClient:
 
         ⚠️ D-36 — 여기로 나가는 입력도 개인정보 필터를 통과한 것이어야 한다.
         """
+        _throttle()
         resp = self._client().chat.completions.create(
             model=self._model,
             messages=[
@@ -253,6 +316,7 @@ class APIClient:
             ],
             max_tokens=max_tokens,
             temperature=0,
+            **self._thinking_off(),
         )
         return resp.choices[0].message.content or ""
 
@@ -296,12 +360,20 @@ class LangChainClient:
         from ...config import get_secrets
 
         key = get_secrets().openai_api_key
+        # 사고 끄기·재시도는 `APIClient` 와 **같은 규칙**을 쓴다 (D-22).
+        # 연동 방식만 다르고 조건은 같아야 A 와 A-LC 를 비교할 수 있다.
+        extra = APIClient(self._model, self._base_url)._thinking_off()  # noqa: SLF001
         return ChatOpenAI(
             model=self._model,
             base_url=self._base_url,  # None 이면 OpenAI 본가
             api_key=key.get_secret_value() if key else "sk-none",  # type: ignore[arg-type]
             temperature=0,  # 04 §8 — 평가 재현성
             max_tokens=max_tokens,  # type: ignore[call-arg]
+            max_retries=_MAX_RETRIES,
+            timeout=_TIMEOUT_S,
+            # `model_kwargs=` 로 넘기면 langchain 이 *"명시적으로 넘기라"* 고 경고한다 —
+            # `reasoning_effort` 를 인자로 직접 받기 때문이다. 경고를 무시하지 않는다.
+            **extra,
         )
 
     @staticmethod
@@ -320,12 +392,14 @@ class LangChainClient:
     def run(self, task: Task, user_input: str, *, max_tokens: int = 512) -> str:
         from ..prompts import build_messages
 
+        _throttle()
         out = self._chat(max_tokens).invoke(self._to_messages(build_messages(task, user_input)))
         return str(out.content)
 
     def run_raw(self, system: str, user_input: str, *, max_tokens: int = 512) -> str:
         """5태스크 **밖**의 호출. 파인튜닝 태스크를 빌려 쓰지 않는다 (04 §3)."""
         pairs = [{"role": "system", "content": system}, {"role": "user", "content": user_input}]
+        _throttle()
         out = self._chat(max_tokens).invoke(self._to_messages(pairs))
         return str(out.content)
 

@@ -120,6 +120,9 @@ def test_dotenv_example_only_advertises_working_overrides():
         pytest.skip(".env.example 없음 — 소스 트리에서만 검사한다")
     keys = set(re.findall(r"PETTRIAGE__([A-Z0-9_]+)", example.read_text(encoding="utf-8")))
     keys.discard("PROFILE")  # 프로파일은 오버라이드가 아니다
+    # **접두사를 가리키는 산문은 키가 아니다.** `PETTRIAGE__MODEL__*` 처럼 설명에서
+    # 쓰는 표기가 `MODEL__` 로 잡혀 거짓 실패를 냈다. 실제 키는 `__` 로 끝나지 않는다.
+    keys = {k for k in keys if not k.endswith("__")}
     known = {
         f"{sec}__{name}".upper()
         for sec, m in (
