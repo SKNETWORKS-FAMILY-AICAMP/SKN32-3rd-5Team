@@ -34,7 +34,7 @@ def _ber_kcal(weight_kg: float, k: int = _BIRD_K_PSITTACINE) -> float:
 
     앵무새(Psittacine) 계열에 적용 (K=175).
     """
-    return k * (weight_kg ** 0.75)
+    return k * (weight_kg**0.75)
 
 
 def compute_metrics(state: GraphState) -> GraphState:
@@ -78,7 +78,7 @@ def compute_metrics(state: GraphState) -> GraphState:
     if weight_kg is None or amount_g is None or weight_kg <= 0:
         return {"computed": {}}  # type: ignore[typeddict-item]
 
-    dose_per_kg = float(amount_g) / float(weight_kg)   # g/kg
+    dose_per_kg = float(amount_g) / float(weight_kg)  # g/kg
 
     result: dict = {
         "computed": {

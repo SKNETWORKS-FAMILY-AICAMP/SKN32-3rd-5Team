@@ -7,6 +7,21 @@
 
     **DB 미설정이면 조용히 건너뛴다.** 데모 모드에서도 앱이 뜨는 것이 기본 구성이다.
     저장이 실패해도 응답 자체는 나가야 한다 — 로깅이 서비스를 죽이면 안 된다.
+
+⚠️ **SQLAlchemy 를 모듈 최상단에서 임포트하지 않는다** (D-48 교훈 #6).
+
+    `routes/ask.py` → `chat_logger` → `sqlalchemy` 가 **최상단 사슬**로 이어져 있었다.
+    `ask` 는 DB 없이도 도는 핵심 경로인데, `.[api,dev]` 만 깐 CI test 잡에서
+    `conftest.py` 조차 못 열려 **pytest 가 시작도 못 했다** (exit 4 · 2026-08-02 CI).
+
+        ImportError while loading conftest ...
+        src/pettriage/app/chat_logger.py:18: from sqlalchemy import func
+        ModuleNotFoundError: No module named 'sqlalchemy'
+
+    `ci.yml` 의 `db-deps` 잡 주석이 auth/pets 로 겪었다고 적어 둔 그 사고의 재발이다 —
+    *"DATABASE_URL 이 있을 때만 로드되는 구조라 ruff 가 문법만 보고 지나갔다."*
+
+    **DB 는 선택 의존성이다.** 그것을 쓰는 임포트는 **쓰는 자리 안**에 둔다.
 """
 
 from __future__ import annotations
@@ -14,9 +29,6 @@ from __future__ import annotations
 import contextlib
 import logging
 from typing import TYPE_CHECKING
-
-from sqlalchemy import func
-from sqlalchemy.exc import SQLAlchemyError
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session as DbSession
@@ -44,6 +56,10 @@ def log_chat_turn(
         return
 
     try:
+        # ⚠️ 여기서 임포트한다 — `db` 가 있다는 것은 `[db]` 가 깔렸다는 뜻이다.
+        #    최상단에 두면 DB 없는 배포에서 `ask` 경로가 통째로 죽는다.
+        from sqlalchemy import func
+
         from .models import ChatMessage, ChatSession
 
         # 세션 행이 없으면 만든다.
@@ -86,13 +102,13 @@ def log_chat_turn(
         )
 
         db.commit()
-    except SQLAlchemyError as e:
-        # 저장 실패는 응답을 막지 않는다.
-        log.warning("chat_messages 저장 실패 (SQL) — session=%s: %s", session_id, type(e).__name__)
+    except Exception as e:  # noqa: BLE001 — 어떤 이유든 응답을 막지 않는다.
+        # SQLAlchemyError 를 따로 잡던 것을 합쳤다 — 그 이름을 잡으려면 최상단
+        # 임포트가 필요해지고, 그것이 위 사고의 원인이었다. 로그에 예외 종류가
+        # 남으므로 구분은 유지된다.
+        log.warning("chat_messages 저장 실패 — session=%s: %s", session_id, type(e).__name__)
         with contextlib.suppress(Exception):
             db.rollback()
-    except Exception as e:  # noqa: BLE001 — 어떤 이유든 응답을 막지 않는다.
-        log.warning("chat_messages 저장 실패 — session=%s: %s", session_id, type(e).__name__)
 
 
 def _extract_response_text(response: AskResponse) -> str:
