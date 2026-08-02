@@ -123,4 +123,5 @@ def decide_triage(state: GraphState) -> GraphState:
         "rule_level": int(decision.rule_level) if decision.rule_level is not None else None,
         "llm_level": int(decision.llm_level) if decision.llm_level is not None else None,
         "escalation_conditions": list(decision.escalation_conditions),
+        "overridden": decision.overridden,
     }

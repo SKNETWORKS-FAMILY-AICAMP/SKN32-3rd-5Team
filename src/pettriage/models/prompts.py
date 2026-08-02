@@ -23,7 +23,10 @@ _COMMON = (
 _INSTRUCTIONS: dict[Task, str] = {
     Task.CLASSIFY: (
         "사용자 발화의 의도와 위험 성격을 분류한다.\n"
-        "허용된 라벨 중 **하나만** 출력한다. 라벨 외의 문자를 덧붙이지 않는다.\n"
+        "다음 라벨 중 **하나만** 출력한다. 라벨 외의 문자를 덧붙이지 않는다.\n"
+        # graph.nodes.classify.ALLOWED_INTENTS 와 같은 목록이어야 한다 —
+        # 여기 없는 라벨을 출력하면 코드가 걸러 unknown 으로 떨어진다.
+        "  intoxication (중독·오섭취) · symptom (증상) · nutrition (영양·급여) · general (그 외)\n"
         "판단이 서지 않으면 `unknown` 을 출력한다."
     ),
     Task.SLOT: (

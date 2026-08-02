@@ -238,6 +238,7 @@ class GraphEngine:
             escalation_conditions=list(state.get("escalation_conditions") or []),
             rule_level=state.get("rule_level"),
             llm_level=state.get("llm_level"),
+            overridden=bool(state.get("overridden")),
         )
 
     def _citations_from_hits(self, hits: list) -> list[Citation]:
