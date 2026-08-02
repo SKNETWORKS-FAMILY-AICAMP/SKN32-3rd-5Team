@@ -138,6 +138,7 @@ def compute_metrics(state: GraphState) -> GraphState:
         # 나왔으므로 LLM 이 그 위로 올릴 수 없다. 정성 표·양 미상 바닥은 세우지 않는다 —
         # 거기서는 LLM 이 맞는 경우가 있다 (G-011·G-017).
         result["rule_is_quantitative"] = True
+        result["rule_basis"] = "정량계산"
         if verdict.escalation_conditions:
             result["escalation_conditions"] = list(verdict.escalation_conditions)
     elif verdict.reason:

@@ -135,20 +135,48 @@ def _provenance() -> dict[str, object]:
 
     cfg = get_config()
     head = git("rev-parse", "HEAD")
-    return {
+    out: dict[str, object] = {
         "repo_commit": head or "(git 없음)",
         # 커밋 안 된 변경 위에서 쟀는가. 참이면 **재현 불가**다.
         "dirty": bool(git("status", "--porcelain")),
         "profile": os.getenv("PETTRIAGE_PROFILE", "default"),
         "engine_configured": cfg.serve.engine,
         "model_provider": cfg.model.provider,
-        "model_base_id": cfg.model.base_id,
-        "model_revision": cfg.model.revision,
+    }
+
+    # ── 🔴 **쓰는 값만 적는다** ─────────────────────────────────
+    #
+    # 예전에는 provider 와 무관하게 `base_id`·`revision` 을 늘 적었다. 그래서
+    # `--arm A`(gpt-4o-mini) 실행의 provenance 에 이렇게 남았다 —
+    #
+    #     model_provider: api
+    #     model_base_id:  Qwen/Qwen3-4B                    ← 이 실행과 무관하다
+    #     model_revision: 1cfa9a72...                      ← 게다가 무효한 핀이다
+    #
+    # 정작 그 실행을 정의하는 `api_model` 은 provenance 에 **없었다.**
+    # 나중에 이 JSON 만 보면 **Qwen 으로 잰 것으로 읽는다.** 04 §8 이
+    # *"무엇으로 잰 건지 모르는 숫자를 남기지 않는다"* 라고 한 것의 반대다.
+    #
+    # **안 쓰는 값을 쓰는 값처럼 적는 것은, 안 적는 것보다 나쁘다.**
+    if cfg.model.provider in ("api", "langchain"):
+        out["model_api_model"] = cfg.model.api_model
+        out["model_api_base_url"] = cfg.model.api_base_url or "(OpenAI 본가)"
+    elif cfg.model.provider == "qwen":
+        out["model_base_id"] = cfg.model.base_id
+        out["model_revision"] = cfg.model.revision
+        out["model_dtype"] = cfg.model.dtype
+        out["model_load_in_4bit"] = cfg.model.load_in_4bit
+        # **C 와 D 를 가르는 유일한 값이다.** 없으면 어느 쪽을 잰 건지 모른다.
+        out["model_adapter_path"] = cfg.model.adapter_path
+    # provider == "none" 이면 모델 관련 값을 아무것도 적지 않는다 — 쓴 것이 없다.
+
+    out |= {
         "embedding_model": cfg.retrieval.embedding_model,
         "top_k": cfg.retrieval.top_k,
         "score_threshold": cfg.retrieval.score_threshold,
         "max_clarify_turns": cfg.triage.max_clarify_turns,
     }
+    return out
 
 
 def make_engine(kind: str | None):
@@ -300,6 +328,7 @@ def run(rows: Iterable[dict[str, str]], engine) -> list[CaseResult]:
                     llm_level=resp.triage.llm_level if resp.triage else None,
                     gate_overridden=bool(resp.triage and resp.triage.overridden),
                     gate_capped=bool(resp.triage and resp.triage.llm_capped),
+                    grounding=getattr(resp, "grounding", None),
                 )
             )
         except Exception as e:  # 계약 위반(ValidationError)도 여기 잡힌다 — 결과다
@@ -398,7 +427,19 @@ def report(results: list[CaseResult], *, engine_name: str, model_name: str = "?"
             L.append("      LLM 이 덮었다면 **근거 없는 상승**이다 (D-79 트레이드오프).")
 
     L.append("\n■ LLM 실행 (05 §6 — 폴백은 끄지 않고 표시한다)")
-    L.append(f"  5태스크 전부 모델   {fmt(s.fully_llm_rate):>7}   ({s.fully_llm}/{s.n})")
+    # 🔴 예전에는 *"5태스크 전부 모델"* 이라고 적었다. **거짓이었다** —
+    #    `Task.VERIFY` 는 호출부가 없어 부르지 않고, 부르지 않으니 폴백도 안 남는다.
+    #    세는 대상을 이름으로 밝힌다 (`fallbacks.WIRED`).
+    from pettriage.graph.fallbacks import UNWIRED, WIRED
+
+    L.append(
+        f"  {len(WIRED)}태스크 전부 모델   {fmt(s.fully_llm_rate):>7}   ({s.fully_llm}/{s.n})"
+        f"   [{' · '.join(WIRED)}]"
+    )
+    L.append(
+        f"  ⚠️ 집계에 없는 태스크: {' · '.join(UNWIRED)} — 프롬프트는 있으나 "
+        "호출부가 없다 (05 §4 와 어긋남)"
+    )
     if s.fallback_counts:
         L.append("  폴백으로 처리된 태스크 (분모 = 전체 건수)")
         for task, cnt in s.fallback_counts.most_common():
@@ -410,6 +451,27 @@ def report(results: list[CaseResult], *, engine_name: str, model_name: str = "?"
         L.append("  🔴 **모델을 붙였는데 전 건이 어딘가에서 폴백을 탔다.**")
         L.append("     아래 지표는 비교군 성능이 아니다. 키·한도·프롬프트를 먼저 확인한다.")
 
+    # ── ④ 근거 검증 ────────────────────────────────────────────
+    #
+    # 🔴 **이것은 탐지율이지 재현율이 아니다.** 04 는 *"근거없음 탐지 재현율"* 을
+    #    요구했는데, 재현율을 재려면 *"실제로 근거 없는 문장"* 의 정답 라벨이 있어야
+    #    한다. 우리에게는 없다. 없는 것을 있는 것처럼 부르지 않는다.
+    L.append("\n■ ④ 근거 검증 (02 §2 — 이 프로젝트의 핵심)")
+    if s.ground_cases:
+        L.append(f"  검증이 돈 건수    {s.ground_cases:>4}/{s.n}   문장 {s.ground_sentences}개")
+        L.append(f"  근거없음 판정     {s.ground_unsupported:>4}문장")
+        L.append(f"  모순 판정         {s.ground_contradicted:>4}문장")
+        L.append(f"  재검색으로 감     {s.ground_retried:>4}건")
+        if s.ground_unsupported == 0:
+            L.append("  ⚠️ **한 문장도 못 걸렀다.** 환각이 없었다는 뜻이 아니다 —")
+            L.append("     검증기가 약해서 못 잡은 것과 구별되지 않는다.")
+    else:
+        L.append("  검증이 한 번도 돌지 않았다 (전건이 거절·되묻기로 끝났다).")
+    L.append("  ⚠️ 검증기는 **LLM 이 아니라 2-gram 문자 일치율**이다 —")
+    L.append("     `Task.VERIFY` 프롬프트가 있으나 `verify_grounding` 이 부르지 않는다.")
+    L.append("     05 §4 는 ④를 LLM 태스크로 적어 두었다. **문서와 코드가 어긋나 있다.**")
+    L.append("  ⚠️ 위 숫자는 **탐지율**이다. 재현율은 정답 라벨이 없어 잴 수 없다 (04 §8).")
+
     L.append("\n■ 근거·문구")
     L.append(f"  must_cite 적중(any)  {fmt(s.cite_any_rate):>7}   ({s.cite_any}/{s.cite_n})")
     L.append(f"  must_cite 적중(all)  {fmt(s.cite_all_rate):>7}   ({s.cite_all}/{s.cite_n})")
@@ -417,6 +479,21 @@ def report(results: list[CaseResult], *, engine_name: str, model_name: str = "?"
     L.append(
         f"  must_contain (all)   {fmt(s.contain_all_rate):>7}   ({s.contain_all}/{s.contain_n})"
     )
+    # 🔴 **되묻기 문구 채점을 답변 채점과 섞지 않는다.**
+    #    `clarify` 기대 건에서 `must_contain` 은 *우리가 정한 되묻기 문장의 표현*이
+    #    골든셋 표기와 같은지를 본다 — `무엇을 먹었나요?` vs `무엇을 먹었는지`(G-014).
+    #    행동은 옳은데 어미가 달라 실패한다. 섞으면 **문구 문제가 성능 문제로 보인다.**
+    L.append(
+        f"    ▸ answered 만        {fmt(s.contain_answered_rate):>7}   "
+        f"({s.contain_answered_ok}/{s.contain_answered_n})   ← 답에 필요한 말이 들어갔나"
+    )
+    L.append(
+        f"    ▸ clarify 만         {fmt(s.contain_clarify_rate):>7}   "
+        f"({s.contain_clarify_ok}/{s.contain_clarify_n})   ← **되묻기 문구 표기 일치**"
+    )
+    if s.missed_terms:
+        L.append("  못 채운 문구 (빈도순) — 같은 것이 여러 건이면 골든셋 쪽을 본다")
+        L.append("    " + " · ".join(f"{t}×{n}" for t, n in s.missed_terms.most_common(8)))
     L.append(
         f"  must_not_contain     {fmt(s.not_contain_rate):>7}   "
         f"({s.not_contain_ok}/{s.not_contain_n})   ← answered 만"
@@ -584,6 +661,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             "n": len(results),
             # **이 실행이 LLM 을 잰 것인가** (D-76). 리포트에서만 보이면 JSON 을 나중에
             # 비교할 때 그 사실이 사라진다 — 04 §8 이 요구하는 것은 *숫자와 조건이 같이*다.
+            "grounding": {
+                "cases": summarize(results).ground_cases,
+                "sentences": summarize(results).ground_sentences,
+                "unsupported": summarize(results).ground_unsupported,
+                "contradicted": summarize(results).ground_contradicted,
+                "retried": summarize(results).ground_retried,
+                "note": "탐지율이지 재현율이 아니다. 검증기는 LLM 이 아니라 2-gram 이다.",
+            },
             "llm": {
                 "fully_llm": summarize(results).fully_llm,
                 "fallback_counts": dict(summarize(results).fallback_counts),

@@ -33,6 +33,7 @@ from pydantic import (
 from ..compute.vocabulary import SPECIES as _SPECIES
 from ..compute.vocabulary import check_substance
 from ..safety import has_contact
+from ..triage.basis import Basis, stated_in
 from ..triage.levels import TriageLevel
 
 #: **폐쇄 목록 안의 물질명만** 담을 수 있는 문자열 (D-59 ① · D-40).
@@ -188,6 +189,30 @@ class ComputedMetrics(_Strict):
     k_value: float | None = None
 
 
+class GroundingReport(_Strict):
+    """④ 근거 검증 결과 (02 §2 · 04 ④ 지표).
+
+    ⚠️ **이것은 "탐지율"이지 "재현율"이 아니다.** 04 는 ④의 지표를
+    *"근거없음 탐지 재현율 — 놓치면 환각이 나간다"* 로 정했는데, 재현율을 재려면
+    *"실제로 근거 없는 문장"* 의 정답 라벨이 있어야 한다. 우리에게는 없다.
+    여기 있는 것은 **검증기가 몇 문장을 봤고 몇 개를 걸렀나**뿐이다.
+    없는 것을 있는 것처럼 부르지 않는다 (04 §8).
+
+    🔴 **검증기는 LLM 이 아니다.** `Task.VERIFY` 프롬프트와 라벨이 있는데
+    `verify_grounding` 은 그것을 부르지 않고 **2-gram 문자 일치율**로 판정한다
+    (2026-08-03 확인). 05 §4 는 ④를 LLM 태스크로 적어 두었으므로 문서와 코드가
+    어긋나 있다. 그래서 `unsupported` 가 0 이어도 *"환각이 없었다"* 로 읽지 않는다 —
+    **검증기가 약해서 못 잡은 것과 구별되지 않는다.**
+    """
+
+    #: 검사한 문장 수. 0이면 검증이 돌지 않았다는 뜻이다 (거절·되묻기 경로).
+    checked: int = Field(default=0, ge=0)
+    unsupported: int = Field(default=0, ge=0)
+    contradicted: int = Field(default=0, ge=0)
+    #: 검증 실패로 **재검색을 탔는가** (02 §2 · 1회 상한).
+    retried: bool = False
+
+
 class TriageResult(_Strict):
     """트리아지 배지 + 감사 정보 (02 §7.2 · D-09 · D-39).
 
@@ -215,6 +240,18 @@ class TriageResult(_Strict):
     rule_level: int | None = None
     llm_level: int | None = None
     overridden: bool = False
+
+    #: **이 등급이 어디서 나왔는가** (D-81). `level` 과 같은 급의 정보다.
+    #:
+    #: 🔴 `지금 전화` 배지는 50 mg/kg 을 계산해서 나온 3 과, 양을 몰라 바닥으로 깔아 둔
+    #: 3 을 **똑같이 보여준다.** 등급이라는 형식 자체가 확신을 표현하는데 그 확신의
+    #: 출처가 응답 어디에도 없었다. 골든셋 `answered` 39건 중 **26건(67%)이 결손
+    #: 상태에서 등급을 낸다** — 답변 셋 중 둘이다.
+    #:
+    #: 값이 있으면 `_basis_must_be_stated` 가 **문장에도 실렸는지 확인한다.**
+    #: 기본값이 `None` 인 것은 기존 경로를 깨지 않기 위해서다 — 새 값을 넣는 쪽만
+    #: 검사를 받는다.
+    basis: Basis | None = None
 
     #: LLM 이 **올리려** 한 것을 게이트가 막았는가 (D-80).
     #: 규칙 등급이 **정량 계산**에서 나왔을 때만 참이다 — 출처 달린 역치와 계산된
@@ -390,6 +427,9 @@ class AskResponse(_Strict):
     #:    (`safety_engine.scrub_response` 의 경고).
     removed_contact_count: int = Field(default=0, ge=0)
 
+    #: ④ 근거 검증이 무엇을 봤나. **검증이 돌지 않았으면 `None`** — 0건과 다르다.
+    grounding: GroundingReport | None = None
+
     #: 02 §9 — 상태와 무관하게 항상 나간다.
     disclaimer: str = DISCLAIMER
 
@@ -481,6 +521,33 @@ class AskResponse(_Strict):
             raise ValueError(
                 f"추정 물질 {self.assumed_substance!r} 로 답하면서 그 가정을 문장에 밝히지 않았다 "
                 "(D-59). 밝히지 않은 추정은 환각이다."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _basis_must_be_stated(self) -> AskResponse:
+        """**등급의 근거를 숨길 수 없다** (D-81).
+
+        `_assumption_must_be_stated` 와 같은 자리, 같은 이유다. 거기서는 *물질*의
+        가정을 밝혔고 여기서는 *등급*의 출처를 밝힌다.
+
+        왜 필드만으로는 부족한가 — `basis` 를 JSON 에 넣어도 **화면은 배지를 보여준다.**
+        `지금 전화` 라는 배지는 계산해서 나온 3 과 양을 몰라 깔아 둔 3 을 똑같이
+        보여주고, 사람은 배지를 읽는다. 그래서 **문장에도 있어야** 밝힌 것이 된다.
+
+        붙이기로 *약속*하면 언젠가 빠진다. 여기서 막으면 못 빠뜨린다
+        (D-40 — *"지키기로 한 것이 아니라 못 어기는 것"*).
+
+        ⚠️ 태그 문자열을 여기 적지 않는다. `triage.basis.stated_in` 이 판정하고,
+        만드는 쪽(`GraphEngine._basis_notice`)도 같은 모듈을 본다 (D-22).
+        """
+        if self.triage is None or self.triage.basis is None:
+            return self
+        if not stated_in(self.triage.basis, self.full_text):
+            raise ValueError(
+                f"판정 근거 {self.triage.basis!r} 로 등급을 내면서 그 사실을 문장에 "
+                "밝히지 않았다 (D-81). 배지만으로는 계산한 3 과 몰라서 깔아 둔 3 이 "
+                "구별되지 않는다."
             )
         return self
 

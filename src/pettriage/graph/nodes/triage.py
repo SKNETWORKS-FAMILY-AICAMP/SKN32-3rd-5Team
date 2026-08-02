@@ -72,6 +72,7 @@ def apply_rule_table(state: GraphState) -> GraphState:
     v = qualitative_level_for(substance, species)
     if v.level is not None:
         out["rule_level"] = int(v.level)
+        out["rule_basis"] = "정성"
         if v.conditions and not state.get("escalation_conditions"):
             out["escalation_conditions"] = list(v.conditions)
         log.info("rule_level(정성) %s — %s", int(v.level), v.reason)
@@ -114,6 +115,9 @@ def apply_rule_table(state: GraphState) -> GraphState:
     known_negligible = content is not None and content.negligible
     floor = BELOW_THRESHOLD_LEVEL if (quantified or known_negligible) else TriageLevel.CALL_NOW
     out["rule_level"] = int(floor)
+    # 수치를 알고도 정량 판정을 못 한 경우(단위가 계산 불가 등)와 함량이 무의미한
+    # 경우는 **자료가 그렇게 생긴 것**이라 `정성` 이다. 양을 모르는 것만 `양미상` 이다.
+    out["rule_basis"] = "정성" if (quantified or known_negligible) else "양미상"
     if not quantified and not known_negligible:
         log.info(
             "%s(%s) 는 역치가 있는데 %s 를 모른다 — 바닥을 %s 로 둔다 (D-79)",

@@ -117,6 +117,19 @@ class CaseResult:
     #: LLM 이 **올리려** 한 것을 게이트가 막았나 (D-80 · 정량 계산이 있을 때만).
     gate_capped: bool = False
 
+    #: **못 채운 문구·출처.** 04 §7 실패 분석의 입력이다.
+    #:
+    #: 비율만 보면 *"채점이 빡빡한 것인가 시스템이 못한 것인가"* 를 가릴 수 없다.
+    #: 실제로 `must_contain (all) 8.3%` 를 두고 그 판단을 못 했다 (2026-08-03).
+    #: ④ 근거 검증이 본 것 (`AskResponse.grounding`).
+    grounding_checked: int = 0
+    grounding_unsupported: int = 0
+    grounding_contradicted: int = 0
+    grounding_retried: bool = False
+
+    missing_contain: tuple[str, ...] = ()
+    missing_cite: tuple[str, ...] = ()
+
     #: 예외로 죽은 경우. 계약 위반(pydantic ValidationError)도 여기 잡힌다.
     error: str | None = None
 
@@ -206,6 +219,7 @@ def score_case(
     llm_level: int | None = None,
     gate_overridden: bool = False,
     gate_capped: bool = False,
+    grounding: object = None,
     error: str | None = None,
 ) -> CaseResult:
     """골든셋 행 + 엔진 응답 → 채점 결과 1건.
@@ -263,6 +277,12 @@ def score_case(
         llm_level=llm_level,
         gate_overridden=gate_overridden,
         gate_capped=gate_capped,
+        grounding_checked=getattr(grounding, "checked", 0),
+        grounding_unsupported=getattr(grounding, "unsupported", 0),
+        grounding_contradicted=getattr(grounding, "contradicted", 0),
+        grounding_retried=bool(getattr(grounding, "retried", False)),
+        missing_contain=tuple(t for t in must_contain if t not in answer_text),
+        missing_cite=tuple(s_ for s_ in must_cite if s_ not in set(citations)),
         error=error,
     )
 
@@ -323,6 +343,27 @@ class Summary:
     contain_ok: int = 0
     contain_all: int = 0
 
+    #: 🔴 **`clarify` 기대 건의 `must_contain` 은 "되묻기 문구"를 채점한다.**
+    #:
+    #: `answered` 에서는 *답에 필요한 말이 들어갔나* 를 보지만, `clarify` 에서는
+    #: **우리가 정한 되묻기 문장의 표현과 골든셋 표기가 같은가**를 본다 —
+    #: `무엇을 먹었나요?` vs 기대 `무엇을 먹었는지`(G-014). 어미 하나가 다르다.
+    #: 행동은 옳은데 문구가 달라 실패로 잡히고, **문구를 골든셋에 맞추면 그건
+    #: 시험을 답에 맞추는 것**이다. 그래서 분모를 나눠 따로 낸다 (04 §1.2와 같은 이유).
+    contain_answered_n: int = 0
+    contain_answered_ok: int = 0
+    contain_clarify_n: int = 0
+    contain_clarify_ok: int = 0
+    #: 못 채운 문구 빈도. 같은 문구가 여러 건에서 걸리면 **골든셋 쪽을 봐야 한다.**
+    missed_terms: Counter = field(default_factory=Counter)
+
+    #: ④ 근거 검증 (04 ④ 지표). **탐지율이지 재현율이 아니다** — 정답 라벨이 없다.
+    ground_cases: int = 0  # 검증이 돈 건수
+    ground_sentences: int = 0
+    ground_unsupported: int = 0
+    ground_contradicted: int = 0
+    ground_retried: int = 0
+
     #: 금지 문구는 **답을 낸 건만** 분모에 넣는다.
     #:
     #: 예전에는 상태와 무관하게 셌다. 스텁 실행에서 분모 38건의 구성이
@@ -369,6 +410,14 @@ class Summary:
     @property
     def status_accuracy(self) -> float | None:
         return _rate(self.status_correct, self.n)
+
+    @property
+    def contain_answered_rate(self) -> float | None:
+        return _rate(self.contain_answered_ok, self.contain_answered_n)
+
+    @property
+    def contain_clarify_rate(self) -> float | None:
+        return _rate(self.contain_clarify_ok, self.contain_clarify_n)
 
     @property
     def fully_llm_rate(self) -> float | None:
@@ -511,6 +560,21 @@ def summarize(results: Iterable[CaseResult]) -> Summary:
             s.cite_n += 1
             s.cite_any += int(r.cite_any)
             s.cite_all += int(bool(r.cite_all))
+        if r.grounding_checked:
+            s.ground_cases += 1
+            s.ground_sentences += r.grounding_checked
+            s.ground_unsupported += r.grounding_unsupported
+            s.ground_contradicted += r.grounding_contradicted
+            s.ground_retried += int(r.grounding_retried)
+
+        for t in r.missing_contain:
+            s.missed_terms[t] += 1
+        if r.contain_ok is not None and r.expected_status == "clarify":
+            s.contain_clarify_n += 1
+            s.contain_clarify_ok += int(r.contain_ok)
+        elif r.contain_ok is not None:
+            s.contain_answered_n += 1
+            s.contain_answered_ok += int(r.contain_ok)
         if r.contain_ok is not None:
             s.contain_n += 1
             s.contain_ok += int(r.contain_ok)

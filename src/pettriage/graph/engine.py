@@ -19,6 +19,7 @@ from ..app.contracts import (
     Citation,
     ClarifyPrompt,
     ComputedMetrics,
+    GroundingReport,
     Refusal,
     TriageResult,
 )
@@ -66,6 +67,51 @@ def _assumption_notice(slots: dict) -> str:
         f"[확인되지 않은 가정] '{surface}' = '{slots['substance']}'. "
         f"확인된 것이 아니니 다르면 알려주세요."
     )
+
+
+def _basis_of(state: GraphState) -> str:
+    """이 등급이 어디서 나왔나 (D-81).
+
+    **규칙이 낸 근거를 그대로 쓴다.** 규칙이 아무것도 못 냈으면 남은 것은 모델 판단뿐이고,
+    그것이 `모델판정` 이다 — 수치 근거가 없다는 뜻이므로 **가장 먼저 밝혀야 할 값**이다.
+    """
+    return str(state.get("rule_basis") or ("모델판정" if state.get("llm_level") else "정성"))
+
+
+def _basis_notice(state: GraphState) -> str:
+    """문장 앞에 세울 근거 공시. **여기서 문안을 만들지 않는다** — `triage.basis` 가 낸다.
+
+    ⚠️ 이 함수가 `simplify` 뒤(응답 조립 시점)에 도는 것이 중요하다. `simplify` 는
+    등급이 높을 때 완곡 표현이 든 문장을 **지운다** — 공시를 그 앞 단계에서 붙이면
+    지워질 수 있고, 그러면 계약이 응답을 거부한다. 만드는 층과 다듬는 층을 분리한다.
+    """
+    from ..triage.basis import notice
+
+    basis = _basis_of(state)
+    computed = state.get("computed") or {}
+    slots = state.get("slots") or {}
+
+    if basis == "정량계산":
+        mg = computed.get("active_mg_per_kg")
+        active = computed.get("active_substance")
+        detail = None
+        if mg is not None:
+            detail = (
+                f"{slots.get('substance')} {computed.get('content_mg_per_g')} mg/g "
+                f"× {slots.get('amount_g')} g ÷ {slots.get('weight_kg')} kg"
+            )
+        else:
+            # 계수가 없는 물질 — 물질 무게를 그대로 잰 경우다.
+            mg = (computed.get("dose_per_kg") or 0) * 1000
+            active = slots.get("substance")
+            detail = f"{slots.get('amount_g')} g ÷ {slots.get('weight_kg')} kg"
+        return notice(basis, active=active, mg_per_kg=mg, detail=detail)
+
+    if basis == "양미상":
+        what = "체중" if slots.get("weight_kg") is None else "섭취량"
+        return notice(basis, detail=what)
+
+    return notice(basis)
 
 
 class GraphEngine:
@@ -198,9 +244,22 @@ class GraphEngine:
         🔴 `removed_contacts` 는 **개수만** 넘긴다. 뺀 문장 안에 그 번호가 그대로 있어
            목록으로 돌려주면 D-47 을 필드만 바꿔 되돌리는 꼴이 된다.
         """
+        verdicts = state.get("verdicts") or []
         return {
             "llm_fallbacks": list(state.get("llm_fallbacks") or []),
             "removed_contact_count": len(state.get("removed_contacts") or []),
+            # **④가 무엇을 봤는지 남긴다.** 04 가 ④의 지표를 요구했는데 `verdicts` 는
+            # 상태에만 있고 아무도 읽지 않았다 — D-75 와 같은 모양의 끊김이다.
+            "grounding": (
+                GroundingReport(
+                    checked=len(verdicts),
+                    unsupported=sum(1 for v in verdicts if v.get("verdict") == "근거없음"),
+                    contradicted=sum(1 for v in verdicts if v.get("verdict") == "모순"),
+                    retried=bool(state.get("retry_count", 0)),
+                )
+                if verdicts
+                else None
+            ),
         }
 
     def _build_response(self, state: GraphState, session: Session) -> AskResponse:
@@ -240,6 +299,11 @@ class GraphEngine:
         assumed = bool(substance) and bool(slots.get("substance_is_assumed"))
 
         answer = state.get("answer") or state.get("draft", "")
+        # **근거를 문장 맨 앞에 세운다** (D-81). 가정 공시(D-59 ⑤)와 나란히 온다 —
+        # 둘 다 *"이 답이 무엇에 기대고 있나"* 를 말한다.
+        notice = _basis_notice(state)
+        if notice:
+            answer = f"{notice} {answer}".strip()
         if assumed:
             answer = f"{_assumption_notice(slots)} {answer}".strip()
 
@@ -283,6 +347,8 @@ class GraphEngine:
             badge=lv.badge,
             message=lv.message,
             escalation_conditions=list(state.get("escalation_conditions") or []),
+            # **응답 조립부와 같은 함수를 부른다** — 두 곳이 각자 판단하면 어긋난다 (D-22).
+            basis=_basis_of(state),  # type: ignore[arg-type]
             rule_level=rule,
             llm_level=llm,
             # 🔴 **이 줄이 없었다.** 계약이 `overridden == (llm < rule)` 을 검증하므로,

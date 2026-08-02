@@ -110,6 +110,9 @@ class GraphState(TypedDict, total=False):
     #: 양 미상 바닥(D-79)은 세우지 않는다 — 거기서는 LLM 이 맞는 경우가 있고,
     #: 실제로 G-011·G-017 이 그렇게 고쳐졌다 (2026-08-03 실측).
     rule_is_quantitative: bool
+    #: **규칙 등급을 누가 어떻게 냈나** (D-81). `triage.basis.Basis` 값.
+    #: 세우는 곳은 `compute_metrics`(정량계산)와 `apply_rule_table`(정성·양미상) 둘뿐이다.
+    rule_basis: str
     llm_level: int | None
     triage_level: int | None
     #: LLM 이 **올리려** 한 것을 게이트가 막았나 (D-80). 감사 정보다.
