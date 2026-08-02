@@ -31,6 +31,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from pettriage import paths  # noqa: E402
+from pettriage.compute.rules import COMPUTABLE_UNITS as COMPUTABLE_UNITS_FROM_RULES  # noqa: E402
 from pettriage.ingest.templates import THRESHOLD_TYPES  # noqa: E402
 
 OUT_NAME = "정량임계치.csv"
@@ -40,7 +41,13 @@ OUT_NAME = "정량임계치.csv"
 #: `seeds`·`leaves`·`drupes` 같은 개수 단위는 여기 없다 —
 #: 원문이 개수로만 말했으므로 체중당으로 환산할 방법이 없다.
 #: 그 행도 테이블에는 넣되 `computable=N` 으로 표시해 **계산 노드가 건너뛰게** 한다.
-COMPUTABLE_UNITS = {"mg/kg", "g/kg", "mL/kg", "%"}
+#:
+#: ⚠️ **여기서 목록을 정하지 않는다.** 표를 읽는 쪽(`compute.rules`)의 환산표에서
+#: 가져온다. 예전에는 각자 목록을 들고 있었고 실제로 어긋나 있었다 —
+#: 이 파일은 `mL/kg` 을 "계산 가능"으로 표시했는데 `rules._MG_PER_KG` 에는 없어서,
+#: 그 행이 조용히 계산에서 빠지거나 `min()` 이 빈 시퀀스로 터졌다 (2026-08-02 검토).
+#: **쓰는 쪽과 읽는 쪽이 같은 목록을 보게** 만드는 것이 유일한 항구적 해결이다.
+COMPUTABLE_UNITS = COMPUTABLE_UNITS_FROM_RULES
 
 FIELDS = (
     "fact_id",

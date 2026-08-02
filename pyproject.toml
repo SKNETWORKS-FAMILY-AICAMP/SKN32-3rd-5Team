@@ -91,6 +91,8 @@ dev = [
 # 실행 진입점을 이름으로 고정한다. 팀원이 경로를 외울 필요가 없다.
 pettriage-serve = "pettriage.app.main:run"
 pettriage-verify = "pettriage.tools.verify_corpus:main"
+# DB 스키마 생성. 기동 시 자동 실행하지 않는다 — 명시적 조작이어야 한다.
+pettriage-initdb = "pettriage.app.database:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

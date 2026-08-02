@@ -76,7 +76,10 @@ class CaseResult:
     cite_all: bool | None = None
     cited: tuple[str, ...] = ()
 
+    #: `must_contain` 을 **하나라도** 포함하는가. 통과 판정은 이것을 쓴다.
     contain_ok: bool | None = None
+    #: `must_contain` 을 **전부** 포함하는가. 보고용 보조 지표다.
+    contain_all: bool | None = None
     not_contain_ok: bool | None = None
 
     #: 응답 1건의 벽시계 지연(ms). 엔진이 없으면 None.
@@ -165,7 +168,15 @@ def score_case(
         cite_any = any(s in got for s in must_cite)
         cite_all = all(s in got for s in must_cite)
 
-    contain_ok = all(k in answer_text for k in must_contain) if must_contain else None
+    # `must_contain` 은 **any** 로 본다.
+    #
+    # 골든셋 52건 중 36건이 `|` 를 썼고, 내용을 보면 전부 **선택지**다 —
+    # `어떤 초콜릿|종류|다크|밀크`(G-047) 는 넷 중 하나만 나와도 되묻기가 성립한다.
+    # `all` 로 채점하던 때는 이런 케이스가 **구조적으로 통과 불가**였다 (2026-08-02).
+    # `must_cite` 가 any/all 두 지표를 다 내는 것과 같은 방식으로, 여기도 둘 다 낸다.
+    contain_any = any(k in answer_text for k in must_contain) if must_contain else None
+    contain_all = all(k in answer_text for k in must_contain) if must_contain else None
+    # 금지 문구는 반대다 — **하나라도 있으면 실패**다. `all/any` 선택의 여지가 없다.
     not_contain_ok = not any(k in answer_text for k in must_not) if must_not else None
 
     return CaseResult(
@@ -181,7 +192,8 @@ def score_case(
         cite_any=cite_any,
         cite_all=cite_all,
         cited=tuple(citations),
-        contain_ok=contain_ok,
+        contain_ok=contain_any,
+        contain_all=contain_all,
         not_contain_ok=not_contain_ok,
         latency_ms=latency_ms,
         node_ms=tuple(sorted((node_ms or {}).items())),
@@ -243,8 +255,19 @@ class Summary:
 
     contain_n: int = 0
     contain_ok: int = 0
+    contain_all: int = 0
+
+    #: 금지 문구는 **답을 낸 건만** 분모에 넣는다.
+    #:
+    #: 예전에는 상태와 무관하게 셌다. 스텁 실행에서 분모 38건의 구성이
+    #: 거절 30 · 되묻기 7 · answered 1 이었고, 결과가 **100.0% (38/38)** 로 찍혔다.
+    #: *"답을 안 해서 금지어를 안 썼다"* 가 만점으로 보고된 것이다 (2026-08-02).
+    #: `missed_urgent` 는 분모를 분리했는데 문구 지표만 안 했다.
     not_contain_n: int = 0
     not_contain_ok: int = 0
+    #: 전체(거절·되묻기 포함) 분모. 위 값과 나란히 보여 준다.
+    not_contain_all_n: int = 0
+    not_contain_all_ok: int = 0
 
     confusion: Counter = field(default_factory=Counter)  # (정답등급, 예측등급)
     status_confusion: Counter = field(default_factory=Counter)
@@ -300,11 +323,23 @@ class Summary:
 
     @property
     def contain_rate(self) -> float | None:
+        """`must_contain` 중 **하나라도** 포함한 비율."""
         return _rate(self.contain_ok, self.contain_n)
 
     @property
+    def contain_all_rate(self) -> float | None:
+        """`must_contain` 을 **전부** 포함한 비율. 참고용."""
+        return _rate(self.contain_all, self.contain_n)
+
+    @property
     def not_contain_rate(self) -> float | None:
+        """**답을 낸 건**에서 금지 문구를 피한 비율. 이것이 진짜 지표다."""
         return _rate(self.not_contain_ok, self.not_contain_n)
+
+    @property
+    def not_contain_rate_all(self) -> float | None:
+        """전체(거절·되묻기 포함) 기준. 낙관적으로 보이므로 함께만 읽는다."""
+        return _rate(self.not_contain_all_ok, self.not_contain_all_n)
 
     # ── 지연 ────────────────────────────────────────────
     @property
@@ -371,9 +406,14 @@ def summarize(results: Iterable[CaseResult]) -> Summary:
         if r.contain_ok is not None:
             s.contain_n += 1
             s.contain_ok += int(r.contain_ok)
+            s.contain_all += int(bool(r.contain_all))
         if r.not_contain_ok is not None:
-            s.not_contain_n += 1
-            s.not_contain_ok += int(r.not_contain_ok)
+            s.not_contain_all_n += 1
+            s.not_contain_all_ok += int(r.not_contain_ok)
+            # 답을 낸 건만 진짜 분모다 (필드 주석 참조)
+            if r.actual_status == "answered":
+                s.not_contain_n += 1
+                s.not_contain_ok += int(r.not_contain_ok)
 
         if r.latency_ms is not None:
             s.latencies.append(r.latency_ms)
