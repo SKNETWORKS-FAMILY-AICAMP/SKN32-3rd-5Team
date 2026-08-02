@@ -397,7 +397,9 @@ document.getElementById('navChat').addEventListener('click', ()=>{
 });
 
 /* ---------------- 날짜 유틸 ---------------- */
-function fmt(d){ return d.toISOString().slice(0,10); }
+function fmt(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
 function pretty(dateStr){
   const d = new Date(dateStr + 'T00:00:00');
   const dow = ['일','월','화','수','목','금','토'][d.getDay()];
