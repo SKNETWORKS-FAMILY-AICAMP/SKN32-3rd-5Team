@@ -1,4 +1,4 @@
-.PHONY: help install initdb serve test todo lint fmt verify facts golden eval rules index train up db down docker clean
+.PHONY: help install initdb serve test todo lint fmt verify facts golden eval rules vocab index train up db down docker clean
 
 help:            ## 이 목록
 	@grep -E '^[a-z-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -44,6 +44,9 @@ golden:          ## 골든셋 검사 (WS4) — 04a 지침
 
 rules:           ## 사실 표 → 규칙 테이블 재생성 (생성물이다. 손으로 고치지 않는다)
 	python scripts/build_rule_table.py --write
+
+vocab:           ## 사실 표 → 물질 어휘 폐쇄 목록 재생성 (D-59 ①. 생성물이다)
+	python scripts/build_vocabulary.py --write
 
 # 산출물 ④의 실행 진입점. 예전에는 Makefile 에 없어서 CI 에 배선할 자리도 없었다.
 # 게이트 기본값은 보수적으로 둔다 — 분모가 작으면 비율이 무의미하다.

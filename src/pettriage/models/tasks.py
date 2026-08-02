@@ -56,7 +56,10 @@ SPECS: dict[Task, TaskSpec] = {
         task=Task.SLOT,
         graph_node="extract_slots",
         output_kind="JSON 객체",
-        verified_by="JSON 스키마 검증 · 결측 판정 · 되묻기 상한 2회",
+        verified_by=(
+            "JSON 스키마 검증 · **폐쇄 목록 정규화**(D-59 ① · `vocabulary.resolve_substance`) "
+            "· 결측 판정 · 되묻기 상한 2회"
+        ),
         metric="슬롯 단위 정확도 · 결측 탐지율",
     ),
     Task.COMPRESS: TaskSpec(

@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 
 from pydantic import (
     AfterValidator,
@@ -30,13 +30,34 @@ from pydantic import (
     model_validator,
 )
 
+from ..compute.vocabulary import SPECIES as _SPECIES
+from ..compute.vocabulary import check_substance
 from ..safety import has_contact
 from ..triage.levels import TriageLevel
+
+#: **폐쇄 목록 안의 물질명만** 담을 수 있는 문자열 (D-59 ① · D-40).
+#:
+#: D-59 ①은 *"물질 동정은 생성이 아니라 533종 폐쇄 목록에서의 선택"* 으로 정했는데,
+#: 그때 만든 것은 **프롬프트가 그렇게 부탁하는 것**까지였다. 부탁은 어길 수 있다.
+#: 모델이 `일산화탄소`(코퍼스에 없다) 라고 답해도 막는 것이 없었다.
+#:
+#: 이 타입을 쓰는 필드는 **목록 밖 이름으로는 값이 만들어지지 않는다.**
+#: `'없음'` 은 통과한다 — 고를 것이 없다는 것도 정상 선택지다 (D-59 ④).
+SubstanceName = Annotated[str, AfterValidator(check_substance)]
 
 #: 02 §9 — 모든 응답에 노출한다. 응답 모델의 기본값이므로 누락이 불가능하다.
 DISCLAIMER = "본 안내는 참고용이며 수의학적 진단이 아닙니다. 이상이 의심되면 수의사와 상담하세요."
 
+#: 종. **정의는 `compute.vocabulary.SPECIES` 하나뿐이다** (P2 · D-22).
+#:
+#: 예전에는 이 파일과 `compute/aliases.py` 와 `tests/` 가 각자 사본을 들고 있었다.
+#: `Literal` 은 상수를 못 받으므로 값은 여기 적되, **다르면 임포트 시점에 터진다** —
+#: 두 곳이 조용히 어긋나는 것보다 낫다.
 Species = Literal["dog", "cat", "bird"]
+assert set(get_args(Species)) == set(_SPECIES), (
+    f"종 정의가 어긋났다 — contracts={get_args(Species)} vocabulary={_SPECIES}. "
+    "단일 출처는 compute.vocabulary.SPECIES 다."
+)
 
 #: 되묻기 상한 (02 §9 · 05 §4). 초과하면 거절로 넘어간다.
 MAX_CLARIFY_TURNS = 2
@@ -279,7 +300,19 @@ class AskResponse(_Strict):
     #:
     #: 값을 넣으면 `_assumption_must_be_stated` 가 **문장에 그 가정이 실렸는지 확인한다.**
     #: 안 실렸으면 응답을 만들 수 없다 — **밝히지 않은 추정은 곧 환각이다.**
-    assumed_substance: str | None = None
+    #:
+    #: 타입이 `SubstanceName` 이므로 **폐쇄 목록 밖 이름은 애초에 못 들어온다** (D-59 ①).
+    #: 가정을 밝히는 것과 **무엇을 가정할 수 있는지**는 다른 문제이고, 둘 다 계약이 본다.
+    assumed_substance: SubstanceName | None = None
+
+    #: **이 답이 무엇에 관한 것인가.** 동정된 물질을 남긴다 (D-59 ①).
+    #:
+    #: 선택 필드다. 계약이 강제하는 것은 *"넣는다면 반드시 폐쇄 목록 안"* 이고,
+    #: *"반드시 넣어야 한다"* 는 아니다 — ② 노드가 아직 없어서 강제할 대상이 없다.
+    #: 노드가 들어오면 `graph.state.set_substance` 를 유일한 문으로 두고 거기서 올린다.
+    #:
+    #: **못 하는 것을 한다고 적지 않는다** (D-58).
+    identified_substance: SubstanceName | None = None
 
     #: 02 §9 — 상태와 무관하게 항상 나간다.
     disclaimer: str = DISCLAIMER

@@ -468,6 +468,12 @@ def test_밝히지_않은_추정은_응답을_만들_수_없다():
 
     문장 생성에 맡기면 LLM 이 한 줄을 빠뜨리는 순간 추측이 단정이 된다 —
     그것이 곧 환각이다. 그래서 계약이 강제한다 (D-54 와 같은 방식).
+
+    ⚠️ **이 테스트는 원래 `"PTFE(테플론) 과열 흄"` 을 썼다.** 코퍼스에 없는 이름이다 —
+    코퍼스는 `PTFE(테플론) 과열 흄` 으로 적는다. 폐쇄 목록 계약(D-59 ①)을 넣자
+    여기서 걸렸고, **테스트가 만들어 낸 이름으로 검증하고 있었다는 뜻**이다.
+    이름을 코퍼스의 것으로 바꿨다 (D-57: 틀린 동작을 고정한 테스트는 함께 뒤집고
+    이유를 남긴다).
     """
     cit = [Citation(source_id="S-071", publisher="AAV 미국조류수의사회")]
     tri = TriageResult(level=4, message="지금 바로 동물병원으로 가세요")
@@ -480,20 +486,20 @@ def test_밝히지_않은_추정은_응답을_만들_수_없다():
             answer="앵무새를 즉시 환기된 곳으로 옮기고 병원으로 가세요.",
             triage=tri,
             citations=cit,
-            assumed_substance="PTFE 흄",
+            assumed_substance="PTFE(테플론) 과열 흄",
         )
 
     # 밝히면 통과한다
     r = AskResponse(
         status="answered",
         session_id="s",
-        answer="PTFE 흄(논스틱 코팅 과열 연기)으로 보고 안내드립니다. 즉시 병원으로 가세요.",
+        answer="PTFE(테플론) 과열 흄으로 보고 안내드립니다. 즉시 병원으로 가세요.",
         triage=tri,
         citations=cit,
-        assumed_substance="PTFE 흄",
+        assumed_substance="PTFE(테플론) 과열 흄",
     )
-    assert r.assumed_substance == "PTFE 흄"
-    assert "PTFE 흄" in r.full_text
+    assert r.assumed_substance == "PTFE(테플론) 과열 흄"
+    assert "PTFE(테플론) 과열 흄" in r.full_text
 
     # 추정이 없으면 검사 자체가 돌지 않는다 (기존 응답에 영향 0)
     assert (
