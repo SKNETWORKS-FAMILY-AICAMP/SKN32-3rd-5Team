@@ -323,8 +323,8 @@ def test_eval_profile_disables_clarify(monkeypatch: pytest.MonkeyPatch):
     assert d["refusal"]["reason"] == "되묻기상한"
 
 
-def test_graph_engine_missing_fails_loudly(monkeypatch: pytest.MonkeyPatch):
-    """설정이 graph 인데 스텁으로 조용히 내려가면 평가가 오염된다."""
+def test_graph_engine_builds_when_ready(monkeypatch: pytest.MonkeyPatch):
+    """GraphEngine 구현 완료 후 engine:graph 로 정상 생성되는지 확인."""
     from pettriage import config as config_mod
     from pettriage.app import deps
 
@@ -333,8 +333,8 @@ def test_graph_engine_missing_fails_loudly(monkeypatch: pytest.MonkeyPatch):
     config_mod.reset_caches()
     deps.reset_state()
 
-    with pytest.raises(deps.EngineUnavailable):
-        deps.get_engine()
+    engine = deps.get_engine()
+    assert engine.name == "graph"
 
 
 def test_response_contract_violation_becomes_refusal(client: TestClient):

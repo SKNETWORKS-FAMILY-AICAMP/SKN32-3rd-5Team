@@ -119,7 +119,7 @@ from .verify import MAX_RETRY, verify_grounding
 #: 노드 구현이 끝나면 **WS2 가 True 로 바꾼다.**
 #: 이 값이 False 인 동안 `GraphEngine` 은 생성 자체가 실패한다 —
 #: 반쯤 구현된 그래프로 평가를 돌리면 지표가 오염되기 때문이다 (04 §8).
-NODES_IMPLEMENTED = False
+NODES_IMPLEMENTED = True
 
 __all__ = [
     "ALLOWED_INTENTS",
