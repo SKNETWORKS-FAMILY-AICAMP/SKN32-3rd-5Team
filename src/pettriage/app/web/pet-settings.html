@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PetTriage — 프로필 설정</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #FAF6EF;
+    --surface: #FFFFFF;
+    --ink: #2C2A26;
+    --ink-soft: #6B6558;
+    --ink-faint: #A39C8C;
+    --moss: #4F6B4A;
+    --moss-dark: #3A4F37;
+    --moss-soft: #E4EBE1;
+    --honey: #D89B3D;
+    --honey-soft: #FBEEDA;
+    --clay: #B3542F;
+    --clay-soft: #F6E4DB;
+    --line: #E5DFD2;
+    --sidebar-w: 268px;
+  }
+  *{ box-sizing:border-box; }
+  html, body{ height:100%; }
+  body{ margin:0; background: var(--bg); color: var(--ink); font-family:'Noto Sans KR', sans-serif; display:flex; }
+
+  /* ============ 사이드바 ============ */
+  .sidebar{ width: var(--sidebar-w); flex-shrink:0; background: var(--moss-dark); color:#fff; display:flex; flex-direction:column; height:100vh; position:sticky; top:0; }
+  .sidebar-top{ padding: 22px 18px 16px; border-bottom:1px solid rgba(255,255,255,0.14); }
+  .logo{ display:flex; align-items:center; gap:9px; margin-bottom:20px; }
+  .logo-mark{ width:32px; height:32px; border-radius:9px; background: rgba(255,255,255,0.14); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .logo-mark svg{ width:17px; height:17px; }
+  .logo-text{ font-family:'Noto Serif KR', serif; font-weight:700; font-size:16px; }
+  .sidebar-profile{ display:flex; align-items:flex-start; gap:11px; }
+  .sidebar-profile .av{ width:44px; height:44px; border-radius:50%; background: var(--honey); display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0; }
+  .sidebar-profile .nm{ font-weight:700; font-size:14px; }
+  .sidebar-profile .meta{ font-size:11px; color: rgba(255,255,255,0.65); margin-top:3px; line-height:1.55; }
+  .sidebar-notes{ display:none; margin-top:12px; background: rgba(216,155,61,0.18); border:1px solid rgba(216,155,61,0.4); border-radius:10px; padding:8px 10px; font-size:10.5px; line-height:1.5; color: rgba(255,255,255,0.92); }
+  .sidebar-notes.show{ display:block; }
+  .sidebar-list{ padding: 12px 10px; display:flex; flex-direction:column; gap:2px; flex:1; overflow-y:auto; }
+  .sidebar-item{ display:flex; align-items:center; gap:12px; padding: 10px 12px; border-radius:12px; font-size:13px; color: rgba(255,255,255,0.82); cursor:pointer; background:none; border:none; font-family:inherit; text-align:left; width:100%; }
+  .sidebar-item:hover{ background: rgba(255,255,255,0.08); }
+  .sidebar-item.active{ background: rgba(255,255,255,0.14); color:#fff; font-weight:700; }
+  .sidebar-item .ic{ width:17px; text-align:center; opacity:.9; font-size:14px; }
+  .sidebar-section-label{ font-size:10.5px; color: rgba(255,255,255,0.42); font-weight:700; padding: 14px 12px 4px; letter-spacing:.4px; }
+  .sidebar-foot{ padding: 14px 18px 18px; border-top:1px solid rgba(255,255,255,0.14); }
+  .sidebar-foot button{ width:100%; background: rgba(255,255,255,0.1); color:#fff; border:none; border-radius:999px; padding:9px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit; }
+  .sidebar-foot button:hover{ background: rgba(255,255,255,0.18); }
+  .overlay{ display:none; }
+
+  /* ============ 메인 ============ */
+  .main{ flex:1; min-width:0; display:flex; flex-direction:column; height:100vh; }
+  .topbar{ display:flex; align-items:center; padding: 18px 30px; border-bottom:1px solid var(--line); flex-shrink:0; background: var(--surface); }
+  .menu-btn{ display:none; }
+  .topbar-copy .eyebrow{ font-size:11px; font-weight:700; color: var(--moss-dark); background: var(--moss-soft); display:inline-block; padding:4px 10px; border-radius:999px; margin-bottom:8px; }
+  .topbar-copy h1{ font-family:'Noto Serif KR', serif; font-size:20px; font-weight:700; margin:0 0 4px; }
+  .topbar-copy p{ font-size:12.5px; color: var(--ink-soft); margin:0; }
+
+  .content{ flex:1; overflow-y:auto; display:flex; justify-content:center; }
+  .content-inner{ width:100%; max-width:600px; padding: 26px 30px 48px; }
+
+  .card{ background: var(--surface); border:1px solid var(--line); border-radius:16px; padding:20px; margin-bottom:16px; }
+  .card h3{ font-family:'Noto Serif KR', serif; font-size:14px; font-weight:700; margin:0 0 4px; }
+  .card .card-sub{ font-size:11.5px; color: var(--ink-soft); margin:0 0 16px; line-height:1.6; }
+
+  .field{ margin-bottom:16px; }
+  .field:last-child{ margin-bottom:0; }
+  .field label{ display:block; font-size:12.5px; font-weight:600; color: var(--ink-soft); margin-bottom:7px; }
+  .field label .opt{ font-weight:400; color: var(--ink-faint); }
+  .field input, .field textarea{
+    width:100%; border:1px solid var(--line); border-radius:12px; padding:10px 13px;
+    font-size:13.5px; font-family:inherit; background: var(--bg); color: var(--ink); outline:none; resize:vertical;
+  }
+  .field input:focus, .field textarea:focus{ border-color: var(--moss); background:#fff; }
+  .row2{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .weight-input{ display:flex; align-items:center; gap:8px; }
+  .weight-input input{ max-width:130px; }
+  .weight-input span{ font-size:12.5px; color: var(--ink-soft); }
+
+  .option-grid{ display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; }
+  .option-card{ border:1.5px solid var(--line); border-radius:14px; padding:12px 8px; text-align:center; cursor:pointer; background: var(--bg); transition:.15s; }
+  .option-card .emoji{ font-size:22px; display:block; margin-bottom:6px; }
+  .option-card .label{ font-size:12.5px; font-weight:600; color: var(--ink-soft); }
+  .option-card.selected{ border-color: var(--moss); background: var(--moss-soft); }
+  .option-card.selected .label{ color: var(--moss-dark); }
+
+  .size-row{ display:flex; gap:8px; }
+  .size-pill{ flex:1; text-align:center; border:1.5px solid var(--line); border-radius:12px; padding:10px 6px; cursor:pointer; background: var(--bg); font-size:12.5px; font-weight:600; color: var(--ink-soft); }
+  .size-pill small{ display:block; font-weight:400; color: var(--ink-faint); font-size:10.5px; margin-top:2px; }
+  .size-pill.selected{ border-color: var(--honey); background: var(--honey-soft); color:#7a4d10; }
+
+  .save-row{ display:flex; align-items:center; gap:10px; justify-content:flex-end; margin-top:4px; }
+  .save-hint{ flex:1; font-size:11.5px; color: var(--ink-soft); line-height:1.5; }
+  .save-hint.err{ color: var(--clay); }
+  .save-hint.ok{ color: var(--moss-dark); }
+  .btn-cancel{ background:transparent; color: var(--ink-soft); border:1px solid var(--line); border-radius:999px; padding:10px 18px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit; }
+  .btn-save{ background: var(--moss); color:#fff; border:none; border-radius:999px; padding:10px 22px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit; }
+  .btn-save:hover{ background: var(--moss-dark); }
+  .btn-save:disabled{ background:#c9c3b4; cursor:not-allowed; }
+
+  /* 서버에 안 남는 항목 안내 */
+  .local-badge{
+    display:inline-block; font-size:10px; font-weight:700; background: var(--honey-soft);
+    color:#7a4d10; padding:3px 9px; border-radius:999px; margin-left:6px; vertical-align:middle;
+  }
+
+  /* 위험 구역 */
+  .danger{ border-color:#e5c2ac; background: var(--clay-soft); }
+  .danger h3{ color:#7a3216; }
+  .danger .card-sub{ color:#8a4a2a; }
+  .btn-danger{
+    background: var(--clay); color:#fff; border:none; border-radius:999px;
+    padding:10px 20px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit;
+  }
+  .btn-danger:hover{ background:#963f1f; }
+  .btn-danger:disabled{ background:#d9b3a2; cursor:not-allowed; }
+
+  .state-box{ background: var(--surface); border:1px dashed var(--line); border-radius:16px; padding:48px 20px; text-align:center; font-size:13px; color: var(--ink-soft); }
+  .state-box.err{ border-style:solid; border-color:#e5c2ac; background: var(--clay-soft); color:#7a3216; }
+
+  /* 삭제 확인 모달 */
+  .modal-overlay{ position:fixed; inset:0; background: rgba(44,42,38,0.45); display:none; align-items:center; justify-content:center; z-index:50; padding:20px; }
+  .modal-overlay.open{ display:flex; }
+  .modal{ background:#fff; border-radius:20px; width:100%; max-width:420px; padding:24px; box-shadow: 0 30px 60px -20px rgba(0,0,0,0.3); }
+  .modal h3{ font-family:'Noto Serif KR', serif; font-size:16px; margin:0 0 6px; }
+  .modal p.sub{ font-size:12.5px; color: var(--ink-soft); margin:0 0 16px; line-height:1.7; }
+  .modal .warn-list{ background: var(--clay-soft); border-radius:12px; padding:12px 14px; font-size:11.5px; color:#7a3216; line-height:1.8; margin-bottom:16px; }
+  .modal-actions{ display:flex; gap:8px; justify-content:flex-end; margin-top:6px; }
+
+  @media (max-width: 900px){
+    .sidebar{ position:fixed; left:0; top:0; bottom:0; z-index:30; transform: translateX(-100%); transition: transform .26s ease; box-shadow: 20px 0 40px rgba(0,0,0,0.18); }
+    .sidebar.open{ transform: translateX(0); }
+    .overlay{ display:block; position:fixed; inset:0; background: rgba(44,42,38,0.35); opacity:0; pointer-events:none; transition:.22s ease; z-index:29; }
+    .overlay.open{ opacity:1; pointer-events:auto; }
+    .menu-btn{ display:flex; width:38px; height:38px; border-radius:12px; border:1px solid var(--line); background: var(--surface); align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; margin-right:12px; }
+    .menu-btn svg{ width:18px; height:18px; }
+    .topbar{ padding: 16px 18px; }
+    .content-inner{ padding: 22px 18px 40px; }
+    .row2{ grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="overlay" id="overlay"></div>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-top">
+    <div class="logo">
+      <span class="logo-mark">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 14c-3.5 0-6.5 2.2-6.5 5.2 0 1 .8 1.8 1.8 1.8h9.4c1 0 1.8-.8 1.8-1.8 0-3-3-5.2-6.5-5.2Z" fill="#fff"/><circle cx="6" cy="8" r="2.3" fill="#fff"/><circle cx="18" cy="8" r="2.3" fill="#fff"/><circle cx="9.3" cy="4.6" r="2" fill="#fff"/><circle cx="14.7" cy="4.6" r="2" fill="#fff"/></svg>
+      </span>
+      <span class="logo-text">PetTriage</span>
+    </div>
+    <div class="sidebar-profile">
+      <div class="av" id="sbAvatar">🐶</div>
+      <div>
+        <div class="nm" id="sbName">-</div>
+        <div class="meta" id="sbMeta">-</div>
+      </div>
+    </div>
+    <div class="sidebar-notes" id="sbNotes"></div>
+  </div>
+  <div class="sidebar-list">
+    <div class="sidebar-section-label">메뉴</div>
+    <button class="sidebar-item" id="navChat"><span class="ic">🔍</span>위험 체크</button>
+    <button class="sidebar-item" id="navDiary"><span class="ic">📖</span>기록장</button>
+    <div class="sidebar-section-label" id="sbManageLabel">관리</div>
+    <button class="sidebar-item active"><span class="ic">⚙️</span>프로필 설정</button>
+    <button class="sidebar-item" id="navPets"><span class="ic">🐾</span>반려동물 전환 / 추가</button>
+  </div>
+  <div class="sidebar-foot"><button id="logoutBtn">로그아웃</button></div>
+</aside>
+
+<div class="main">
+  <div class="topbar">
+    <button class="menu-btn" id="menuBtn" aria-label="메뉴 열기">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M4 7H20M4 12H20M4 17H20" stroke="#2C2A26" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+    <div class="topbar-copy">
+      <span class="eyebrow">SETTINGS</span>
+      <h1>프로필 설정</h1>
+      <p id="topP">등록한 정보를 수정하거나 삭제할 수 있어요.</p>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="content-inner" id="contentInner">
+      <div class="state-box">불러오는 중…</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 삭제 확인 모달 ============ -->
+<div class="modal-overlay" id="deleteModal">
+  <div class="modal">
+    <h3>정말 삭제할까요?</h3>
+    <p class="sub" id="deleteSub">-</p>
+    <div class="warn-list">
+      · 이 아이의 기록장 내용도 함께 사라질 수 있어요<br>
+      · 되돌릴 수 없어요
+    </div>
+    <div class="field">
+      <label>확인을 위해 이름을 그대로 입력해 주세요</label>
+      <input type="text" id="confirmName" placeholder="이름 입력">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="cancelDelete">취소</button>
+      <button class="btn-danger" id="confirmDelete" disabled>삭제하기</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---- 로그인 여부 확인 ---- */
+const authToken = sessionStorage.getItem('ptt_token');
+if(!authToken){
+  window.location.href = '/';
+}
+function authHeader(){
+  return { 'Authorization': 'Bearer ' + authToken };
+}
+
+/* ---- API 헬퍼 ----
+   수정·삭제 엔드포인트가 아직 없을 수 있어서 404 / 405 를 따로 구분해 던진다.
+   "서버 오류"로 뭉뚱그리면 원인을 못 찾는다. */
+async function api(path, opts){
+  const r = await fetch(path, opts);
+  if(r.status === 401){
+    sessionStorage.removeItem('ptt_token');
+    window.location.href = '/';
+    throw new Error('로그인이 만료됐어요.');
+  }
+  if(r.status === 404 || r.status === 405){
+    const err = new Error('백엔드에 이 기능의 API가 아직 없어요 (' + r.status + ')');
+    err.notImplemented = true;
+    throw err;
+  }
+  if(!r.ok){
+    let detail = '';
+    try{ detail = (await r.json()).detail || ''; } catch(e){}
+    const kind = r.status === 422 ? '입력값을 확인해 주세요' : (detail || '서버 오류');
+    throw new Error(`${kind} (${r.status})`);
+  }
+  return r.json().catch(()=> ({}));
+}
+
+/* ---- 사이드바 ---- */
+const sidebar = document.getElementById('sidebar');
+const overlay = document.getElementById('overlay');
+document.getElementById('menuBtn').addEventListener('click', ()=>{ sidebar.classList.add('open'); overlay.classList.add('open'); });
+overlay.addEventListener('click', ()=>{ sidebar.classList.remove('open'); overlay.classList.remove('open'); });
+document.getElementById('logoutBtn').addEventListener('click', ()=>{
+  sessionStorage.removeItem('ptt_token');
+  window.location.href = '/';
+});
+
+/* ---- 표시용 매핑 ---- */
+const urlParams = new URLSearchParams(window.location.search);
+const speciesEmojiMap = { dog:'🐶', cat:'🐱', bird:'🦜' };
+const sizeKorean = { small:'소형', medium:'중형', large:'대형' };
+const speciesKorean = { dog:'견', cat:'묘', bird:'앵무새' };
+function buildSizeLabel(species, size){
+  if(species === 'bird') return '앵무새';
+  return (sizeKorean[size] || '') + (speciesKorean[species] || '');
+}
+
+const petId = urlParams.get('pet_id') || '';
+
+/* 화면 전용 항목(크기·나이·성별·특이사항) 보관 — 백엔드 필드가 없다 */
+function localKey(id){ return 'ptt_local_' + id; }
+function loadLocal(id){
+  try{ return JSON.parse(sessionStorage.getItem(localKey(id))) || {}; }
+  catch(e){ return {}; }
+}
+function saveLocal(id, data){
+  try{ sessionStorage.setItem(localKey(id), JSON.stringify(data)); }catch(e){}
+}
+
+let pet = null;                 // 서버가 준 값
+let local = loadLocal(petId);
+// 세션에 없고 URL에 있으면 URL 값으로 채운다 (pets.html을 거치지 않고 들어온 경우)
+['size','age','gender','notes'].forEach(k=>{
+  if(!local[k] && urlParams.get(k)) local[k] = urlParams.get(k);
+});
+if(petId) saveLocal(petId, local);
+let selectedSpecies = null;
+let selectedSize = null;
+
+function currentParams(){
+  return new URLSearchParams({
+    pet_id: pet ? pet.pet_id : '',
+    name: pet ? pet.name : '',
+    species: pet ? pet.species : '',
+    breed: pet && pet.breed ? pet.breed : '',
+    size: local.size || '',
+    age: local.age || '',
+    gender: local.gender || '',
+    weight: pet && pet.weight_kg ? pet.weight_kg : '',
+    notes: local.notes || '',
+  }).toString();
+}
+
+document.getElementById('navChat').addEventListener('click', ()=>{
+  window.location.href = '/static/chat.html?' + currentParams();
+});
+document.getElementById('navDiary').addEventListener('click', ()=>{
+  window.location.href = '/static/diary.html?' + currentParams();
+});
+document.getElementById('navPets').addEventListener('click', ()=>{
+  window.location.href = '/static/pets.html?' + currentParams();
+});
+
+/* ---- 사이드바 반영 ---- */
+function refreshSidebar(){
+  if(!pet) return;
+  document.getElementById('sbAvatar').textContent = speciesEmojiMap[pet.species] || '🐾';
+  document.getElementById('sbName').textContent = pet.name;
+  const label = pet.breed || buildSizeLabel(pet.species, local.size);
+  const parts = [label, local.age, local.gender, pet.weight_kg ? pet.weight_kg + 'kg' : ''].filter(Boolean);
+  document.getElementById('sbMeta').textContent = parts.join(' · ') || '-';
+  document.getElementById('sbManageLabel').textContent = `${pet.name} 관리`;
+  document.getElementById('topP').textContent = `${pet.name}의 등록 정보를 수정하거나 삭제할 수 있어요.`;
+
+  const sbNotes = document.getElementById('sbNotes');
+  if(local.notes){
+    sbNotes.textContent = `⚠️ 특이사항: ${local.notes}`;
+    sbNotes.classList.add('show');
+  } else {
+    sbNotes.classList.remove('show');
+  }
+}
+
+/* ---- 폼 그리기 ---- */
+const contentInner = document.getElementById('contentInner');
+
+function renderForm(){
+  selectedSpecies = pet.species;
+  selectedSize = local.size || '';
+
+  contentInner.innerHTML = `
+    <div class="card">
+      <h3>기본 정보</h3>
+      <p class="card-sub">서버에 저장되는 항목이에요. 종과 체중은 위험 판정에 직접 쓰이니 정확하게 적어주세요.</p>
+
+      <div class="field">
+        <label for="fName">이름</label>
+        <input type="text" id="fName" value="${pet.name || ''}" placeholder="예: 콩이">
+      </div>
+
+      <div class="field">
+        <label>종</label>
+        <div class="option-grid" id="speciesGrid">
+          <div class="option-card" data-value="dog"><span class="emoji">🐶</span><span class="label">개</span></div>
+          <div class="option-card" data-value="cat"><span class="emoji">🐱</span><span class="label">고양이</span></div>
+          <div class="option-card" data-value="bird"><span class="emoji">🦜</span><span class="label">앵무새</span></div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="fBreed">세부 품종 <span class="opt">(선택)</span></label>
+        <input type="text" id="fBreed" value="${pet.breed || ''}" placeholder="예: 말티즈, 코리안숏헤어">
+      </div>
+
+      <div class="field">
+        <label for="fWeight">체중</label>
+        <div class="weight-input">
+          <input type="number" step="0.1" id="fWeight" value="${pet.weight_kg != null ? pet.weight_kg : ''}" placeholder="4.2">
+          <span>kg</span>
+        </div>
+      </div>
+
+      <div class="save-row">
+        <div class="save-hint" id="saveHint"></div>
+        <button class="btn-save" id="saveBtn">저장하기</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>추가 정보 <span class="local-badge">서버에 저장되지 않음</span></h3>
+      <p class="card-sub">
+        백엔드에 아직 컬럼이 없어서 <b>이 브라우저 세션 동안만</b> 유지돼요.
+        브라우저를 닫으면 사라집니다. 화면 표시와 적정 체중 판정에만 쓰입니다.
+      </p>
+
+      <div class="field">
+        <label>크기</label>
+        <div class="size-row" id="sizeRow">
+          <div class="size-pill" data-value="small">소형<small>~5kg</small></div>
+          <div class="size-pill" data-value="medium">중형<small>5~15kg</small></div>
+          <div class="size-pill" data-value="large">대형<small>15kg~</small></div>
+        </div>
+      </div>
+
+      <div class="row2">
+        <div class="field">
+          <label for="fAge">나이</label>
+          <input type="text" id="fAge" value="${local.age || ''}" placeholder="예: 2살, 8개월">
+        </div>
+        <div class="field">
+          <label for="fGender">성별</label>
+          <input type="text" id="fGender" value="${local.gender || ''}" placeholder="예: 수컷 / 암컷">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="fNotes">특이사항 <span class="opt">(알러지, 질환)</span></label>
+        <textarea id="fNotes" rows="2" placeholder="예: 닭고기 알러지, 슬개골 탈구 이력">${local.notes || ''}</textarea>
+      </div>
+
+      <div class="save-row">
+        <div class="save-hint" id="localHint"></div>
+        <button class="btn-save" id="saveLocalBtn">적용하기</button>
+      </div>
+    </div>
+
+    <div class="card danger">
+      <h3>프로필 삭제</h3>
+      <p class="card-sub">${pet.name}의 프로필을 완전히 지웁니다. 되돌릴 수 없어요.</p>
+      <button class="btn-danger" id="openDelete">${pet.name} 프로필 삭제</button>
+    </div>
+  `;
+
+  /* 종 선택 */
+  const speciesGrid = document.getElementById('speciesGrid');
+  speciesGrid.querySelectorAll('.option-card').forEach(card=>{
+    if(card.dataset.value === selectedSpecies) card.classList.add('selected');
+    card.addEventListener('click', ()=>{
+      speciesGrid.querySelectorAll('.option-card').forEach(c=>c.classList.remove('selected'));
+      card.classList.add('selected');
+      selectedSpecies = card.dataset.value;
+    });
+  });
+
+  /* 크기 선택 */
+  const sizeRow = document.getElementById('sizeRow');
+  sizeRow.querySelectorAll('.size-pill').forEach(pill=>{
+    if(pill.dataset.value === selectedSize) pill.classList.add('selected');
+    pill.addEventListener('click', ()=>{
+      sizeRow.querySelectorAll('.size-pill').forEach(p=>p.classList.remove('selected'));
+      pill.classList.add('selected');
+      selectedSize = pill.dataset.value;
+    });
+  });
+
+  document.getElementById('saveBtn').addEventListener('click', saveToServer);
+  document.getElementById('saveLocalBtn').addEventListener('click', saveLocalOnly);
+  document.getElementById('openDelete').addEventListener('click', openDeleteModal);
+}
+
+/* ---- 서버 저장 (PATCH) ---- */
+async function saveToServer(){
+  const btn = document.getElementById('saveBtn');
+  const hint = document.getElementById('saveHint');
+  const name = document.getElementById('fName').value.trim();
+
+  if(!name){ hint.textContent = '이름은 비울 수 없어요.'; hint.className = 'save-hint err'; return; }
+  if(!selectedSpecies){ hint.textContent = '종을 선택해 주세요.'; hint.className = 'save-hint err'; return; }
+
+  const weight = parseFloat(document.getElementById('fWeight').value);
+  const payload = {
+    name: name,
+    species: selectedSpecies,
+    breed: document.getElementById('fBreed').value.trim() || null,
+    weight_kg: Number.isFinite(weight) ? weight : null,
+  };
+
+  btn.disabled = true;
+  btn.textContent = '저장 중…';
+  hint.textContent = '';
+  hint.className = 'save-hint';
+
+  try{
+    const updated = await api('/api/pets/' + encodeURIComponent(pet.pet_id), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify(payload),
+    });
+    pet = Object.assign({}, pet, updated, payload);
+    refreshSidebar();
+    hint.textContent = '저장했어요.';
+    hint.className = 'save-hint ok';
+  } catch(e){
+    hint.textContent = e.notImplemented
+      ? '아직 저장할 수 없어요 — 백엔드에 PATCH /api/pets/{pet_id} 가 필요해요.'
+      : '저장 실패 — ' + e.message;
+    hint.className = 'save-hint err';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '저장하기';
+  }
+}
+
+/* ---- 화면 전용 항목 적용 ---- */
+function saveLocalOnly(){
+  local = {
+    size: selectedSize || '',
+    age: document.getElementById('fAge').value.trim(),
+    gender: document.getElementById('fGender').value.trim(),
+    notes: document.getElementById('fNotes').value.trim(),
+  };
+  saveLocal(pet.pet_id, local);
+  refreshSidebar();
+  const hint = document.getElementById('localHint');
+  hint.textContent = '적용했어요. (이 세션 동안만 유지)';
+  hint.className = 'save-hint ok';
+}
+
+/* ---- 삭제 ---- */
+const deleteModal = document.getElementById('deleteModal');
+const confirmName = document.getElementById('confirmName');
+const confirmDelete = document.getElementById('confirmDelete');
+
+function openDeleteModal(){
+  document.getElementById('deleteSub').textContent = `${pet.name}의 프로필을 삭제합니다.`;
+  confirmName.value = '';
+  confirmName.placeholder = pet.name;
+  confirmDelete.disabled = true;
+  deleteModal.classList.add('open');
+  confirmName.focus();
+}
+document.getElementById('cancelDelete').addEventListener('click', ()=> deleteModal.classList.remove('open'));
+confirmName.addEventListener('input', ()=>{
+  confirmDelete.disabled = confirmName.value.trim() !== (pet ? pet.name : '');
+});
+
+confirmDelete.addEventListener('click', async ()=>{
+  confirmDelete.disabled = true;
+  confirmDelete.textContent = '삭제 중…';
+  try{
+    await api('/api/pets/' + encodeURIComponent(pet.pet_id), {
+      method: 'DELETE',
+      headers: authHeader(),
+    });
+    try{ sessionStorage.removeItem(localKey(pet.pet_id)); }catch(e){}
+    window.location.href = '/static/pets.html';
+  } catch(e){
+    deleteModal.classList.remove('open');
+    const hint = document.getElementById('saveHint');
+    hint.textContent = e.notImplemented
+      ? '아직 삭제할 수 없어요 — 백엔드에 DELETE /api/pets/{pet_id} 가 필요해요.'
+      : '삭제 실패 — ' + e.message;
+    hint.className = 'save-hint err';
+    confirmDelete.disabled = false;
+    confirmDelete.textContent = '삭제하기';
+  }
+});
+
+/* ---- 초기 로드 ----
+   단건 조회 API(GET /api/pets/{id})가 없을 수 있어서 목록에서 찾아 쓴다. */
+async function load(){
+  if(!petId){
+    contentInner.innerHTML = `<div class="state-box err">어떤 아이의 설정인지 알 수 없어요. 반려동물 목록에서 다시 들어와 주세요.</div>`;
+    return;
+  }
+  try{
+    const pets = await api('/api/pets', { headers: authHeader() });
+    pet = pets.find(p => String(p.pet_id) === String(petId));
+    if(!pet){
+      contentInner.innerHTML = `<div class="state-box err">해당 프로필을 찾을 수 없어요. 이미 삭제됐을 수 있어요.</div>`;
+      return;
+    }
+    refreshSidebar();
+    renderForm();
+  } catch(e){
+    contentInner.innerHTML = `<div class="state-box err">불러오지 못했어요 — ${e.message}</div>`;
+  }
+}
+
+load();
+</script>
+</body>
+</html>

@@ -250,8 +250,8 @@
     <button class="sidebar-item active"><span class="ic">🔍</span>위험 체크</button>
     <button class="sidebar-item" id="navDiary"><span class="ic">📖</span>기록장</button>
     <div class="sidebar-section-label" id="sbManageLabel">콩이 관리</div>
-    <button class="sidebar-item"><span class="ic">⚙️</span>프로필 설정</button>
-    <button class="sidebar-item"><span class="ic">🐾</span>반려동물 전환 / 추가</button>
+    <button class="sidebar-item" id="navSettings"><span class="ic">⚙️</span>프로필 설정</button>
+    <button class="sidebar-item" id="navPets"><span class="ic">🐾</span>반려동물 전환 / 추가</button>
   </div>
 
   <div class="sidebar-foot">
@@ -374,6 +374,12 @@ if(currentPet.notes){
 /* 기록장으로 이동할 때도 지금 프로필 정보를 그대로 들고 가기 */
 document.getElementById('navDiary').addEventListener('click', ()=>{
   window.location.href = '/static/diary.html?' + urlParams.toString();
+});
+document.getElementById('navSettings').addEventListener('click', ()=>{
+  window.location.href = '/static/pet-settings.html?' + urlParams.toString();
+});
+document.getElementById('navPets').addEventListener('click', ()=>{
+  window.location.href = '/static/pets.html?' + urlParams.toString();
 });
 
 /* ---------------- 등급 정보: 하드코딩 금지, /api/triage-levels 에서 받아옴 ----------------

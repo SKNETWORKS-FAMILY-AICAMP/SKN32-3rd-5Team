@@ -1,4 +1,5 @@
 # 0801 권소라 내용추가 : RecordCreate 클래스에 weight 내용추가
+# 0802 권소라 내용추가 : 반려동물 수정내용을 위해 class PetUpdate(BaseModel) 추가
 
 """API 계약 — 프론트(WS5)와 파이프라인(WS2)의 인터페이스.
 
@@ -565,6 +566,19 @@ class PetCreate(BaseModel):
 
     name: str = Field(min_length=1, max_length=50)
     species: Species
+    breed: str | None = Field(default=None, max_length=50)
+    weight_kg: float | None = Field(default=None, gt=0, le=200)
+
+
+class PetUpdate(BaseModel):
+    """반려동물 수정 — 온 필드만 반영한다 (부분 수정).
+
+    PetCreate 를 재사용하지 않는 이유: 등록은 name·species 가 필수지만
+    수정은 "체중만 고친다" 가 정상 사용이다. 제약(길이·범위)은 PetCreate 와 동일.
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=50)
+    species: Species | None = None
     breed: str | None = Field(default=None, max_length=50)
     weight_kg: float | None = Field(default=None, gt=0, le=200)
 

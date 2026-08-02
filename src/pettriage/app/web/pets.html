@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PetTriage — 반려동물 전환 / 추가</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #FAF6EF;
+    --surface: #FFFFFF;
+    --ink: #2C2A26;
+    --ink-soft: #6B6558;
+    --ink-faint: #A39C8C;
+    --moss: #4F6B4A;
+    --moss-dark: #3A4F37;
+    --moss-soft: #E4EBE1;
+    --honey: #D89B3D;
+    --honey-soft: #FBEEDA;
+    --clay: #B3542F;
+    --clay-soft: #F6E4DB;
+    --line: #E5DFD2;
+    --sidebar-w: 268px;
+  }
+  *{ box-sizing:border-box; }
+  html, body{ height:100%; }
+  body{ margin:0; background: var(--bg); color: var(--ink); font-family:'Noto Sans KR', sans-serif; display:flex; }
+
+  /* ============ 사이드바 (다른 화면과 동일) ============ */
+  .sidebar{ width: var(--sidebar-w); flex-shrink:0; background: var(--moss-dark); color:#fff; display:flex; flex-direction:column; height:100vh; position:sticky; top:0; }
+  .sidebar-top{ padding: 22px 18px 16px; border-bottom:1px solid rgba(255,255,255,0.14); }
+  .logo{ display:flex; align-items:center; gap:9px; margin-bottom:20px; }
+  .logo-mark{ width:32px; height:32px; border-radius:9px; background: rgba(255,255,255,0.14); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .logo-mark svg{ width:17px; height:17px; }
+  .logo-text{ font-family:'Noto Serif KR', serif; font-weight:700; font-size:16px; }
+  .sidebar-profile{ display:flex; align-items:flex-start; gap:11px; }
+  .sidebar-profile .av{ width:44px; height:44px; border-radius:50%; background: var(--honey); display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0; }
+  .sidebar-profile .nm{ font-weight:700; font-size:14px; }
+  .sidebar-profile .meta{ font-size:11px; color: rgba(255,255,255,0.65); margin-top:3px; line-height:1.55; }
+  .sidebar-notes{ display:none; margin-top:12px; background: rgba(216,155,61,0.18); border:1px solid rgba(216,155,61,0.4); border-radius:10px; padding:8px 10px; font-size:10.5px; line-height:1.5; color: rgba(255,255,255,0.92); }
+  .sidebar-notes.show{ display:block; }
+  .sidebar-list{ padding: 12px 10px; display:flex; flex-direction:column; gap:2px; flex:1; overflow-y:auto; }
+  .sidebar-item{ display:flex; align-items:center; gap:12px; padding: 10px 12px; border-radius:12px; font-size:13px; color: rgba(255,255,255,0.82); cursor:pointer; background:none; border:none; font-family:inherit; text-align:left; width:100%; }
+  .sidebar-item:hover{ background: rgba(255,255,255,0.08); }
+  .sidebar-item.active{ background: rgba(255,255,255,0.14); color:#fff; font-weight:700; }
+  .sidebar-item .ic{ width:17px; text-align:center; opacity:.9; font-size:14px; }
+  .sidebar-section-label{ font-size:10.5px; color: rgba(255,255,255,0.42); font-weight:700; padding: 14px 12px 4px; letter-spacing:.4px; }
+  .sidebar-foot{ padding: 14px 18px 18px; border-top:1px solid rgba(255,255,255,0.14); }
+  .sidebar-foot button{ width:100%; background: rgba(255,255,255,0.1); color:#fff; border:none; border-radius:999px; padding:9px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit; }
+  .sidebar-foot button:hover{ background: rgba(255,255,255,0.18); }
+  .overlay{ display:none; }
+
+  /* ============ 메인 ============ */
+  .main{ flex:1; min-width:0; display:flex; flex-direction:column; height:100vh; }
+  .topbar{ display:flex; align-items:center; padding: 18px 30px; border-bottom:1px solid var(--line); flex-shrink:0; background: var(--surface); }
+  .menu-btn{ display:none; }
+  .topbar-copy .eyebrow{ font-size:11px; font-weight:700; color: var(--moss-dark); background: var(--moss-soft); display:inline-block; padding:4px 10px; border-radius:999px; margin-bottom:8px; }
+  .topbar-copy h1{ font-family:'Noto Serif KR', serif; font-size:20px; font-weight:700; margin:0 0 4px; }
+  .topbar-copy p{ font-size:12.5px; color: var(--ink-soft); margin:0; }
+
+  .content{ flex:1; overflow-y:auto; display:flex; justify-content:center; }
+  .content-inner{ width:100%; max-width:880px; padding: 28px 30px 48px; }
+
+  .list-label{ font-size:11.5px; font-weight:700; color: var(--ink-soft); letter-spacing:.3px; margin-bottom:12px; }
+
+  .pet-grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap:14px; }
+
+  .pet-card{
+    position:relative; background: var(--surface); border:1.5px solid var(--line); border-radius:18px;
+    padding:20px 16px 16px; text-align:center; cursor:pointer; transition:.15s;
+  }
+  .pet-card:hover{ border-color: var(--moss); box-shadow: 0 6px 20px -10px rgba(0,0,0,.18); }
+  .pet-card.current{ border-color: var(--moss); background: var(--moss-soft); cursor:default; }
+  .pet-card.current:hover{ box-shadow:none; }
+  .pet-card .av{
+    width:64px; height:64px; border-radius:50%; background: var(--honey);
+    display:flex; align-items:center; justify-content:center; font-size:30px; margin:0 auto 12px;
+  }
+  .pet-card .nm{ font-family:'Noto Serif KR', serif; font-weight:700; font-size:15px; margin-bottom:4px; }
+  .pet-card .meta{ font-size:11.5px; color: var(--ink-soft); line-height:1.6; min-height:32px; }
+  .pet-card .now-badge{
+    position:absolute; top:12px; right:12px; font-size:10px; font-weight:700;
+    background: var(--moss); color:#fff; padding:3px 9px; border-radius:999px;
+  }
+  .card-actions{ display:flex; gap:6px; margin-top:14px; }
+  .card-actions button{
+    flex:1; border-radius:999px; padding:7px 8px; font-size:11.5px; font-weight:700;
+    cursor:pointer; font-family:inherit; border:1px solid var(--line); background: var(--surface); color: var(--ink-soft);
+  }
+  .card-actions button:hover{ border-color: var(--moss); color: var(--moss-dark); }
+  .card-actions button.primary{ background: var(--moss); border-color: var(--moss); color:#fff; }
+  .card-actions button.primary:hover{ background: var(--moss-dark); }
+
+  .pet-card.add-new{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    border-style:dashed; color: var(--ink-faint); min-height:200px; background: var(--bg);
+  }
+  .pet-card.add-new:hover{ border-color: var(--moss); color: var(--moss-dark); }
+  .pet-card.add-new .plus{ font-size:26px; margin-bottom:8px; }
+  .pet-card.add-new .nm{ color:inherit; }
+
+  .state-box{
+    background: var(--surface); border:1px dashed var(--line); border-radius:16px;
+    padding: 48px 20px; text-align:center; font-size:13px; color: var(--ink-soft);
+  }
+  .state-box.err{ border-style:solid; border-color:#e5c2ac; background: var(--clay-soft); color:#7a3216; }
+
+  .foot-note{
+    margin-top:22px; background: var(--honey-soft); border:1px solid #ecd9b4; border-radius:12px;
+    padding:12px 14px; font-size:11.5px; line-height:1.7; color:#7a4d10;
+  }
+
+  @media (max-width: 900px){
+    .sidebar{ position:fixed; left:0; top:0; bottom:0; z-index:30; transform: translateX(-100%); transition: transform .26s ease; box-shadow: 20px 0 40px rgba(0,0,0,0.18); }
+    .sidebar.open{ transform: translateX(0); }
+    .overlay{ display:block; position:fixed; inset:0; background: rgba(44,42,38,0.35); opacity:0; pointer-events:none; transition:.22s ease; z-index:29; }
+    .overlay.open{ opacity:1; pointer-events:auto; }
+    .menu-btn{ display:flex; width:38px; height:38px; border-radius:12px; border:1px solid var(--line); background: var(--surface); align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; margin-right:12px; }
+    .menu-btn svg{ width:18px; height:18px; }
+    .topbar{ padding: 16px 18px; }
+    .content-inner{ padding: 22px 18px 40px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="overlay" id="overlay"></div>
+
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-top">
+    <div class="logo">
+      <span class="logo-mark">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 14c-3.5 0-6.5 2.2-6.5 5.2 0 1 .8 1.8 1.8 1.8h9.4c1 0 1.8-.8 1.8-1.8 0-3-3-5.2-6.5-5.2Z" fill="#fff"/><circle cx="6" cy="8" r="2.3" fill="#fff"/><circle cx="18" cy="8" r="2.3" fill="#fff"/><circle cx="9.3" cy="4.6" r="2" fill="#fff"/><circle cx="14.7" cy="4.6" r="2" fill="#fff"/></svg>
+      </span>
+      <span class="logo-text">PetTriage</span>
+    </div>
+    <div class="sidebar-profile">
+      <div class="av" id="sbAvatar">🐶</div>
+      <div>
+        <div class="nm" id="sbName">콩이</div>
+        <div class="meta" id="sbMeta">-</div>
+      </div>
+    </div>
+    <div class="sidebar-notes" id="sbNotes"></div>
+  </div>
+  <div class="sidebar-list">
+    <div class="sidebar-section-label">메뉴</div>
+    <button class="sidebar-item" id="navChat"><span class="ic">🔍</span>위험 체크</button>
+    <button class="sidebar-item" id="navDiary"><span class="ic">📖</span>기록장</button>
+    <div class="sidebar-section-label" id="sbManageLabel">관리</div>
+    <button class="sidebar-item" id="navSettings"><span class="ic">⚙️</span>프로필 설정</button>
+    <button class="sidebar-item active"><span class="ic">🐾</span>반려동물 전환 / 추가</button>
+  </div>
+  <div class="sidebar-foot"><button id="logoutBtn">로그아웃</button></div>
+</aside>
+
+<div class="main">
+  <div class="topbar">
+    <button class="menu-btn" id="menuBtn" aria-label="메뉴 열기">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M4 7H20M4 12H20M4 17H20" stroke="#2C2A26" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+    <div class="topbar-copy">
+      <span class="eyebrow">PETS</span>
+      <h1>반려동물 전환 / 추가</h1>
+      <p>보고 있는 아이를 바꾸거나, 새 프로필을 추가할 수 있어요.</p>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="content-inner">
+      <div class="list-label" id="listLabel">등록된 반려동물</div>
+      <div id="petArea"><div class="state-box">불러오는 중…</div></div>
+
+      <div class="foot-note">
+        아이를 전환하면 <b>위험 체크와 기록장이 그 아이 기준으로 다시 계산돼요.</b>
+        급여 가능량·적정 체중 판정이 종과 체중에 따라 달라지기 때문이에요.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---- 로그인 여부 확인 ---- */
+const authToken = sessionStorage.getItem('ptt_token');
+if(!authToken){
+  window.location.href = '/';
+}
+function authHeader(){
+  return { 'Authorization': 'Bearer ' + authToken };
+}
+
+/* ---- API 헬퍼 (다른 화면과 동일 규약) ---- */
+async function api(path, opts){
+  const r = await fetch(path, opts);
+  if(r.status === 401){
+    sessionStorage.removeItem('ptt_token');
+    window.location.href = '/';
+    throw new Error('로그인이 만료됐어요.');
+  }
+  if(!r.ok){
+    let detail = '';
+    try{ detail = (await r.json()).detail || ''; } catch(e){}
+    const kind = r.status === 422 ? '입력값을 확인해 주세요' : (detail || '서버 오류');
+    throw new Error(`${kind} (${r.status})`);
+  }
+  return r.json();
+}
+
+/* ---- 사이드바 토글 ---- */
+const sidebar = document.getElementById('sidebar');
+const overlay = document.getElementById('overlay');
+document.getElementById('menuBtn').addEventListener('click', ()=>{ sidebar.classList.add('open'); overlay.classList.add('open'); });
+overlay.addEventListener('click', ()=>{ sidebar.classList.remove('open'); overlay.classList.remove('open'); });
+document.getElementById('logoutBtn').addEventListener('click', ()=>{
+  sessionStorage.removeItem('ptt_token');
+  window.location.href = '/';
+});
+
+/* ---- 표시용 매핑 ---- */
+const urlParams = new URLSearchParams(window.location.search);
+const speciesEmojiMap = { dog:'🐶', cat:'🐱', bird:'🦜' };
+const sizeKorean = { small:'소형', medium:'중형', large:'대형' };
+const speciesKorean = { dog:'견', cat:'묘', bird:'앵무새' };
+
+function buildSizeLabel(species, size){
+  if(species === 'bird') return '앵무새';
+  return (sizeKorean[size] || '') + (speciesKorean[species] || '');
+}
+
+const currentPet = {
+  petId: urlParams.get('pet_id') || '',
+  name: urlParams.get('name') || '',
+  species: urlParams.get('species') || 'dog',
+  breed: urlParams.get('breed') || '',
+  size: urlParams.get('size') || '',
+  age: urlParams.get('age') || '',
+  gender: urlParams.get('gender') || '',
+  weight: urlParams.get('weight') || '',
+  notes: urlParams.get('notes') || '',
+};
+
+/* 사이드바 반영 */
+document.getElementById('sbAvatar').textContent = speciesEmojiMap[currentPet.species] || '🐾';
+document.getElementById('sbName').textContent = currentPet.name || '반려동물 미선택';
+const sideLabel = currentPet.breed || buildSizeLabel(currentPet.species, currentPet.size);
+const metaParts = [sideLabel, currentPet.age, currentPet.gender, currentPet.weight ? `${currentPet.weight}kg` : ''].filter(Boolean);
+document.getElementById('sbMeta').textContent = metaParts.join(' · ') || '-';
+document.getElementById('sbManageLabel').textContent = currentPet.name ? `${currentPet.name} 관리` : '관리';
+
+const sbNotes = document.getElementById('sbNotes');
+if(currentPet.notes){
+  sbNotes.textContent = `⚠️ 특이사항: ${currentPet.notes}`;
+  sbNotes.classList.add('show');
+}
+
+document.getElementById('navChat').addEventListener('click', ()=>{
+  window.location.href = '/static/chat.html?' + urlParams.toString();
+});
+document.getElementById('navDiary').addEventListener('click', ()=>{
+  window.location.href = '/static/diary.html?' + urlParams.toString();
+});
+document.getElementById('navSettings').addEventListener('click', ()=>{
+  if(!currentPet.petId){ alert('먼저 아이를 선택해 주세요.'); return; }
+  window.location.href = '/static/pet-settings.html?' + urlParams.toString();
+});
+
+/* ---- 화면 전용 항목 보관 ----
+   크기·나이·성별·특이사항은 백엔드 필드가 없어서 URL로만 전달된다.
+   아이를 전환할 때 이 값들이 사라지지 않도록 세션 동안만 붙들어 둔다.
+   (DB에 컬럼이 생기면 이 블록은 통째로 지운다.) */
+function localKey(petId){ return 'ptt_local_' + petId; }
+function loadLocal(petId){
+  try{ return JSON.parse(sessionStorage.getItem(localKey(petId))) || {}; }
+  catch(e){ return {}; }
+}
+function saveLocal(petId, data){
+  try{ sessionStorage.setItem(localKey(petId), JSON.stringify(data)); }catch(e){}
+}
+if(currentPet.petId){
+  saveLocal(currentPet.petId, {
+    size: currentPet.size, age: currentPet.age,
+    gender: currentPet.gender, notes: currentPet.notes,
+  });
+}
+
+function paramsFor(pet){
+  const extra = loadLocal(pet.pet_id);
+  return new URLSearchParams({
+    pet_id: pet.pet_id,
+    name: pet.name,
+    species: pet.species,
+    breed: pet.breed || '',
+    size: extra.size || '',
+    age: extra.age || '',
+    gender: extra.gender || '',
+    weight: pet.weight_kg || '',
+    notes: extra.notes || '',
+  }).toString();
+}
+
+/* ---- 목록 렌더 ---- */
+const petArea = document.getElementById('petArea');
+
+function renderPets(pets){
+  document.getElementById('listLabel').textContent = `등록된 반려동물 (${pets.length})`;
+
+  const grid = document.createElement('div');
+  grid.className = 'pet-grid';
+
+  pets.forEach(pet=>{
+    const isCurrent = String(pet.pet_id) === String(currentPet.petId);
+    const extra = loadLocal(pet.pet_id);
+    const label = pet.breed || buildSizeLabel(pet.species, extra.size);
+
+    const card = document.createElement('div');
+    card.className = 'pet-card' + (isCurrent ? ' current' : '');
+    card.innerHTML = `
+      ${isCurrent ? '<span class="now-badge">지금 보는 아이</span>' : ''}
+      <div class="av">${speciesEmojiMap[pet.species] || '🐾'}</div>
+      <div class="nm">${pet.name}</div>
+      <div class="meta">${[label, pet.weight_kg ? pet.weight_kg + 'kg' : ''].filter(Boolean).join(' · ') || '정보 없음'}</div>
+      <div class="card-actions">
+        <button class="switch">${isCurrent ? '보는 중' : '이 아이로 전환'}</button>
+        <button class="settings">설정</button>
+      </div>
+    `;
+
+    const switchBtn = card.querySelector('.switch');
+    switchBtn.disabled = isCurrent;
+    if(!isCurrent) switchBtn.classList.add('primary');
+
+    function goSwitch(){
+      if(isCurrent) return;
+      window.location.href = '/static/chat.html?' + paramsFor(pet);
+    }
+    switchBtn.addEventListener('click', e=>{ e.stopPropagation(); goSwitch(); });
+    card.addEventListener('click', goSwitch);
+
+    card.querySelector('.settings').addEventListener('click', e=>{
+      e.stopPropagation();
+      window.location.href = '/static/pet-settings.html?' + paramsFor(pet);
+    });
+
+    grid.appendChild(card);
+  });
+
+  const addCard = document.createElement('div');
+  addCard.className = 'pet-card add-new';
+  addCard.innerHTML = `<div class="plus">+</div><div class="nm">새 프로필 만들기</div>`;
+  addCard.addEventListener('click', ()=>{ window.location.href = '/static/profile.html'; });
+  grid.appendChild(addCard);
+
+  petArea.innerHTML = '';
+  petArea.appendChild(grid);
+}
+
+async function loadPets(){
+  try{
+    const pets = await api('/api/pets', { headers: authHeader() });
+    if(!pets.length){
+      petArea.innerHTML = `<div class="state-box">아직 등록된 아이가 없어요.<br><br>
+        <button class="btn-add" style="background:#4F6B4A;color:#fff;border:none;border-radius:999px;padding:10px 20px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;">첫 프로필 만들기</button></div>`;
+      petArea.querySelector('.btn-add').addEventListener('click', ()=>{ window.location.href = '/static/profile.html'; });
+      return;
+    }
+    renderPets(pets);
+  } catch(e){
+    petArea.innerHTML = `<div class="state-box err">목록을 불러오지 못했어요 — ${e.message}</div>`;
+  }
+}
+
+loadPets();
+</script>
+</body>
+</html>

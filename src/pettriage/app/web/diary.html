@@ -228,8 +228,8 @@
     <button class="sidebar-item" id="navChat"><span class="ic">🔍</span>위험 체크</button>
     <button class="sidebar-item active"><span class="ic">📖</span>기록장</button>
     <div class="sidebar-section-label" id="sbManageLabel">콩이 관리</div>
-    <button class="sidebar-item"><span class="ic">⚙️</span>프로필 설정</button>
-    <button class="sidebar-item"><span class="ic">🐾</span>반려동물 전환 / 추가</button>
+    <button class="sidebar-item" id="navSettings"><span class="ic">⚙️</span>프로필 설정</button>
+    <button class="sidebar-item" id="navPets"><span class="ic">🐾</span>반려동물 전환 / 추가</button>
   </div>
   <div class="sidebar-foot"><button id="logoutBtn">로그아웃</button></div>
 </aside>
@@ -394,6 +394,12 @@ if(currentPet.notes){
 
 document.getElementById('navChat').addEventListener('click', ()=>{
   window.location.href = '/static/chat.html?' + urlParams.toString();
+});
+document.getElementById('navSettings').addEventListener('click', ()=>{
+  window.location.href = '/static/pet-settings.html?' + urlParams.toString();
+});
+document.getElementById('navPets').addEventListener('click', ()=>{
+  window.location.href = '/static/pets.html?' + urlParams.toString();
 });
 
 /* ---------------- 날짜 유틸 ---------------- */
