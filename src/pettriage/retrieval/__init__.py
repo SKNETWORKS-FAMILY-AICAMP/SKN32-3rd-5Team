@@ -22,6 +22,7 @@ hits = dedupe_by_substance(hits)
 from .embedder import BGEEmbedder, Embedder, HashEmbedder, get_embedder
 from .store import (
     ChromaStore,
+    EmptyFilter,
     Hit,
     InMemoryStore,
     VectorStore,
@@ -34,6 +35,7 @@ __all__ = [
     "BGEEmbedder",
     "ChromaStore",
     "Embedder",
+    "EmptyFilter",
     "HashEmbedder",
     "Hit",
     "InMemoryStore",

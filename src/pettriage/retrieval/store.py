@@ -6,8 +6,10 @@
     (D-10) 검색 단계에서 `species` 로 먼저 잘라낸다. 필터는 LLM이 아니라
     코드가 구성한다 (05 §4).
 
-    유사도가 임계값 미만이면 **검색 실패로 보고 거절한다** (02 §8.3).
-    낮은 유사도 문서로 답을 만들지 않는다 — 그게 환각의 통로다.
+    ⚠️ **유사도 임계값은 거절을 만들지 못한다** (D-46). 실측에서 근거 있음(0.547~0.733)과
+    없음(0.494~0.659) 분포가 겹쳤다. `filter_by_threshold` 는 순위를 다듬는 장치이지
+    거절 장치가 아니다 — **결과가 0건인 것**만이 거절이다.
+    (2026-08-02 정정. 이 문단은 원래 "임계 미만은 거절"이라고 적혀 있었다.)
 
 `InMemoryStore` 는 의존성 없이 도는 구현이다. CI 와 테스트가 여기서 돈다.
 `ChromaStore` 는 실제 적재용이며 무거운 임포트를 함수 안에서 한다.
@@ -15,12 +17,15 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from ..schemas import Chunk
 from .embedder import Embedder
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -62,17 +67,49 @@ class VectorStore(Protocol):
 
 
 def _meta(chunk: Chunk) -> dict[str, Any]:
-    """청크 → 필터용 메타데이터.
+    """청크 → 저장소 메타데이터.
 
     `species` 는 반드시 들어간다 — 종 필터가 D-10 의 구현부다.
+
+    **필터용만 담으면 안 된다.** `publisher`·`locator` 를 빠뜨렸더니
+    검색 결과로 `Citation` 을 만들 방법이 없었다 — `Citation.publisher` 는 필수인데
+    청크 어디에도 없었고, `source_id → publisher` 를 되찾는 코드 경로도 없었다.
+    `answered` 는 근거 ≥1 을 요구하므로, **그래프 엔진이 붙는 순간 publisher 를
+    지어내거나 전부 거절하거나** 둘 중 하나가 됐을 것이다 (2026-08-02 검토).
+
+    Chroma 메타는 스칼라만 받는다 — `fact_ids` 는 `|` 로 이어 붙인다.
     """
     return {
         "source_id": chunk.source_id,
+        "publisher": chunk.publisher,
         "species": chunk.species,
         "doc_type": chunk.doc_type,
         "substance": chunk.substance or "",
         "route": chunk.route,
+        "locator": chunk.locator or "",
+        "fact_ids": "|".join(chunk.fact_ids),
     }
+
+
+class EmptyFilter(ValueError):
+    """필터 값이 비어 **어떤 문서도 만족할 수 없다.** 0건이 정답이다 (D-10).
+
+    왜 조건을 조용히 빼지 않고 예외를 던지나
+    -------------------------------------
+    예전에는 빈 목록을 만나면 그 조건을 `continue` 로 건너뛰었고, 조건이 하나도
+    안 남으면 `None`(= **필터 없음**)을 냈다. 실측 결과:
+
+        {"species": []}        → ChromaStore  : 전 종 검색 (필터가 사라짐)
+                                 InMemoryStore: 0건
+        {"species": ["", None]} → 위와 동일
+
+    **종이 미확인일 때 개 보호자에게 고양이 백합 청크가 나가는 경로**였다.
+    D-10("종 미확인이면 답하지 않는다")의 정확한 반대다.
+
+    번역기는 *"이 조건은 무시해도 된다"* 를 판단할 자격이 없다. 판단은 저장소가 한다 —
+    `search()` 가 이 예외를 잡아 빈 리스트를 낸다. 그러면 두 저장소가 같아지고,
+    `retrieve` 노드는 "결과 0건 = 거절"(D-46)을 이미 갖고 있으므로 손댈 것이 없다.
+    """
 
 
 def to_chroma_where(where: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -95,12 +132,13 @@ def to_chroma_where(where: dict[str, Any] | None) -> dict[str, Any] | None:
         if isinstance(v, list | tuple | set):
             vals = [x for x in v if x is not None and x != ""]
             if not vals:
-                continue
+                raise EmptyFilter(
+                    f"{k} 필터가 비었다 — 조건을 만족하는 문서가 없다 (D-10). "
+                    f"검색을 건너뛰고 0건으로 처리할 것."
+                )
             clauses.append({k: {"$in": list(vals)}} if len(vals) > 1 else {k: vals[0]})
         else:
             clauses.append({k: v})
-    if not clauses:
-        return None
     return clauses[0] if len(clauses) == 1 else {"$and": clauses}
 
 
@@ -216,12 +254,18 @@ class ChromaStore:
     def search(
         self, query: str, *, top_k: int = 5, where: dict[str, Any] | None = None
     ) -> list[Hit]:
+        try:
+            # 목록 필터는 Chroma 문법으로 옮겨야 한다 — 그대로 넘기면 ValueError 다
+            chroma_where = to_chroma_where(where)
+        except EmptyFilter as e:
+            # 조건을 만족하는 문서가 없다. **필터를 빼고 검색하지 않는다** (D-10).
+            log.info("검색 생략 — %s", e)
+            return []
         col = self._ensure()
         res = col.query(
             query_embeddings=self.embedder.encode([query]),
             n_results=top_k,
-            # 목록 필터는 Chroma 문법으로 옮겨야 한다 — 그대로 넘기면 ValueError 다
-            where=to_chroma_where(where),
+            where=chroma_where,
         )
         hits: list[Hit] = []
         for i, doc in enumerate(res["documents"][0]):
@@ -232,10 +276,13 @@ class ChromaStore:
                         chunk_id=res["ids"][0][i],
                         text=doc,
                         source_id=m.get("source_id", ""),
+                        publisher=m.get("publisher", ""),
                         species=m.get("species", "all"),
                         doc_type=m.get("doc_type", "symptom"),
                         substance=m.get("substance") or None,
                         route=m.get("route", "사실추출"),
+                        locator=m.get("locator") or None,
+                        fact_ids=[x for x in (m.get("fact_ids") or "").split("|") if x],
                     ),
                     # Chroma 는 거리(distance)를 준다. 코사인 거리 → 유사도
                     score=1.0 - float(res["distances"][0][i]),

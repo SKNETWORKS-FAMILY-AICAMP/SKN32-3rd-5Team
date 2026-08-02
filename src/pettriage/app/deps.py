@@ -20,6 +20,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from ..config import get_config
 from .engine import QAEngine, StubEngine
 from .records_store import RecordStore
+from .safety_engine import SafetyEngine
 from .session import SessionStore
 
 log = logging.getLogger(__name__)
@@ -39,13 +40,30 @@ class EngineUnavailable(RuntimeError):
 
 
 def _build_engine() -> QAEngine:
+    """설정이 가리키는 엔진을 만든다.
+
+    ⚠️ `except` 절에 `EngineNotReady` 를 쓰지 않는다.
+
+        try:
+            from ..graph.engine import EngineNotReady, GraphEngine
+            return GraphEngine()
+        except (ImportError, EngineNotReady) as e:      # ← 이렇게 짜여 있었다
+
+    `EngineNotReady` 는 **같은 `try` 가 바인딩하는 지역 이름**이다. 그 임포트가
+    `ImportError` 를 내면 except 튜플을 평가하는 시점에 이름이 없어서
+    `UnboundLocalError` 가 난다 — **크게 실패하지도(`EngineUnavailable`),
+    폴백하지도 못한다.** 2026-08-02 검토에서 재현했다.
+
+    넓은 `except Exception` 이 여기서는 옳다. **graph 를 못 만든 이유가 무엇이든
+    결과는 둘 중 하나**이기 때문이다 — 크게 실패하거나(기본), 명시적으로 폴백하거나.
+    """
     kind = get_config().serve.engine
     if kind == "graph":
         try:
-            from ..graph.engine import EngineNotReady, GraphEngine
+            from ..graph.engine import GraphEngine
 
             return GraphEngine()
-        except (ImportError, EngineNotReady) as e:
+        except Exception as e:  # noqa: BLE001 — ImportError · EngineNotReady · 그 밖의 기동 실패
             msg = (
                 "serve.engine=graph 인데 GraphEngine 을 쓸 수 없다 "
                 f"({type(e).__name__}). 스텁으로 기동하면 평가 결과가 오염된다 (04 §8)."
@@ -57,9 +75,17 @@ def _build_engine() -> QAEngine:
 
 
 def get_engine() -> QAEngine:
+    """엔진을 만들고 **반드시 `SafetyEngine` 으로 감싼다** (D-47).
+
+    감싸는 일을 여기서 하는 이유 — 엔진 구현체가 각자 `scrub_contacts` 를 부르게 두면
+    **새 엔진을 꽂는 사람이 모르면 그대로 뚫린다.** 실제로 그렇게 뚫려 있었다
+    (2026-08-02 검토: 유일한 호출부가 만들어지지도 않는 `GraphEngine` 안에 있었다).
+
+    D-40 — *지키기로 한 것이 아니라 못 어기는 것.* 주입 지점이 그 자리다.
+    """
     global _engine
     if _engine is None:
-        _engine = _build_engine()
+        _engine = SafetyEngine(_build_engine())
     return _engine
 
 
@@ -72,9 +98,14 @@ def get_records() -> RecordStore:
 
 
 def set_engine(engine: QAEngine | None) -> None:
-    """부팅 시점 교체용. `None` 을 넣으면 다음 호출에서 다시 만든다 (테스트용)."""
+    """부팅 시점 교체용. `None` 을 넣으면 다음 호출에서 다시 만든다 (테스트용).
+
+    넣은 엔진도 **`SafetyEngine` 으로 감싼다.** 테스트가 가짜 엔진을 꽂았다고 해서
+    D-47 이 꺼지면, *"연락처가 나가는지"* 를 검증하는 테스트 자체가 성립하지 않는다.
+    이미 감싼 것을 또 감싸지는 않는다.
+    """
     global _engine
-    _engine = engine
+    _engine = engine if engine is None or isinstance(engine, SafetyEngine) else SafetyEngine(engine)
 
 
 def reset_state() -> None:
@@ -142,3 +173,42 @@ def get_current_user_id(credentials: HTTPAuthorizationCredentials = _bearer_dep)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 토큰입니다."
         ) from None
+
+
+#: 선택적 Bearer. `auto_error=False` 라 토큰이 없어도 401 을 자동으로 내지 않는다 —
+#: DB 없는 구성에서는 토큰이 없는 것이 정상이므로 판단을 `get_owner_id` 가 한다.
+_bearer_optional_dep = Depends(HTTPBearer(auto_error=False))
+
+#: DB 없는 데모 구성의 단일 소유자.
+#: 그 구성에는 **사용자 개념 자체가 없으므로** 넘나들 상대도 없다.
+DEMO_OWNER = "demo"
+
+
+def get_owner_id(creds: HTTPAuthorizationCredentials | None = _bearer_optional_dep) -> str:
+    """다이어리 기록의 **소유자**. 없으면 401 (DB 구성에 한해).
+
+    두 구성을 구분한다 — `routes/__init__.py` 가 라우터를 고르는 규칙과 같다.
+
+    ==================  ====================================================
+    `DATABASE_URL`      동작
+    ==================  ====================================================
+    있음                Bearer 토큰 필수. 토큰의 `sub` 가 소유자다.
+                        **없으면 401** — 남의 다이어리를 열 수 없다
+    없음                `DEMO_OWNER` 단일 소유자. 사용자 개념이 없는 구성이다
+    ==================  ====================================================
+
+    예전에는 `records` 라우터에 인증 의존성이 아예 없었다. `pets` 는 모든 쿼리에
+    `user_id` 를 붙이는데 여기만 빠져서, **`pet_id` 만 알면 남의 기록을 읽었다**
+    (2026-08-02 재현). `records_store.py` 주석에 *"인증이 없다"* 고 적혀 있던 것이
+    오히려 *"고쳐도 되는 것"* 을 가렸다.
+    """
+    if not os.getenv("DATABASE_URL"):
+        return DEMO_OWNER
+    if creds is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="다이어리는 로그인이 필요합니다.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    # 토큰 해석은 `get_current_user_id` 한 곳에서만 한다 (D-40).
+    return get_current_user_id(creds)
