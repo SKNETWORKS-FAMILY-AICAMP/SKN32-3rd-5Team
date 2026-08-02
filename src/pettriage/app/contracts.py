@@ -17,10 +17,20 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from datetime import datetime
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    computed_field,
+    model_validator,
+)
 
+from ..safety import has_contact
 from ..triage.levels import TriageLevel
 
 #: 02 §9 — 모든 응답에 노출한다. 응답 모델의 기본값이므로 누락이 불가능하다.
@@ -56,14 +66,40 @@ class RecordCreate(BaseModel):
     이 기록은 "장기 기억"이 아니라 **검색 대상 문서**다 (05 §3).
     """
 
-    pet_id: str = Field(max_length=64)
+    pet_id: str = Field(min_length=1, max_length=64)
     species: Species
-    recorded_at: str  # ISO 8601
+    #: ISO 8601. **검증하고 정규화한다.**
+    #:
+    #: 예전에는 그냥 `str` 이었고 주석에만 "ISO 8601" 이라고 적혀 있었다.
+    #: `RecordStore.timeline` 은 **문자열 비교**로 기간을 자르므로,
+    #: `2026-7-3` 처럼 0을 안 채운 값이 들어오면 `'2026-7-3' > '2026-07-31'` 이 참이 되어
+    #: **7월 리포트에서 7월 기록이 사라진다** (2026-08-02 재현). `어제`·`` 도 통과했다.
+    #: 건강 다이어리에서 조용한 누락은 오답과 같다.
+    recorded_at: str
     note: str = Field(default="", max_length=4000)
     meals: list[str] = Field(default_factory=list)
     symptoms: list[str] = Field(default_factory=list)
     #: 조류 전용 — 배설물 상태 (02 §12). 종이 bird가 아니면 무시된다.
     droppings: str | None = None
+
+    @model_validator(mode="after")
+    def _normalize_recorded_at(self) -> RecordCreate:
+        """ISO 8601 로 파싱해 **정규화된 문자열로 되돌린다.**
+
+        정규화까지 하는 이유 — 기간 필터가 문자열 비교라서, 파싱만 통과시키고
+        원문을 그대로 두면 `2026-7-3` 이 여전히 잘못 정렬된다.
+        같은 시각을 가리키는 표기가 여럿이면 **비교가 성립하지 않는다.**
+        """
+        raw = (self.recorded_at or "").strip()
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError as e:
+            raise ValueError(
+                f"recorded_at 이 ISO 8601 이 아니다: {raw!r} "
+                "(예: 2026-07-02 · 2026-07-02T09:00 · 2026-07-02T09:00:00+09:00)"
+            ) from e
+        object.__setattr__(self, "recorded_at", dt.isoformat())
+        return self
 
 
 # ─────────────────────────────────────────────────────────────
@@ -113,8 +149,18 @@ class TriageResult(_Strict):
     """
 
     level: int = Field(ge=1, le=4)
-    name: str
-    badge: str
+
+    #: `level` 에서 파생된다. 안 주면 자동으로 채워지고, 주면 대조 후 불일치 시 거부한다.
+    #:
+    #: 예전에는 둘 다 필수 자유 문자열이었다. 그래서
+    #: `TriageResult(level=4, name="MONITOR", badge="관찰")` 이 그대로 통과했다 —
+    #: **응답이 스스로 모순인 채로 화면에 나갈 수 있었다** (2026-08-02 검토).
+    #: `TriageLevel.badge` 라는 단일 출처가 이미 있는데 계약이 다시 받고 있었다.
+    name: str | None = None
+    badge: str | None = None
+
+    #: 자유 문자열로 남긴다 — 등급 이름·배지는 UI 계약이지만,
+    #: 행동 문장은 상황에 따라 구체화되어야 한다 (예: "3시간 이내에 …").
     message: str
     escalation_conditions: list[str] = Field(default_factory=list)
 
@@ -122,10 +168,64 @@ class TriageResult(_Strict):
     llm_level: int | None = None
     overridden: bool = False
 
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_name_badge(cls, data: Any) -> Any:
+        """`level` 에서 이름·배지를 채운다. 이미 있으면 건드리지 않는다 (대조는 아래에서)."""
+        if not isinstance(data, dict):
+            return data
+        raw = data.get("level")
+        try:
+            lv = TriageLevel(int(raw))
+        except (TypeError, ValueError):
+            return data  # 범위 밖이면 Field(ge=1, le=4) 가 잡는다
+        data.setdefault("name", lv.name)
+        data.setdefault("badge", lv.badge)
+        return data
+
     @model_validator(mode="after")
     def _monitor_needs_conditions(self) -> TriageResult:
         if int(self.level) == int(TriageLevel.MONITOR) and not self.escalation_conditions:
             raise ValueError("MONITOR는 상승 조건 없이 응답에 실을 수 없다 (D-39).")
+        return self
+
+    @model_validator(mode="after")
+    def _level_is_final(self) -> TriageResult:
+        """**하향 금지 게이트의 결과를 덮을 수 없다** (D-09).
+
+        `apply_gate()` 안의 `max()` 산술은 옳다. 문제는 그 뒤였다 —
+        게이트를 통과한 값을 이 객체에 담을 때 아무도 대조하지 않아서
+
+            TriageResult(level=1, rule_level=4, llm_level=1)   # 통과했다
+
+        가 성립했다. D-09 를 우회하는 길은 *게이트를 안 부르는 것*이 아니라
+        **부른 뒤 결과를 덮는 것**이었고, 계약이 그 문을 열어 두고 있었다.
+        """
+        floor = max(self.rule_level or 0, self.llm_level or 0)
+        if self.level < floor:
+            raise ValueError(
+                f"level={self.level} 이 게이트 바닥 {floor} 보다 낮다 — "
+                f"하향 금지 게이트의 결과를 덮을 수 없다 (D-09). "
+                f"rule_level={self.rule_level} llm_level={self.llm_level}"
+            )
+        lv = TriageLevel(int(self.level))
+        if self.name != lv.name or self.badge != lv.badge:
+            raise ValueError(
+                f"등급 표기가 level 과 어긋난다 — level={self.level}({lv.name}/{lv.badge}) "
+                f"인데 name={self.name!r} badge={self.badge!r} 이다."
+            )
+        # `overridden` 은 gate.py 의 정의(`llm < rule`)와 같은 뜻이어야 한다.
+        # 어긋나면 감사 정보가 거짓이 된다 — 산출물 ④가 이 값을 근거로 쓴다.
+        expected = (
+            self.rule_level is not None
+            and self.llm_level is not None
+            and self.llm_level < self.rule_level
+        )
+        if self.overridden != expected:
+            raise ValueError(
+                f"overridden={self.overridden} 이 rule_level={self.rule_level} · "
+                f"llm_level={self.llm_level} 과 맞지 않는다 (gate.py 정의: llm < rule)."
+            )
         return self
 
 
@@ -174,6 +274,13 @@ class AskResponse(_Strict):
     clarify: ClarifyPrompt | None = None
     refusal: Refusal | None = None
 
+    #: **확인받지 못한 추정 물질** (D-59). 사용자가 물질을 말하지 않았고 되묻기로도
+    #: 확정하지 못했을 때, 후보 중 최고 등급으로 답하면서 그 가정을 여기 남긴다.
+    #:
+    #: 값을 넣으면 `_assumption_must_be_stated` 가 **문장에 그 가정이 실렸는지 확인한다.**
+    #: 안 실렸으면 응답을 만들 수 없다 — **밝히지 않은 추정은 곧 환각이다.**
+    assumed_substance: str | None = None
+
     #: 02 §9 — 상태와 무관하게 항상 나간다.
     disclaimer: str = DISCLAIMER
 
@@ -200,24 +307,92 @@ class AskResponse(_Strict):
 
     @model_validator(mode="after")
     def _status_invariants(self) -> AskResponse:
+        """상태와 필드가 서로 배타적인지 확인한다.
+
+        예전에는 **있어야 할 것**만 봤다. 그래서 *없어야 할 것*이 함께 실린 조합이
+        전부 통과했다 (2026-08-02 검토) —
+
+            refused + triage      → full_text 가 거절 문구 뒤에 상승 조건을 이어 붙인다
+            answered + refusal    → 화면 분기와 응답 내용이 어긋난다
+            answered + answer="  " → 공백만 있는 "답변"이 근거와 배지를 달고 나간다
+
+        `answered` 의 근거·판정 검사는 이 프로젝트의 존재 이유다. 나머지도 같은 급으로 본다.
+        """
         if self.status == "answered":
-            if not self.answer:
-                raise ValueError("answered 인데 answer 가 비었다.")
+            if not (self.answer or "").strip():
+                raise ValueError("answered 인데 answer 가 비었다 (공백만 있는 것도 빈 것이다).")
             if not self.citations:
                 # 이 프로젝트의 존재 이유. 근거 없는 답은 응답 객체조차 못 만든다.
                 raise ValueError("answered 인데 근거가 없다 — 거절 경로로 보내야 한다 (02 §9).")
             if self.triage is None:
                 raise ValueError("answered 인데 트리아지 판정이 없다.")
+            if self.refusal is not None:
+                raise ValueError("answered 와 refusal 을 함께 실을 수 없다 (02 §9).")
+            if self.clarify is not None:
+                raise ValueError("answered 와 되묻기를 함께 실을 수 없다 (02 §9).")
         elif self.status == "clarify":
             if self.clarify is None:
                 raise ValueError("clarify 인데 되묻기 내용이 없다.")
             if self.answer:
                 raise ValueError("되묻는 중에는 답변을 함께 내지 않는다 (02 §9).")
+            if self.triage is not None:
+                raise ValueError("되묻는 중에는 트리아지 배지를 내지 않는다 (02 §9).")
+            if self.refusal is not None:
+                raise ValueError("clarify 와 refusal 을 함께 실을 수 없다.")
+            if self.citations:
+                raise ValueError("되묻는 중에는 근거를 내보내지 않는다 (02 §9).")
         elif self.status == "refused":
             if self.refusal is None:
                 raise ValueError("refused 인데 거절 사유가 없다.")
             if self.answer:
                 raise ValueError("거절하면서 답변을 내보낼 수 없다.")
+            if self.triage is not None:
+                # full_text 가 거절 문구 뒤에 상승 조건을 붙여 문장이 스스로 모순된다.
+                raise ValueError("거절하면서 트리아지 배지를 내보낼 수 없다 (02 §9).")
+            if self.clarify is not None:
+                raise ValueError("refused 와 되묻기를 함께 실을 수 없다.")
+        return self
+
+    @model_validator(mode="after")
+    def _assumption_must_be_stated(self) -> AskResponse:
+        """추정 물질로 답하면서 **그 가정을 숨길 수 없다** (D-59).
+
+        물질을 말하지 않는 질의(*"앵무새 앞에서 프라이팬을 태웠어요"*)에
+        후보 중 최고 등급으로 답하는 것은 D-13(과소평가 최우선)에 따른 선택이다.
+        그 선택이 정직하려면 **무엇을 가정했는지가 문장에 있어야** 한다.
+
+        이것을 문장 생성에 맡기면 안 된다 — LLM 이 한 줄을 빠뜨리는 순간
+        추측이 단정으로 나가고, **그것이 곧 환각이다.** 그래서 계약이 강제한다
+        (D-54 와 같은 방식: *지키기로 한 것이 아니라 못 어기는 것*).
+
+        `full_text` 를 보는 이유는 `_no_foreign_contacts` 와 같다 — 화면 없는
+        클라이언트가 읽는 것이 그것이고, 가정은 거기에 실려야 의미가 있다.
+        """
+        if self.assumed_substance and self.assumed_substance not in self.full_text:
+            raise ValueError(
+                f"추정 물질 {self.assumed_substance!r} 로 답하면서 그 가정을 문장에 밝히지 않았다 "
+                "(D-59). 밝히지 않은 추정은 환각이다."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _no_foreign_contacts(self) -> AskResponse:
+        """**최종 안전망** — 국내에서 쓸 수 없는 연락처가 남아 있으면 응답을 못 만든다 (D-47).
+
+        스크럽은 `SafetyEngine` 이 한다. 여기는 그것이 **실제로 돌았는지** 확인하는 자리다.
+        정상 경로에서는 절대 걸리지 않는다. 걸렸다면 래퍼 밖에서 응답이 만들어졌다는 뜻이고,
+        그때는 `main.py::_install_response_guard` 가 200 + `refused` 로 내리면서
+        로그에 ERROR 를 남긴다 — **조용히 나가지 않는다.**
+
+        `answer` 가 아니라 `full_text` 를 보는 이유 —
+        `full_text` 는 `escalation_conditions` 를 **뒤에 이어 붙인다.** `answer` 만 검사하면
+        스크럽 뒤에 붙는 조건에서 번호가 되살아난다 (2026-08-02 검토에서 실측).
+        """
+        if has_contact(self.full_text):
+            raise ValueError(
+                "응답에 국내에서 쓸 수 없는 연락처가 남아 있다 (D-47). "
+                "SafetyEngine 을 거치지 않은 경로가 있는지 확인할 것."
+            )
         return self
 
 
@@ -251,6 +426,118 @@ class HealthResponse(BaseModel):
     profile: str  # PETTRIAGE_PROFILE
     version: str
 
+    #: 임베딩 모델이 메모리에 올라와 있는가 (D-53).
+    #: `None` 은 **해당 없음** — `engine=stub` 은 벡터 검색을 하지 않는다.
+    #: `False` 면 첫 질의가 로딩(수 초~수십 초)을 맞는다.
+    #: **시연 전에 이 값을 확인한다** — 스트리밍이 없어 그 시간이 침묵으로 나타난다 (02 §12.4).
+    model_loaded: bool | None = None
+
     @property
     def degraded(self) -> bool:
         return self.engine != self.engine_configured
+
+    @property
+    def cold(self) -> bool:
+        """워밍업이 안 된 상태. 첫 질의가 느리다."""
+        return self.model_loaded is False
+
+
+# ─────────────────────────────────────────────────────────────
+# 계정 · 반려동물 프로필 (WS5 백엔드)
+#
+# 라우터 파일 안에 스키마를 두지 않는다 — **계약은 여기 하나다** (D-40 · D-22).
+# 처음 들어올 때는 `routes/auth.py`·`routes/pets.py` 가 각자 6종을 들고 있었고,
+# `Species` 도 `Literal["dog","cat","bird"]` 로 다시 적혀 있었다 (2026-08-01 흡수).
+# ─────────────────────────────────────────────────────────────
+#: bcrypt 가 조용히 버리는 경계. **`app.auth` 에서 가져온다** — 두 곳에 적으면 어긋난다.
+#: `auth` 는 `bcrypt` 를 임포트하므로 여기서 최상단 임포트를 하지 않는다
+#: (`[api]` extra 없이도 계약은 읽혀야 한다).
+def _bcrypt_max_bytes() -> int:
+    try:
+        from .auth import BCRYPT_MAX_BYTES as _n
+    except Exception:  # noqa: BLE001 — bcrypt 미설치 구성
+        return 72
+    return _n
+
+
+def _check_password_bytes(value: str) -> str:
+    """**글자 수가 아니라 바이트로** 잰다.
+
+    상한이 `max_length=64` (글자)로만 걸려 있었다. 그런데 bcrypt 의 한계는
+    **72바이트**이고 한글은 3바이트/자다. 그래서 `가`×25 = 25자 / 75바이트가
+    글자 검사를 통과해 `auth.hash_password` 까지 내려갔고,
+    `PasswordTooLongError` 가 잡히지 않아 **500** 이 나갔다 (2026-08-02 재현).
+
+    같은 파일 docstring 이 *"한글은 3바이트/자라 25자부터"* 라고 이미 적고 있었다 —
+    **원인을 알면서 단위를 잘못 골랐다.** 여기서 바이트로 재면 422 로 안내된다.
+    """
+    limit = _bcrypt_max_bytes()
+    n = len(value.encode("utf-8"))
+    if n > limit:
+        raise ValueError(
+            f"비밀번호가 {n}바이트입니다. {limit}바이트까지 쓸 수 있습니다 "
+            f"(영문·숫자는 1바이트, 한글은 3바이트 — 한글만 쓰면 24자까지)."
+        )
+    return value
+
+
+class SignupRequest(BaseModel):
+    """회원가입.
+
+    비밀번호 상한은 **bcrypt 가 72바이트를 넘는 부분을 조용히 버리기** 때문에 있다.
+    사용자가 긴 비밀번호를 썼다고 믿는 채 앞부분만 쓰이는 상황을 만들지 않는다.
+    `max_length` 는 명백한 남용을 막는 1차 방어이고, **실제 경계는 바이트 검사**다.
+    """
+
+    email: EmailStr
+    password: Annotated[
+        str, Field(min_length=8, max_length=72), AfterValidator(_check_password_bytes)
+    ]
+    nickname: str = Field(min_length=1, max_length=50)
+
+
+class SignupResponse(BaseModel):
+    user_id: str
+    nickname: str
+    message: str = "회원가입이 완료되었습니다."
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    #: 로그인에도 같은 바이트 검사를 건다 — 없으면 **로그인만 500** 이 난다.
+    #: 가입은 막고 로그인은 안 막으면 그 자체가 계정 존재 여부의 신호가 된다.
+    password: Annotated[
+        str, Field(min_length=1, max_length=72), AfterValidator(_check_password_bytes)
+    ]
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    nickname: str
+
+
+class PetCreate(BaseModel):
+    """반려동물 등록.
+
+    **동물등록번호를 받지 않는다** (D-36 조치 1) — 등록번호에는 소유자
+    성명·주민등록번호·주소·전화번호가 함께 묶여 있다. 식별은 앱 내부 UUID 로 한다.
+
+    `weight_kg` 단위는 D-17 개정본을 따른다 — 체중은 kg, 섭취량은 g.
+    """
+
+    name: str = Field(min_length=1, max_length=50)
+    species: Species
+    breed: str | None = Field(default=None, max_length=50)
+    weight_kg: float | None = Field(default=None, gt=0, le=200)
+
+
+class PetResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    pet_id: str
+    name: str
+    species: str
+    breed: str | None = None
+    weight_kg: float | None = None
+    created_at: datetime

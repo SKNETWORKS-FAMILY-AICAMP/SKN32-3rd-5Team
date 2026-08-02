@@ -33,6 +33,15 @@ chromadb==0.6.3
 psycopg==3.2.3
 pgvector==0.3.6
 
+# ── 계정 · 프로필 DB (WS5 백엔드) ─────────────────────────
+SQLAlchemy==2.0.36
+PyMySQL==1.1.1
+PyJWT==2.10.1
+# passlib 을 쓰지 않는다 — 1.7.4 가 bcrypt>=4.1 과 깨져 **모든 해싱이 ValueError** 였다.
+# bcrypt 를 직접 쓴다 (app/auth.py). 되돌리려면 CI db-deps 잡이 먼저 빨개진다.
+bcrypt==4.2.1
+email-validator==2.2.0
+
 # ── LLM 클라이언트 ────────────────────────────────────────
 openai==1.59.6
 anthropic==0.42.0

@@ -1,0 +1,4 @@
+fact_id,source_id,publisher,doc_type,species,substance,scientific_name,toxic_part,threshold_type,dose,unit,max_value,basis,life_stage,feeding_level,triage_level,effect,signs,onset,escalation_conditions,quote,locator,accessed_at,citation,extracted_by,note
+F-034-001,S-034,Veterinary Sciences,toxicity_food,dog,초콜릿(테오브로민),,,임상징후 발현,20,mg/kg,,,,NEVER,,경증 임상징후,구토|다음|안절부절,2-4시간,,,Table 1,2026-07-30,,ohb,밀크초콜릿 기준. 다크는 함량이 다르므로 별도 행
+F-034-002,S-034,Veterinary Sciences,toxicity_food,dog,포도,,,역치 없음,,,,,,NEVER,,급성 신부전,구토|무기력|핍뇨,6-12시간,핍뇨|무뇨|반복 구토,,Table 1,2026-07-30,Eubig 2005,ohb,⚠️ 용량-반응 역전(3g/kg 사망 vs 20.6 회복). 역치로 쓰지 말 것
+F-005-001,S-005,Lafeber,toxicity_food,bird,아보카도,Persea americana,과육|씨|잎,,,,,,,NEVER,,심근 괴사,호흡곤란|무기력|급사,12-24시간,호흡곤란|앉은 자세 변화,,Never 등급,2026-07-30,,ohb,조류는 정량 임계치 자료 0건 — dose 비워둔다

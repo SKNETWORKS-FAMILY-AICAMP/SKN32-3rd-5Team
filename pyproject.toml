@@ -17,6 +17,12 @@ dependencies = [
   "pydantic>=2.10,<3",
   "pydantic-settings>=2.7,<3",
   "PyYAML>=6.0,<7",
+  # `contracts.py` 가 EmailStr 을 쓴다. **핵심 의존성이다.**
+  #   contracts.py 는 배달 계층의 단일 계약 출처라 app.main 이 항상 임포트한다 (D-40).
+  #   처음에는 [db] extra 에 넣었는데, 그러면 `.[api]` 만 깐 CI test·docker 잡이
+  #   `ImportError: email-validator is not installed` 로 죽는다 (2026-08-02 PR#3 CI).
+  #   순수 파이썬이고 작아서 핵심에 두는 비용이 거의 없다.
+  "email-validator>=2.2,<3",
 ]
 
 [project.optional-dependencies]
@@ -35,6 +41,20 @@ rag = [
   "openai>=1.59,<2",
   "anthropic>=0.42,<0.43",
   "langsmith>=0.2.10,<0.3",
+]
+# 회원가입·로그인·반려동물 프로필 (WS5 백엔드). DB를 쓰는 환경에서만 설치한다.
+#
+# ⚠ 이 그룹이 없으면 `routes/__init__.py` 가 **기동을 중단시킨다.**
+#   예전에는 ImportError 를 잡아 로그만 남겨서, 인증이 통째로 빠진 채
+#   앱이 정상 기동했다 (2026-08-01 PR#3 검수에서 발견).
+db = [
+  "SQLAlchemy>=2.0,<3",
+  # MySQL 확정 (D-48). Postgres 드라이버는 [rag] 쪽에만 남는다.
+  "PyMySQL>=1.1,<2",
+  # passlib 을 쓰지 않는다 — 1.7.4(2020년 마지막 릴리스)가 bcrypt>=4.1 과 깨져
+  # **9바이트 비밀번호에서도 ValueError 가 난다.** bcrypt 를 직접 쓴다 (app/auth.py).
+  "bcrypt>=4.2,<5",
+  "PyJWT>=2.10,<3",
 ]
 ingest = [
   "pypdf>=5.1,<6",
@@ -71,6 +91,8 @@ dev = [
 # 실행 진입점을 이름으로 고정한다. 팀원이 경로를 외울 필요가 없다.
 pettriage-serve = "pettriage.app.main:run"
 pettriage-verify = "pettriage.tools.verify_corpus:main"
+# DB 스키마 생성. 기동 시 자동 실행하지 않는다 — 명시적 조작이어야 한다.
+pettriage-initdb = "pettriage.app.database:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

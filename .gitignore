@@ -31,7 +31,14 @@ data/train/*
 # 사실 표는 **우리 산출물**이라 커밋한다 (D-37).
 # 원문이 아니라 사실이고, 스키마·분류·문장화는 우리가 만든 것이다.
 # 4명이 나눠 쓴 것을 병합하려면 저장소를 거쳐야 하고, 재현성에도 필요하다.
+#
+# ⚠ 디렉터리 자체를 먼저 살려야 한다 — 위 raw/snapshot 과 같은 함정이다.
+#   `data/*` 가 data/facts/ 를 배제하면 git 이 그 안으로 내려가지 않아
+#   `!data/facts/*.csv` 가 **한 줄도 효력이 없다.**
+#   2026-08-01 병합 준비 중 발견 — 888행 사실 표가 통째로 커밋되지 않고 있었다.
+!data/facts/
 !data/facts/*.csv
+!data/facts/*.md
 
 # 문서·표 형식 자료 (매니페스트·규칙표·골든셋만 예외)
 *.pdf
@@ -39,6 +46,7 @@ data/train/*
 *.xlsx
 *.zip
 !data/manifests/*.csv
+!data/facts/*.csv
 !src/pettriage/compute/tables/*.csv
 !eval/goldenset/*.csv
 
@@ -55,6 +63,14 @@ data/train/*
 /adapters/
 /outputs/
 # 실행 시 코드가 만든다 (qlora.py). 빈 폴더를 저장소에 둘 이유가 없다.
+# 커밋 메시지 임시 파일.
+#
+# cmd 는 여러 줄 문자열을 못 받아 `git commit -F` 로 파일을 넘기게 되는데,
+# 커밋 **전에** `git add -A` 가 이것을 잡아간다. 실제로 한 번 딸려 들어갔다 (2026-08-02).
+# 더 확실한 방법은 저장소 밖에 두는 것이다 — `git commit -F %TEMP%\commit_msg.txt`
+commit_msg.txt
+COMMIT_MSG*
+
 /artifacts/
 *.safetensors
 *.bin
