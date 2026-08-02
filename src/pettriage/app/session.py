@@ -25,7 +25,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
-from .contracts import AskRequest
+from .contracts import MAX_CLARIFY_TURNS, AskRequest
 
 #: 되묻기가 이 시간 안에 안 끝나면 세션을 버린다. 슬롯을 오래 들고 있지 않는다.
 SESSION_TTL_SEC = 30 * 60
@@ -33,6 +33,9 @@ MAX_SESSIONS = 1000
 
 #: 되묻기로 채워질 수 있는 슬롯. `merge` 가 이 목록만 옮긴다.
 SLOTS = ("species", "pet_id", "weight_kg", "amount_g")
+
+#: 되묻기 답변을 찾기 위해 보관하는 질문 수. 되묻기 상한 + 최초 질문이면 충분하다.
+MAX_QUESTION_HISTORY = MAX_CLARIFY_TURNS + 1
 
 
 @dataclass
@@ -43,6 +46,14 @@ class Session:
     weight_kg: float | None = None
     amount_g: float | None = None
     clarify_turns: int = 0
+    #: 이 세션에서 사용자가 보낸 질문들. **되묻기 답변이 여기 쌓인다.**
+    #:
+    #: 구조화된 슬롯(`SLOTS`)으로 옮길 수 없는 답이 있다 — *"다크초콜릿이요"* 처럼
+    #: **물질의 하위 종류**가 그렇다. 초콜릿 역치는 테오브로민 기준이고 함량이
+    #: 종류마다 2~14 mg/g 로 다르므로, 종류를 모르면 환산 자체가 불가능하다.
+    #: 그 답이 두 번째 턴에 오는데 첫 턴 질문만 보면 영영 못 찾는다.
+    #: 상한은 `MAX_CLARIFY_TURNS + 1` 이면 충분하다 — 무한히 쌓지 않는다.
+    question_history: list[str] = field(default_factory=list)
     created_at: float = field(default_factory=time.monotonic)
     touched_at: float = field(default_factory=time.monotonic)
 
@@ -54,6 +65,9 @@ class Session:
             진전이 있으면 되묻기 카운터를 되돌린다. 그러지 않으면 협조적인
             사용자가 슬롯을 하나씩 채우다가 상한에 걸려 거절된다.
         """
+        if req.question:
+            self.question_history.append(req.question)
+            del self.question_history[:-MAX_QUESTION_HISTORY]
         progressed = False
         for f in SLOTS:
             v = getattr(req, f)

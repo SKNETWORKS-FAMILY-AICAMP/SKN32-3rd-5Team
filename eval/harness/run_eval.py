@@ -27,10 +27,12 @@ import argparse
 import contextlib
 import csv
 import json
+import re
 import sys
 import time
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict
+from functools import lru_cache
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -110,6 +112,24 @@ def make_engine(kind: str | None):
     raise SystemExit(f"알 수 없는 엔진: {kind!r} (stub | graph)")
 
 
+def _disclaimer_pattern() -> re.Pattern[str]:
+    """고지 문구를 **공백 차이에 둔감한** 정규식으로 만든다.
+
+    문구 자체는 `contracts.DISCLAIMER` 한 곳에서 온다 — 여기에 다시 적지 않는다.
+    """
+    from pettriage.app.contracts import DISCLAIMER
+
+    # 마지막 마침표는 있어도 없어도 걸리게 한다 (엔진이 붙여 쓰는 경우가 있다)
+    body = re.escape(DISCLAIMER.rstrip("."))
+    body = re.sub(r"(\\ )+", r"\\s+", body)  # 이스케이프된 공백 → 임의 공백
+    return re.compile(body + r"\.?", re.MULTILINE)
+
+
+@lru_cache(maxsize=1)
+def _disclaimer_re() -> re.Pattern[str]:
+    return _disclaimer_pattern()
+
+
 def scored_text(resp) -> str:
     """채점 대상 문장. **고지 문구는 뺀다.**
 
@@ -128,8 +148,6 @@ def scored_text(resp) -> str:
 
     빼되 **상승 조건은 남긴다** — 조건 누락은 이 도메인에서 과소평가와 같다 (D-39).
     """
-    from pettriage.app.contracts import DISCLAIMER
-
     parts: list[str] = []
     if resp.answer:
         parts.append(resp.answer)
@@ -141,7 +159,12 @@ def scored_text(resp) -> str:
         parts.append(", ".join(resp.triage.escalation_conditions))
     text = " ".join(parts)
     # 엔진이 본문에 고지를 한 번 더 넣었더라도 채점에서는 지운다.
-    return text.replace(DISCLAIMER, " ")
+    #
+    # ⚠️ **정확 일치로 지우면 새어 나간다.** `text.replace(DISCLAIMER, " ")` 만 쓰던 때는
+    # 줄바꿈 하나, 공백 하나만 달라도 고지가 그대로 남아 `must_contain: 수의사` 가
+    # 거저 통과하고 `must_not_contain: 진단` 이 영원히 실패했다 (G-004 실제 사례).
+    # 공백을 정규화한 패턴으로 지운다 — 문구가 조금 흐트러져도 걸린다.
+    return _disclaimer_re().sub(" ", text)
 
 
 def node_timings(resp) -> dict[str, float]:
@@ -154,7 +177,9 @@ def node_timings(resp) -> dict[str, float]:
     t = getattr(resp, "timings", None)
     if not isinstance(t, dict):
         return {}
-    return {str(k): float(v) for k, v in t.items() if isinstance(v, (int, float))}
+    # `(int, float)` 튜플이 아니라 `int | float` 를 쓴다. `store.py` 와 같은 표기이고,
+    # 핀된 ruff(<0.9)의 UP038 이 튜플 형태를 잡는다. 동작은 같다.
+    return {str(k): float(v) for k, v in t.items() if isinstance(v, int | float)}
 
 
 def warm_up(engine, rows: Sequence[dict[str, str]]) -> None:
@@ -273,11 +298,20 @@ def report(results: list[CaseResult], *, engine_name: str) -> str:
     L.append("\n■ 근거·문구")
     L.append(f"  must_cite 적중(any)  {fmt(s.cite_any_rate):>7}   ({s.cite_any}/{s.cite_n})")
     L.append(f"  must_cite 적중(all)  {fmt(s.cite_all_rate):>7}   ({s.cite_all}/{s.cite_n})")
-    L.append(f"  must_contain         {fmt(s.contain_rate):>7}   ({s.contain_ok}/{s.contain_n})")
+    L.append(f"  must_contain (any)   {fmt(s.contain_rate):>7}   ({s.contain_ok}/{s.contain_n})")
+    L.append(
+        f"  must_contain (all)   {fmt(s.contain_all_rate):>7}   ({s.contain_all}/{s.contain_n})"
+    )
     L.append(
         f"  must_not_contain     {fmt(s.not_contain_rate):>7}   "
-        f"({s.not_contain_ok}/{s.not_contain_n})"
+        f"({s.not_contain_ok}/{s.not_contain_n})   ← answered 만"
     )
+    L.append(
+        f"    전체 기준          {fmt(s.not_contain_rate_all):>7}   "
+        f"({s.not_contain_all_ok}/{s.not_contain_all_n})"
+    )
+    L.append("    거절·되묻기는 금지 문구를 쓸 기회가 없어 **거저 통과**한다.")
+    L.append("    분모를 나누지 않으면 '답을 안 했다' 가 만점으로 보고된다 (04 §1.2).")
 
     L.append("\n■ 지연 (02 §12.4 로 스트리밍을 안 쓰므로 이 값이 그대로 침묵이 된다)")
     L.append(
@@ -355,6 +389,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar="MS",
         help="answered p95 지연이 이 값(ms)을 넘으면 종료코드 1 (CI 게이트)",
     )
+    ap.add_argument(
+        "--min-graded",
+        type=int,
+        default=10,
+        metavar="N",
+        help=(
+            "과소평가율 게이트가 요구하는 **최소 분모**. 분모가 작으면 비율이 무의미하다 "
+            "(기본 10). `--fail-under` 와 함께만 쓰인다"
+        ),
+    )
+    ap.add_argument(
+        "--fail-missed",
+        type=float,
+        default=0.30,
+        metavar="RATE",
+        help=(
+            "정답이 CALL_NOW 이상인데 **등급을 아예 못 낸** 비율의 상한 (기본 0.30). "
+            "이 값은 과소평가율 분모 밖이라 별도 게이트가 필요하다 (04 §1.2)"
+        ),
+    )
     a = ap.parse_args(argv)
 
     paths = a.goldenset or sorted(GOLDEN_DIR.glob("golden_*.csv"))
@@ -393,14 +447,28 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if a.fail_under is not None:
         s = summarize(results)
-        # 측정 대상이 0건이면 **통과가 아니다.**
-        # `under_rate` 가 None 인데 게이트를 초록으로 두면, 엔진이 전부 거절해도
-        # CI 가 통과한다 — 04 §2.5.6이 겪은 "초록불이 곧 거짓 근거" 그대로다.
-        if s.level_n == 0:
-            print("✗ 등급을 낸 건이 0이다 — 과소평가율을 측정하지 못했다. 통과로 치지 않는다.")
+        # 측정 대상이 **너무 적으면** 통과가 아니다.
+        #
+        # 예전에는 `level_n == 0` 만 막았다. 그런데 분모가 1이어도 통과했다 —
+        # 52건 중 등급을 낸 건이 1건뿐이고 그 1건이 맞으면 과소평가율 0.0% 가 되어,
+        # `통과 21.2%` · `등급 못 낸 긴급 건 96%` 인 실행이 **최엄격 게이트를 초록으로
+        # 통과했다** (2026-08-02 재현). 04 §2.5.6 이 겪은 "초록불이 곧 거짓 근거" 그대로다.
+        if s.level_n < a.min_graded:
+            print(
+                f"✗ 등급을 낸 건이 {s.level_n}건뿐이다 (최소 {a.min_graded}) — "
+                "과소평가율을 신뢰할 수 없다. 통과로 치지 않는다."
+            )
             return 1
         if s.under_rate is not None and s.under_rate > a.fail_under:
             print(f"✗ 과소평가율 {fmt(s.under_rate)} > 상한 {fmt(a.fail_under)}")
+            return 1
+        # **등급을 아예 못 낸 긴급 건**은 과소평가율의 분모에 없다 (04 §1.2).
+        # 그래서 별도 게이트가 필요하다 — 없으면 "전부 거절" 이 0.0% 로 통과한다.
+        if s.missed_urgent_rate is not None and s.missed_urgent_rate > a.fail_missed:
+            print(
+                f"✗ 등급을 못 낸 긴급 건 {fmt(s.missed_urgent_rate)} > "
+                f"상한 {fmt(a.fail_missed)}"
+            )
             return 1
 
     if a.fail_over is not None:

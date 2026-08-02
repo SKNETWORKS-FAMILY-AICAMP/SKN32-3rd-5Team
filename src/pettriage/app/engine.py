@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 from typing import Protocol
 
+from ..compute.rules import rule_level_for
 from ..config import AppConfig, get_config
 from ..triage.gate import MonitorWithoutConditions, TriageDecision, apply_gate
 from ..triage.levels import TriageLevel
@@ -96,12 +97,69 @@ def clarify(session: Session, missing: list[str], question: str, *, max_turns: i
 #:
 #: `citation` 은 인스턴스가 아니라 **생성 인자**로 둔다 —
 #: 모듈 전역 인스턴스를 응답에 그대로 실으면 한 요청의 변조가 전역으로 번진다.
+#:
+#: ⚠️ `toxin_content_mg_per_g` — **역치의 기준이 음식이 아니라 독소인 물질**에만 있다.
+#:
+#: 규칙 테이블 12행을 보면 기준이 두 종류다.
+#:
+#:     양파 15-30 g/kg · 마늘 5 g/kg · 자일리톨 0.03 g/kg · 알리움 0.5%
+#:         → **먹은 음식의 질량**이 곧 역치의 단위다. 그대로 쓴다
+#:     초콜릿(테오브로민+카페인) 20 mg/kg
+#:         → **테오브로민의 질량**이다. 초콜릿 질량이 아니다
+#:
+#: 이 둘을 구분하지 않고 `amount_g` 를 그대로 mg/kg 으로 바꾸면
+#: **초콜릿을 100% 테오브로민으로 계산하게 된다** — 약 1만 배 과대평가다.
+#: 안전한 쪽 오류라 눈에 안 띄지만, D-51 이 막은 것과 정확히 같은 종류의 조작이다
+#: (*"잎 무게는 독소 무게가 아니다"*). 2026-08-02 배선 중 발견.
+#:
+#: 함량 값은 **원문 그대로다** (S-034 · F-034-023~025). 우리가 만든 값이 아니다.
+#: `>14` 는 `parse_low` 와 같은 규율로 낮은 쪽인 14 로 읽는다.
+#: 화이트 초콜릿은 원문에 수치가 없어 **목록에 넣지 않는다** — 정성 답변으로 내려간다.
 _STUB_RULES: dict[str, dict] = {
     "초콜릿": {
         "species": {"dog", "cat"},
         "needs_dose": True,
         "level": TriageLevel.CALL_NOW,
         "escalation": ["구토", "심박 증가", "발작"],
+        "toxin_content_mg_per_g": {
+            "베이킹": 14.0,  # F-034-023 >14 mg/g
+            "코코아": 14.0,  # F-034-023
+            "다크": 5.0,  # F-034-024 세미스위트 다크 5 mg/g
+            "세미스위트": 5.0,  # F-034-024
+            "밀크": 2.0,  # F-034-025 2 mg/g
+        },
+        "content_question": (
+            "어떤 초콜릿인가요? (다크 / 밀크 / 베이킹·코코아) — "
+            "종류에 따라 테오브로민 함량이 2~14배 다릅니다."
+        ),
+        "citation": {
+            "source_id": "S-034",
+            "publisher": "Veterinary Sciences",
+            "title": "Common toxicologic emergencies in companion animals",
+            "locator": "Table 1",
+            "route": "사실추출",
+        },
+    },
+    # 역치가 **음식 질량** 기준인 물질 — 함량 환산이 필요 없다.
+    # 정량 경로의 두 갈래를 모두 시연·평가에서 밟게 하려고 둔다.
+    "양파": {
+        "species": {"dog", "cat"},
+        "needs_dose": True,
+        "level": TriageLevel.CALL_NOW,
+        "escalation": ["구토", "설사", "무기력", "호흡곤란", "잇몸 창백"],
+        "citation": {
+            "source_id": "S-034",
+            "publisher": "Veterinary Sciences",
+            "title": "Common toxicologic emergencies in companion animals",
+            "locator": "Table 1",
+            "route": "사실추출",
+        },
+    },
+    "자일리톨": {
+        "species": {"dog"},
+        "needs_dose": True,
+        "level": TriageLevel.CALL_NOW,
+        "escalation": ["구토", "무기력", "운동실조", "발작"],
         "citation": {
             "source_id": "S-034",
             "publisher": "Veterinary Sciences",
@@ -210,13 +268,26 @@ class StubEngine:
                     max_turns=max_turns,
                 )
 
+            # ③-b 역치가 **독소 기준**인 물질은 종류를 알아야 환산된다.
+            #     초콜릿 20 mg/kg 은 테오브로민 기준이고, 함량은 종류마다 2~14 mg/g 로
+            #     **7배** 다르다. 종류를 모르면 어떤 값을 골라도 그것은 우리가 만든 숫자다.
+            #     골든셋 G-047 이 기대하는 되묻기가 이것이다.
+            if rule.get("toxin_content_mg_per_g") and self._content_of(req, session, rule) is None:
+                return clarify(
+                    session,
+                    ["substance_detail"],
+                    rule["content_question"],
+                    max_turns=max_turns,
+                )
+
         # ④ 규칙 판정 → 하향 금지 게이트 (05 §5)
         #    스텁이므로 llm_level 은 None. 실제 엔진은 규칙 미적중 시 LLM을 부른다.
+        rule_level, escalation, verdict_note = self._quantify(hit_key, req, session, rule)
         try:
             decision = apply_gate(
-                rule_level=rule["level"],
+                rule_level=rule_level,
                 llm_level=None,
-                escalation_conditions=tuple(rule["escalation"]),
+                escalation_conditions=escalation,
             )
         except MonitorWithoutConditions:
             # 조건 없는 '관찰'은 과소평가다 (D-39 · 04 §4.1.0).
@@ -230,19 +301,90 @@ class StubEngine:
         return AskResponse(
             status="answered",
             session_id=session.session_id,
-            answer=self._compose(hit_key, session.species, decision),
+            answer=self._compose(hit_key, session.species, decision, verdict_note),
             triage=to_triage_result(decision),
             citations=[Citation(**rule["citation"])],
         )
 
     @staticmethod
-    def _compose(substance: str, species: str, decision: TriageDecision) -> str:
+    def _content_of(req: AskRequest, session: Session, rule: dict) -> tuple[str, float] | None:
+        """질문에서 **독소 함량**을 고른다. 못 고르면 `None` — 지어내지 않는다.
+
+        누적된 되묻기 답변까지 함께 본다. *"다크초콜릿이요"* 는 두 번째 턴에 온다.
+        """
+        table: dict[str, float] = rule["toxin_content_mg_per_g"]
+        text = " ".join(filter(None, [req.question, *session.question_history]))
+        for kw, mg in table.items():
+            if kw in text:
+                return kw, mg
+        return None
+
+    def _quantify(
+        self, substance: str, req: AskRequest, session: Session, rule: dict
+    ) -> tuple[TriageLevel | None, tuple[str, ...], str]:
+        """되물어 받은 **체중과 섭취량으로 실제 규칙 테이블을 조회한다** (D-50).
+
+        예전에는 이 함수가 없었고 `rule["level"]` 상수를 그대로 게이트에 넣었다.
+        그래서 4kg 개가 초콜릿을 `0.1g` 먹든 `500g` 먹든 답이 `CALL_NOW` 로 같았다 —
+        **되묻기로 받은 값을 쓰지 않으면서** *"체중당 섭취량으로 판단합니다"* 라고
+        말하고 있었던 것이다 (2026-08-02 검토).
+
+        같은 검토에서 드러난 더 큰 문제는 `compute.rules` 쪽이었다.
+        `rule_level_for`·`computable_for`·`to_mg_per_kg` 의 **실행 가능한 호출자가
+        저장소에 하나도 없었다** — 이 프로젝트가 가장 공들인 계산 모듈이
+        한 번도 실전 경로를 밟아 본 적이 없었다. 여기서 부르면서 검증된다.
+
+        규칙 테이블이 등급을 못 내면(조류·역치 없음·출처 상충) 상수로 되돌아간다.
+        **정량이 안 된다고 답을 포기하지 않는다** — 정성 판정은 여전히 유효하다 (D-46).
+        """
+        fallback = (rule["level"], tuple(rule["escalation"]), "")
+        if session.weight_kg is None or session.amount_g is None:
+            return fallback
+
+        # 역치가 독소 기준이면 함량으로 환산한다. 음식 기준이면 질량 그대로다.
+        # (`_STUB_RULES` 의 `toxin_content_mg_per_g` 주석 참조)
+        detail = ""
+        if rule.get("toxin_content_mg_per_g"):
+            picked = self._content_of(req, session, rule)
+            if picked is None:
+                return fallback  # ③-b 에서 이미 되물었다. 여기 오면 종류를 끝내 못 정한 것이다
+            kind, mg_per_g = picked
+            toxin_mg = session.amount_g * mg_per_g
+            detail = f"{kind} {mg_per_g:g}mg/g 기준"
+        else:
+            toxin_mg = session.amount_g * 1000.0  # g → mg. 역치 단위가 곧 음식 질량이다
+
+        mg_per_kg = toxin_mg / session.weight_kg
+        verdict = rule_level_for(substance, session.species or "", mg_per_kg)
+        if verdict.level is None:
+            log.info(
+                "정량 판정 불가 — %s·%s: %s (정성 등급으로 되돌아간다)",
+                substance,
+                session.species,
+                verdict.reason,
+            )
+            return fallback
+
+        note = (
+            f"체중 {session.weight_kg:g}kg · 섭취 {session.amount_g:g}g"
+            + (f" · {detail}" if detail else "")
+            + f" → 약 {mg_per_kg:,.1f} mg/kg"
+        )
+        return verdict.level, verdict.escalation_conditions or tuple(rule["escalation"]), note
+
+    @staticmethod
+    def _compose(substance: str, species: str, decision: TriageDecision, note: str = "") -> str:
         """응답 문장 조립 — 코드가 한다 (05 §4).
 
         의학적 중증도 어휘를 쓰지 않는다. 행동만 지시한다 (D-11 · D-39).
 
         상승 조건은 여기 넣지 않는다 — `escalation_conditions` 필드로 나간다.
         화면이 없는 클라이언트는 `full_text` 를 쓰면 조건까지 붙은 문장을 받는다.
+
+        `note` 는 **계산 근거**다. 판정에 쓴 수치를 보여주지 않으면
+        보호자가 그 판정을 검산할 수 없다 (04 §8 재현성).
         """
         ko = {"dog": "개", "cat": "고양이", "bird": "앵무새"}[species]
-        return f"{ko}가 {substance}을(를) 섭취한 상황입니다. {decision.message}."
+        head = f"{ko}가 {substance}을(를) 섭취한 상황입니다."
+        body = f" {note}." if note else ""
+        return f"{head}{body} {decision.message}."

@@ -1,7 +1,10 @@
-.PHONY: help install serve test todo lint fmt verify facts golden eval index train up down docker clean
+.PHONY: help install initdb serve test todo lint fmt verify facts golden eval rules index train up db down docker clean
 
 help:            ## 이 목록
 	@grep -E '^[a-z-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
+
+initdb:          ## DB 스키마 생성 (DATABASE_URL 필요). 기동 시 자동 실행하지 않는다
+	python -m pettriage.app.database
 
 install:         ## 개발 환경 설치 (GPU 없이 API·테스트까지)
 	pip install -e '.[api,rag,ingest,dev]' -c constraints.txt
@@ -18,13 +21,16 @@ test:            ## 안전 장치 회귀 테스트
 todo:            ## 남은 일 목록 — 구현하면 초록이 된다
 	pytest -m todo
 
+# `eval` 을 뺐더니 하네스 800여 줄이 린트 밖에 있었다 (2026-08-02).
+LINT_PATHS = src tests scripts eval
+
 lint:            ## 정적 검사
-	ruff check src tests scripts
-	ruff format --check src tests scripts
+	ruff check $(LINT_PATHS)
+	ruff format --check $(LINT_PATHS)
 
 fmt:             ## 자동 정리
-	ruff check --fix src tests scripts
-	ruff format src tests scripts
+	ruff check --fix $(LINT_PATHS)
+	ruff format $(LINT_PATHS)
 
 verify:          ## 층 0 — 코퍼스 정합성 + 자료 유출 확인
 	python scripts/verify_corpus.py
@@ -36,8 +42,14 @@ facts:           ## 사실 표 검사 (WS1) — 01e 지침
 golden:          ## 골든셋 검사 (WS4) — 04a 지침
 	python scripts/check_goldenset.py
 
-eval:            ## 평가 하네스 — 골든셋 채점 (04 §4). 엔진은 configs 의 serve.engine
-	python eval/harness/run_eval.py --json eval/reports/latest.json
+rules:           ## 사실 표 → 규칙 테이블 재생성 (생성물이다. 손으로 고치지 않는다)
+	python scripts/build_rule_table.py --write
+
+# 산출물 ④의 실행 진입점. 예전에는 Makefile 에 없어서 CI 에 배선할 자리도 없었다.
+# 게이트 기본값은 보수적으로 둔다 — 분모가 작으면 비율이 무의미하다.
+eval:            ## 골든셋 평가 (정확도 + 지연). 게이트 포함
+	python eval/harness/run_eval.py --json eval/reports/latest.json \
+		--fail-under 0.05 --fail-missed 0.30 --min-graded 10
 
 index:           ## 사실 표 → 청크 (적재는 --store chroma)
 	python scripts/build_index.py

@@ -88,6 +88,11 @@ DIFFICULTY = {"쉬움", "보통", "어려움"}
 
 #: 종별 최소 건수 (04 §2.3). 한쪽으로 쏠리면 종별 지표를 낼 수 없다.
 MIN_PER_SPECIES = {"dog": 10, "cat": 10, "bird": 10}
+
+#: 등급별 최소 건수. 4등급 중 하나가 비면 혼동행렬이 4×4로 나오지 않는다.
+MIN_PER_LEVEL = 3
+#: 유형별 최소 건수. 1건짜리 버킷은 0% 아니면 100% 밖에 못 낸다.
+MIN_PER_TYPE = 3
 #: 복사해서 쓰는 원본. 여기에 직접 쓰지 않으므로 총량 기준에서 제외한다.
 TEMPLATE_NAME = "골든셋_양식.csv"
 #: 상태별 최소 비율 (04 §2.2). 거절·되묻기가 없으면 그 경로를 평가할 수 없다.
@@ -146,6 +151,23 @@ def check_row(
             )
         if g("expected_refusal_reason"):
             out.append(Issue("ERROR", where, "answered 인데 거절 사유가 적혀 있다"))
+        if not tri:
+            # 계약상 `answered` 는 트리아지가 필수인데(contracts.AskResponse) 기대값이 비어
+            # 있으면 **채점기가 등급을 아예 안 본다.** MONITOR 로 답하든 EMERGENCY 로
+            # 답하든 통과한다 — 2026-08-02 검토에서 G-004·G-021 이 그 상태였다.
+            #
+            # 둘 다 `prevent` 유형이다. *"알로에 화분을 들여도 되나"* 는 섭취 사건이 아니라
+            # **축 B(급여·노출 가부)** 질문이고, 축 A(긴급도) 등급이 원래 없다.
+            # 어느 쪽으로 정할지는 팀 결정이다 — 여기서는 **조용히 넘어가지 않는다.**
+            out.append(
+                Issue(
+                    "WARN",
+                    where,
+                    "answered 인데 expected_triage 가 비었다 — 채점기가 등급을 보지 않는다. "
+                    "등급을 적거나, prevent 유형을 계약에서 어떻게 다룰지 정할 것 "
+                    "(04a §7 미결)",
+                )
+            )
     elif st == "refused":
         if not g("expected_refusal_reason"):
             out.append(Issue("ERROR", where, "refused 인데 사유가 없다 — 오류 분석에 쓸 수 없다"))
@@ -215,6 +237,35 @@ def check_row(
         out.append(
             Issue("WARN", where, "MONITOR 정답인데 상승 조건 문구가 must_contain 에 없다 (D-39)")
         )
+    return out
+
+
+def check_distribution(rows: list[dict[str, str]]) -> list[Issue]:
+    """등급·유형이 한쪽으로 쏠렸는지 본다.
+
+    종별 쿼터(`check_coverage`)는 있는데 **등급별·유형별 최소 건수는 없었다.**
+    그래서 `VISIT_SOON` 1건 · `symptom` 1건인 채로 통과했다 (2026-08-02).
+    4등급 중 하나가 사실상 비면 **혼동행렬이 4×4로 나오지 않고**,
+    유형별 집계는 0%/100% 밖에 못 낸다 — 지표가 있지만 아무것도 못 읽는다.
+    """
+    out: list[Issue] = []
+    levels = Counter((r.get("expected_triage") or "").strip() for r in rows)
+    for lv in ("EMERGENCY", "CALL_NOW", "VISIT_SOON", "MONITOR"):
+        if levels.get(lv, 0) < MIN_PER_LEVEL:
+            out.append(
+                Issue(
+                    "WARN",
+                    "분포",
+                    f"{lv} {levels.get(lv, 0)}건 — 최소 {MIN_PER_LEVEL}건 "
+                    "(4등급 중 하나가 비면 혼동행렬이 4×4로 안 나온다)",
+                )
+            )
+    types = Counter((r.get("case_type") or "").strip() for r in rows)
+    for t, n in sorted(types.items()):
+        if t and n < MIN_PER_TYPE:
+            out.append(
+                Issue("WARN", "분포", f"유형 {t} {n}건 — 최소 {MIN_PER_TYPE}건 (유형별 집계용)")
+            )
     return out
 
 
@@ -325,6 +376,16 @@ def main() -> int:
     if not cov:
         print("  · 문제 없음")
     print()
+
+    if quota:
+        dist = check_distribution(rows)
+        issues += dist
+        print("[분포]")
+        for i in dist:
+            print(i)
+        if not dist:
+            print("  · 문제 없음")
+        print()
 
     by_status = Counter((r.get("expected_status") or "?").strip() for r in rows)
     by_species = Counter((r.get("species") or "(미지정)").strip() for r in rows)

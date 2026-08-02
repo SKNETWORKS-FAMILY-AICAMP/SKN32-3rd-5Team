@@ -73,15 +73,24 @@ def _strip_trailing_paren(word: str) -> str:
 #: `10%` 를 그냥 두면 `%` 가 기호라 판단 불가가 되어 `기준은 10%이다(다).` 처럼
 #: 병기가 나갔다. 사람은 "십 퍼센트다" 라고 읽는다 — 받침이 있다.
 #: `mL`(밀리리터)·`kcal`(킬로칼로리)처럼 받침 없이 끝나는 것도 있으므로 소리로 적는다.
+#:
+#: ⚠️ **긴 것부터 적는다.** `_has_batchim` 이 위에서부터 `endswith` 로 보므로
+#: `("g", True)` 가 `("㎍", ...)` 보다 앞에 있으면 `㎍` 이 영영 안 걸린다.
 _UNIT_BATCHIM: tuple[tuple[str, bool], ...] = (
     ("kcal", False),  # 킬로칼로리
     ("kg", True),  # 킬로그램
+    ("mcg", True),  # 마이크로그램
+    ("㎍", True),  # 마이크로그램 — 조합 문자(U+338D). AAFCO 표가 이 글자를 쓴다
+    ("µg", True),  # 마이크로그램 — 마이크로 기호(U+00B5)
+    ("μg", True),  # 마이크로그램 — 그리스 소문자 뮤(U+03BC). 눈으로는 구별이 안 된다
     ("mg", True),  # 밀리그램
     ("mL", False),  # 밀리리터
     ("ml", False),
     ("IU", False),  # 아이유
     ("g", True),  # 그램
     ("%", True),  # 퍼센트
+    ("알", True),  # 개수 단위 — 포도 "4-5알"
+    ("개", False),
 )
 
 
@@ -149,6 +158,21 @@ def _ga(w: str) -> str:
     return _josa(w, "이", "가")
 
 
+def _ro(w: str) -> str:
+    """`으로`/`로`. 받침이 있으면 `으로`, 없거나 `ㄹ` 받침이면 `로` 다.
+
+    `개에게 사과는 **안전로** 분류된다` 가 실제로 나갔다 — 하드코딩된 `로` 였다.
+    `feeding_level_ko` 세 값 중 `안전`(받침 ㄴ)만 걸려서 7청크에서만 보였다
+    (2026-08-02 실측). `급여 금지`·`조건부` 는 받침이 없어 우연히 맞았다.
+    """
+    if not w:
+        return w
+    last = _strip_trailing_paren(w).strip()[-1:]
+    if "가" <= last <= "힣" and (ord(last) - 0xAC00) % 28 == 8:  # ㄹ 받침
+        return f"{w}로"
+    return _josa(w, "으로", "로")
+
+
 def _ida(w: str) -> str:
     """서술격 조사. 받침이 있으면 `이다`, 없으면 `다`.
 
@@ -174,14 +198,36 @@ def _has_reported_range(f: Fact) -> bool:
 
 
 def _dose_phrase(f: Fact) -> str:
-    """단위가 이미 체중당(`mg/kg`)이면 "체중 1kg당"을 덧붙이지 않는다.
+    """수치와 **그 수치가 무엇을 기준으로 하는가**를 함께 말한다.
 
-    붙이면 `체중 1kg당 20mg/kg` 이라는 이중 표기가 되어 수치가 왜곡된다.
+    기준을 지어내지 않는다 (D-38)
+    ---------------------------
+    예전에는 단위에 `/kg` 이 없으면 **무조건 `"체중 1kg당"` 을 붙였다.**
+    이중 표기(`체중 1kg당 20mg/kg`)를 막으려던 것인데, 반대 방향으로 넘어갔다 —
+    *기준을 모르는 값에 우리가 기준을 붙인* 것이다. 실측으로 2건이 왜곡됐다
+    (2026-08-02 검토).
+
+    ==========  ==========================  ====================  ====================
+    행           원문                        예전 (왜곡)            지금
+    ==========  ==========================  ====================  ====================
+    F-014-001   "0.5% of body weight"       체중 1kg당 0.5%        0.5%(체중 대비)
+                `basis="체중 대비"`
+    F-034-013   "8.2kg 개가 포도 4-5알"       체중 1kg당 4-5알       4-5알(체중 8.2 kg 개)
+                                            **약 8배 왜곡**
+    ==========  ==========================  ====================  ====================
+
+    `basis` 칸에 출처가 밝힌 기준이 이미 적혀 있는데 이 템플릿만 쓰지 않고 있었다.
+    **기준을 모르면 아무 절도 붙이지 않는다** — 수치만 말하는 편이 틀린 기준보다 낫다.
+
+    ⚠️ 이 함수의 동작을 고정한 테스트가 `tests/test_verbalize.py` 에 있었고,
+    `unit="g"` 로만 검사해서 왜곡이 그럴듯해 보였다. 함께 뒤집었다.
     """
     unit = f.unit or ""
     if "/kg" in unit.replace(" ", ""):
-        return f"{f.dose}{unit}"
-    return f"체중 1kg당 {f.dose}{unit}"
+        return f"{f.dose}{unit}"  # 이미 체중당이다
+    if f.basis:
+        return f"{f.dose}{unit}({f.basis})"  # 출처가 밝힌 기준을 그대로 쓴다
+    return f"{f.dose}{unit}"  # 기준을 모른다 — 만들지 않는다
 
 
 #: 급여 가부(축 B)를 **문장 첫머리에 못 박는다.**
@@ -243,7 +289,7 @@ TOXICITY_FOOD = Template(
         # "주의 대상"처럼 기본값을 채워 넣으면 출처에 없는 분류를 주장하게 된다.
         (
             _has("feeding_level"),
-            lambda f: f"{f.species_ko}에게 {_eun(f.substance)} {f.feeding_level_ko}로 분류된다.",
+            lambda f: f"{f.species_ko}에게 {_eun(f.substance)} {_ro(f.feeding_level_ko)} 분류된다.",
         ),
         (
             lambda f: not f.feeding_level,
@@ -259,7 +305,7 @@ TOXICITY_FOOD = Template(
             _has_reported_range,
             lambda f: (
                 f"증례 보고에서 {_dose_phrase(f)} 범위의 섭취가 "
-                f"{f.effect_ko}과(와) 함께 보고되었다."
+                f"{_wa(f.effect_ko)} 함께 보고되었다."
             ),
         ),
         # 역치가 없다고 명시된 경우 — 포도처럼 용량-반응이 성립하지 않는 물질
@@ -277,7 +323,7 @@ TOXICITY_FOOD = Template(
         ),
         (
             lambda f: _is_composition(f) and not f.dose and bool(f.effect),
-            lambda f: f"{f.effect}.",
+            lambda f: f"{f.effect_ko}.",
         ),
         (_has("signs"), lambda f: f"주요 증상은 {', '.join(f.signs)}이다."),
         (_has("onset"), lambda f: f"증상은 {f.onset} 이내에 나타난다."),
@@ -298,14 +344,16 @@ TOXICITY_PLANT = Template(
                 + f"{'은' if _has_batchim(f.substance) else '는'} {f.species_ko}에게 독성이 있다."
             ),
         ),
-        (_has("toxic_part"), lambda f: f"{_ga(f.toxic_part)} 독성 부위다."),
+        (_has("toxic_part"), lambda f: f"{_ga(f.toxic_part_ko)} 독성 부위다."),
         (
             _has_threshold,
             lambda f: f"{f.dose}{f.unit} 섭취 시 {_ga(f.effect_ko)} 보고되었다.",
         ),
         (
             _has_reported_range,
-            lambda f: f"증례 보고에서 {f.dose}{f.unit} 범위가 {f.effect_ko}과(와) 함께 보고되었다.",
+            lambda f: (
+                f"증례 보고에서 {f.dose}{f.unit} 범위가 {_wa(f.effect_ko)} 함께 보고되었다."
+            ),
         ),
         (_has("signs"), lambda f: f"주요 증상은 {', '.join(f.signs)}이다."),
         (_has("onset"), lambda f: f"증상은 {f.onset} 이내에 나타난다."),
@@ -387,13 +435,13 @@ NUTRITION = Template(
         ),
         (
             lambda f: bool(f.dose) and not _is_composition(f),
-            lambda f: f"최소 {_amount_phrase(f.dose, f.unit)}가 권장된다.",
+            lambda f: f"최소 {_ga(_amount_phrase(f.dose, f.unit))} 권장된다.",
         ),
         (
             lambda f: bool(f.max_value) and not _is_composition(f),
             lambda f: f"1회 권장량은 {_amount_phrase(f.max_value, f.unit)}까지다."
             if _has_feeding(f)
-            else f"최대 허용량은 {_amount_phrase(f.max_value, f.unit)}다.",
+            else f"최대 허용량은 {_ida(_amount_phrase(f.max_value, f.unit))}.",
         ),
         # ── 성분 조성 — 급여 기준이 아니라 그 물질에 무엇이 얼마나 들었는가 ──
         (
@@ -406,8 +454,8 @@ NUTRITION = Template(
                 (f"{f.basis} " if f.basis else "")
                 + f"{f.dose}{f.unit} 수준으로 보고되었다."
                 # `effect_ko` 는 비었을 때 "임상 징후"를 돌려준다 — 성분 조성에는 없는 말이다.
-                # 원본 필드로 판단한다.
-                + (f" {f.effect}." if f.effect else "")
+                # **있는지는 원본으로 판단하고, 출력은 `effect_ko`** 로 한다 (`|` 를 푼다).
+                + (f" {f.effect_ko}." if f.effect else "")
             ),
         ),
         (

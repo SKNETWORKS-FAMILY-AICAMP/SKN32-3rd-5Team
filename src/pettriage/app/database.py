@@ -65,3 +65,28 @@ def init_db() -> None:
 
     Base.metadata.create_all(_engine())
     log.info("DB 테이블 초기화 완료")
+
+
+def main() -> int:
+    """`pettriage-initdb` 진입점.
+
+    ⚠️ 2026-08-02 검토까지 **`init_db()` 를 부르는 곳이 저장소에 없었다.**
+    정의만 있고 호출부도, 실행할 모듈도 없어서 `DATABASE_URL` 을 설정한 팀원이
+    빈 DB 로 서버를 띄우면 회원가입이 500 으로 터졌다.
+
+    기동 시 자동 실행하지 **않는** 이유 — 스키마 생성은 명시적 조작이어야 한다.
+    서버가 뜰 때마다 `create_all` 을 부르면 운영 DB 에 조용히 테이블이 생긴다.
+    """
+    import os
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    if not os.getenv("DATABASE_URL"):
+        print("✗ DATABASE_URL 이 없다. .env 를 확인할 것 (configs/README.md 참조).")
+        return 1
+    init_db()
+    print("→ 테이블 준비 완료")
+    return 0
+
+
+if __name__ == "__main__":  # `python -m pettriage.app.database` 로도 돌아간다
+    raise SystemExit(main())

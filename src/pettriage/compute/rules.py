@@ -33,6 +33,7 @@
 from __future__ import annotations
 
 import csv
+import logging
 import re
 from dataclasses import dataclass
 from functools import lru_cache
@@ -40,6 +41,8 @@ from importlib import resources
 from pathlib import Path
 
 from ..triage.levels import TriageLevel
+
+log = logging.getLogger(__name__)
 
 TABLE_NAME = "정량임계치.csv"
 
@@ -80,7 +83,24 @@ BELOW_THRESHOLD_LEVEL: TriageLevel = TriageLevel.MONITOR
 
 #: 질량 단위를 `mg/kg` 으로 환산한다. `%` 는 **체중 대비 백분율**이라
 #: 1% = 10 g/kg = 10,000 mg/kg 이다.
+#:
+#: ⚠️ `mL/kg` 은 **여기 없다.** 부피를 질량으로 바꾸려면 밀도가 필요하고,
+#: 밀도는 원문에 없다. 만들어서 환산하면 **우리가 만든 숫자가 등급을 판정한다** —
+#: D-51(`g leaves/kg` 을 환산하지 않는다)이 막은 것과 같은 종류다.
 _MG_PER_KG: dict[str, float] = {"mg/kg": 1.0, "g/kg": 1000.0, "%": 10_000.0}
+
+#: **계산 가능한 단위의 단일 출처** (D-40 · P2).
+#:
+#: 표를 만드는 쪽(`scripts/build_rule_table.py`)과 읽는 쪽(여기)이 각자 목록을 들고
+#: 있었고, 실제로 어긋나 있었다 — 빌더는 `mL/kg` 을 "계산 가능"으로 표시했는데
+#: 이 환산표에는 없었다. 그래서
+#:
+#:   (a) `mL/kg` 행이 최저 역치면 `normalized` 에서 빠져 **조용히 과소평가**되고
+#:   (b) 어떤 물질의 계산 가능 행이 전부 `mL/kg` 이면 `min()` 이 빈 시퀀스로 터졌다
+#:
+#: 목록을 환산표에서 **파생**시키면 이 두 곳이 영원히 어긋나지 않는다.
+#: 새 단위는 `_MG_PER_KG` 한 곳에만 추가하면 된다.
+COMPUTABLE_UNITS: frozenset[str] = frozenset(_MG_PER_KG)
 
 #: 같은 (물질 × 종 × 역치종류)에서 최대/최소가 이 배수 이상 벌어지면
 #: **정량 판정을 포기한다** (D-50).
@@ -331,6 +351,23 @@ def rule_level_for(substance: str, species: str, amount_mg_per_kg: float) -> Rul
         for i, r in enumerate(rules)
         if r.low is not None and (mg := to_mg_per_kg(r.low, r.unit)) is not None
     }
+    if not normalized:
+        # 계산 가능 표시가 붙었는데 환산이 하나도 안 됐다 — 표와 환산표가 어긋난 것이다.
+        # `min()` 을 빈 시퀀스로 부르면 크래시하고, API 에서는 `판정불가` 로 삼켜져
+        # **원인이 보이지 않는다.** 정성 답변으로 내리고 로그에 남긴다.
+        log.warning(
+            "%s·%s — computable=Y 인데 환산 가능한 단위가 없다. 표와 %s 를 대조할 것.",
+            substance,
+            species,
+            sorted(COMPUTABLE_UNITS),
+        )
+        return RuleVerdict(
+            None,
+            reason=(
+                f"{substance}·{species} — 역치 단위가 환산표에 없다 "
+                f"(계산 가능 단위: {', '.join(sorted(COMPUTABLE_UNITS))})"
+            ),
+        )
     crossed = [
         r for i, r in enumerate(rules) if i in normalized and amount_mg_per_kg >= normalized[i]
     ]

@@ -4,6 +4,20 @@
 둘 다 LLM에게 맡기지 않는다 (D-38 · 축① "결정론은 코드로").
 """
 
-from .contacts import GUIDANCE, ScrubResult, has_contact, scrub_contacts
+from .contacts import (
+    GUIDANCE,
+    ScrubResult,
+    ScrubResult2,
+    has_contact,
+    scrub_contacts,
+    scrub_items,
+)
 
-__all__ = ["GUIDANCE", "ScrubResult", "has_contact", "scrub_contacts"]
+__all__ = [
+    "GUIDANCE",
+    "ScrubResult",
+    "ScrubResult2",
+    "has_contact",
+    "scrub_contacts",
+    "scrub_items",
+]
