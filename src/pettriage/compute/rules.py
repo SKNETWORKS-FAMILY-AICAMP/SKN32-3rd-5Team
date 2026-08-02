@@ -225,21 +225,54 @@ def _dedupe(rules: list[Rule]) -> list[Rule]:
     return list(seen.values())
 
 
-def lookup(substance: str, species: str) -> list[Rule]:
-    """(물질 × 종) 으로 조회. **없으면 빈 리스트다.**
-
-    `substance` 는 부분 일치로 본다 — 표는 `초콜릿(테오브로민+카페인)` 로 적고
-    질의는 `초콜릿` 으로 들어온다.
-    """
-    if not substance:
-        return []
+def _match(substance: str, species: str) -> list[Rule]:
     want = SPECIES_WIDEN.get(species, (species,)) if species else None
-    hit = [
+    return [
         r
         for r in load_rules()
         if (substance in r.substance or r.substance in substance)
         and (want is None or r.species in want)
     ]
+
+
+def lookup(substance: str, species: str) -> list[Rule]:
+    """(물질 × 종) 으로 조회. **없으면 빈 리스트다.**
+
+    `substance` 는 부분 일치로 본다 — 표는 `초콜릿(테오브로민+카페인)` 로 적고
+    질의는 `초콜릿` 으로 들어온다.
+
+    직접 일치가 없으면 **별칭 표를 한 번 더 본다** (D-59).
+    부분 일치만으로는 보호자 어휘를 못 잡는다 — 실측:
+
+        `대파`·`쪽파`·`실파`   표에 0건.  코퍼스는 `알리움류(…)` 로 적는다
+        `소주`·`막걸리`        표에 0건.  코퍼스는 `알코올(주류·…)` 로 적는다
+
+    골든셋 `G-039`(대파/cat)가 실패하던 원인이다.
+
+    ⚠️ **직접 일치가 우선이다.** 별칭은 직접 일치가 0건일 때만 본다 —
+    표에 이름이 그대로 있는데 별칭이 가로채면 근거가 엉뚱한 행으로 바뀐다.
+
+    ⚠️ **역치를 갈아끼우지 않는다.** 별칭 표가 `대파 → 알리움류` 로 두고
+    `양파` 로 두지 않는 이유는 `aliases.py` 의 모듈 docstring 에 있다.
+    적중률을 위해 다른 종의 역치를 빌려 오면 **우리가 만든 숫자가 등급을 판정한다** (D-51).
+    """
+    if not substance:
+        return []
+    hit = _match(substance, species)
+    if not hit:
+        from .aliases import resolve
+
+        for a in resolve(substance, species):
+            hit = _match(a.substance, species)
+            if hit:
+                log.info(
+                    "별칭으로 조회했다 — %r → %r (%s · 근거 %s)",
+                    substance,
+                    a.substance,
+                    a.kind,
+                    ",".join(a.basis),
+                )
+                break
     return sorted(_dedupe(hit), key=lambda r: (r.severity, r.low if r.low is not None else 0.0))
 
 
