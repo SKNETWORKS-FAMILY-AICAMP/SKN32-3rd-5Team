@@ -30,10 +30,15 @@ _INSTRUCTIONS: dict[Task, str] = {
         "판단이 서지 않으면 `unknown` 을 출력한다."
     ),
     Task.SLOT: (
-        "발화에서 슬롯을 추출해 JSON 객체 하나로 출력한다.\n"
+        "발화에서 슬롯을 추출해 **다음 키를 정확히 그대로 쓴** JSON 객체 하나로 출력한다.\n"
+        # graph.nodes.slots.extract_slots 가 이 키 이름으로 llm.get(...) 을 호출한다.
+        # 다른 키(예: weight·toxic_food)로 내면 코드가 못 찾아 결측으로 처리된다.
+        '  {"species": "dog"|"cat"|"bird"|null, "weight_kg": 숫자|null, '
+        '"amount_g": 숫자|null, "substance": 문자열|null}\n'
         "값이 발화에 없으면 **추정하지 말고 null** 로 둔다.\n"
-        "종(species)은 개·고양이·앵무새 중 명시된 경우에만 채운다 — "
-        "품종명이나 이름에서 추측하지 않는다."
+        "`species` 는 반드시 `dog`·`cat`·`bird` 중 하나(영문)로 쓴다 — "
+        "한국어(개·강아지 등)나 품종명·이름에서 추측하지 않는다.\n"
+        "`weight_kg`·`amount_g` 는 단위를 뺀 숫자만 쓴다(kg·g 단위로 이미 통일된 값)."
     ),
     Task.COMPRESS: (
         "검색된 문서들을 질문에 필요한 내용만 남겨 압축한다.\n"
