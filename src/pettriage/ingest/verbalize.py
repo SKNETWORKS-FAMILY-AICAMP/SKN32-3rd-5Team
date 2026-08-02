@@ -36,6 +36,7 @@ def to_chunk(fact: Fact, *, chunk_id: str | None = None) -> Chunk:
         chunk_id=chunk_id or f"c-{fact.fact_id}",
         text=verbalize(fact),
         source_id=fact.source_id,
+        publisher=fact.publisher,
         species=fact.species,
         doc_type=fact.doc_type,
         substance=fact.substance,

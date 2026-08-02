@@ -19,6 +19,26 @@ from ..engine import QAEngine
 router = APIRouter(prefix="/api", tags=["meta"])
 
 
+def _model_loaded(cfg) -> bool | None:
+    """임베딩 모델이 올라와 있는가 (D-53).
+
+    **모델을 로드하지 않는다.** 상태를 묻는 엔드포인트가 20초짜리 로딩을 일으키면
+    헬스체크가 곧 장애가 된다. 이미 만들어진 임베더가 있으면 그 상태만 읽는다.
+
+    `engine=stub` 은 벡터 검색을 하지 않으므로 **해당 없음(`None`)** 이다 —
+    `False`(아직 안 올라옴)와 구분한다.
+    """
+    if cfg.serve.engine == "stub":
+        return None
+    try:
+        from ...retrieval.embedder import BGEEmbedder, get_embedder
+
+        emb = get_embedder(cfg.retrieval.embedding_model)
+        return emb.loaded if isinstance(emb, BGEEmbedder) else None
+    except Exception:  # noqa: BLE001 — 헬스체크가 예외로 죽으면 안 된다
+        return None
+
+
 @router.get("/health", response_model=HealthResponse)
 def health(engine: QAEngine = Depends(get_engine)) -> HealthResponse:
     """실제 엔진과 **설정이 요구한 엔진**을 함께 돌려준다.
@@ -33,6 +53,7 @@ def health(engine: QAEngine = Depends(get_engine)) -> HealthResponse:
         engine_configured=cfg.serve.engine,
         profile=cfg_profile(),
         version=__version__,
+        model_loaded=_model_loaded(cfg),
     )
 
 

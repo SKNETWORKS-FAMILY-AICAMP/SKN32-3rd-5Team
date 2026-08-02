@@ -27,7 +27,12 @@ class Task(StrEnum):
     COMPRESS = "compress"  # ③ 컨텍스트 압축
     VERIFY = "verify"  # ④ 근거 검증  ← 핵심
     SIMPLIFY = "simplify"  # ⑤ 평이화
-    TRANSLATE = "translate"  # ⑥ 조건부 (D-19 · E2 결과 대기)
+    # ⑥ 번역 — **미채택 확정** (2026-08-02 · D-19 후속).
+    #   경로 ②(D-37·D-38·D-45)로 벡터DB 청크가 전부 한국어가 되어 번역 대상이 사라졌다.
+    #   비교군을 만들 수 없어 04 E2 도 폐기했다. **멀티태스크는 5종이다** (D-05).
+    #   값을 지우지 않고 남기는 이유 — 과거 학습 샘플·설정에 문자열이 남아 있을 수 있고,
+    #   여기서 없애면 로딩이 KeyError 로 죽는다. `DEFAULT_TASKS` 에 없으므로 학습에는 안 들어간다.
+    TRANSLATE = "translate"
 
 
 @dataclass(frozen=True)
@@ -51,7 +56,10 @@ SPECS: dict[Task, TaskSpec] = {
         task=Task.SLOT,
         graph_node="extract_slots",
         output_kind="JSON 객체",
-        verified_by="JSON 스키마 검증 · 결측 판정 · 되묻기 상한 2회",
+        verified_by=(
+            "JSON 스키마 검증 · **폐쇄 목록 정규화**(D-59 ① · `vocabulary.resolve_substance`) "
+            "· 결측 판정 · 되묻기 상한 2회"
+        ),
         metric="슬롯 단위 정확도 · 결측 탐지율",
     ),
     Task.COMPRESS: TaskSpec(
@@ -77,14 +85,15 @@ SPECS: dict[Task, TaskSpec] = {
     ),
     Task.TRANSLATE: TaskSpec(
         task=Task.TRANSLATE,
-        graph_node="(조건부)",
+        graph_node="(없음 — 미채택)",
         output_kind="문장",
-        verified_by="학명·수치 앵커 대조",
+        verified_by="학명·수치 앵커 대조",  # 미채택이라 실제로 도는 검증은 아니다
         metric="수치·학명 보존율",
     ),
 }
 
-#: 기본 학습 대상. ⑥ 번역은 E2 결과에 따라 편입된다 (D-05 · D-19).
+#: 기본 학습 대상 **5종이 최종이다** (D-05 · D-19 후속).
+#: ⑥ 번역은 편입되지 않는다 — 번역할 원문이 인덱스에 없다 (2026-08-02).
 DEFAULT_TASKS: tuple[Task, ...] = (
     Task.CLASSIFY,
     Task.SLOT,

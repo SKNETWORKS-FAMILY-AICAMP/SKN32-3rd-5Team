@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from . import paths
@@ -45,7 +45,24 @@ class ConfigNotFound(RuntimeError):
 # ─────────────────────────────────────────────────────────────
 # YAML 로 관리하는 값 — 재현에 필요하다
 # ─────────────────────────────────────────────────────────────
-class ModelConfig(BaseModel):
+class _ConfigBase(BaseModel):
+    """모든 설정 모델의 기반. **모르는 키를 거부한다.**
+
+    예전에는 기본값(`extra="ignore"`)이라 오타가 조용히 버려졌다.
+
+        PETTRIAGE__SERVE__ENGIN=graph      # 오타
+        WARNING 환경변수가 설정을 덮었다 — serve.engin=graph
+        실제 적용값 → serve.engine=stub
+
+    **덮지 않았는데 덮었다고 로그가 말했다.** 그 로그를 04 §8 재현성의 근거로
+    쓰기로 해 놓고 실험 기록을 오염시키고 있었던 것이다 (2026-08-02 재현).
+    설정은 안전 파라미터를 담으므로 조용한 무시가 가장 나쁜 실패다.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ModelConfig(_ConfigBase):
     """생성·파인튜닝 모델 (D-42)."""
 
     base_id: str = "Qwen/Qwen3-4B"
@@ -56,7 +73,7 @@ class ModelConfig(BaseModel):
     adapter_path: str | None = None  # 학습된 LoRA 어댑터. None이면 베이스만
 
 
-class LoRAConfig(BaseModel):
+class LoRAConfig(_ConfigBase):
     r: int = 16
     alpha: int = 32
     dropout: float = 0.05
@@ -73,7 +90,7 @@ class LoRAConfig(BaseModel):
     )
 
 
-class TrainConfig(BaseModel):
+class TrainConfig(_ConfigBase):
     """멀티태스크 QLoRA 학습 (03 §2)."""
 
     seed: int = 42  # 04 §8 — 시드 고정
@@ -95,38 +112,93 @@ class TrainConfig(BaseModel):
     )
 
 
-class RetrievalConfig(BaseModel):
+class RetrievalConfig(_ConfigBase):
     """검색 (02 §8)."""
 
     embedding_model: str = "BAAI/bge-m3"
-    top_k: int = 5
+    #: `ge=1` — `0` 이면 검색이 항상 0건이 되고, 그것은 **모든 질의가 거절**이라는 뜻이다.
+    #: 그 상태가 *"우리 시스템은 신중하다"* 로 잘못 읽힌다 (04 §8).
+    top_k: int = Field(default=5, ge=1, le=100)
     #: 이 값 미만이면 **검색 실패로 간주하고 거절한다** (02 §8.3·§9).
-    #: 낮은 유사도 문서로 답을 만들지 않는다.
-    score_threshold: float = 0.35
+    #:
+    #: ⚠️ **임계값 하나로는 거절을 만들 수 없다** (D-46 실측).
+    #: 근거 있음 0.547~0.733 / 근거 없음 0.494~0.659 로 분포가 겹친다.
+    #: 올리면 근거가 있는 질의가 거절되어 **과소평가**가 된다 (D-13).
+    #: 거절은 ① 의도 분류와 ④ 근거 검증이 만든다. 이 값은 최소 방어선일 뿐이다.
+    #: `le=1.0` — 코사인 유사도의 상한이다. `2.0` 을 넣으면 **전부 거절**이 된다.
+    #: 예전에는 아무 값이나 통과해서, 오타 하나로 평가 전체가 0%가 될 수 있었다.
+    score_threshold: float = Field(default=0.50, ge=0.0, le=1.0)
     rerank: bool = False  # 구현 2단계 이후
     chunk_strategy: Literal["substance", "fixed"] = "substance"  # D-14
     fixed_chunk_size: int = 500  # 비교군 전용 (04 E1)
+    #: 벡터DB (D-44). `memory` 는 모델·디스크 없이 도는 테스트용이다.
+    store: Literal["chroma", "memory"] = "chroma"
+    #: Chroma 영속 디렉터리. 지우고 `build_index.py` 로 통째로 재생성된다.
+    persist_dir: str = ".chroma"
+    collection: str = "external"
 
 
-class TriageConfig(BaseModel):
+class TriageConfig(_ConfigBase):
     """트리아지 (D-09 · D-39). **여기 값은 안전에 직결된다.**"""
 
     #: 규칙 미적중 시 LLM을 부를지. False면 규칙만으로 판정하고 미적중은 거절한다.
     llm_fallback: bool = True
     #: 되묻기 상한 (02 §9). 계약(contracts.MAX_CLARIFY_TURNS)과 반드시 일치해야 한다.
-    max_clarify_turns: int = 2
+    #: 되묻기 상한 (02 §9). 계약 상수(`contracts.MAX_CLARIFY_TURNS`)가 **천장**이다.
+    #: `0` 은 되묻기를 끈다 — `configs/eval.yaml` 이 그렇게 쓴다.
+    max_clarify_turns: int = Field(default=2, ge=0)
     #: 조류는 정량 임계치가 0건이라 체중·섭취량 슬롯을 요구하지 않는다 (D-09 개정).
     quantitative_species: list[str] = Field(default_factory=lambda: ["dog", "cat"])
 
+    @model_validator(mode="after")
+    def _within_contract_ceiling(self) -> TriageConfig:
+        """계약 상수(`contracts.MAX_CLARIFY_TURNS`)를 **넘지 않는다.**
 
-class ServeConfig(BaseModel):
+        같다고 요구하면 안 된다 — `configs/eval.yaml` 이 `0` 으로 낮춰 되묻기를 끈다.
+        되묻기가 섞이면 과소평가율 분모가 흔들리기 때문이다 (04 §4.1).
+        **낮추는 것은 의도된 구성이고, 넘기는 것이 계약 위반**이다.
+
+        (2026-08-02 정정. 처음에는 등호로 강제했다가 `eval` 프로파일을 깨뜨렸다.
+        주석에 적힌 *"반드시 일치해야 한다"* 를 그대로 코드로 옮긴 것이 원인이다 —
+        **주석이 부정확하면 그것을 강제하는 코드도 부정확해진다.**)
+        """
+        from .app.contracts import MAX_CLARIFY_TURNS
+
+        if self.max_clarify_turns > MAX_CLARIFY_TURNS:
+            raise ValueError(
+                f"triage.max_clarify_turns={self.max_clarify_turns} 가 계약 상한 "
+                f"{MAX_CLARIFY_TURNS} 을 넘는다. 화면은 계약 상한을 기준으로 그려지므로 "
+                '"2회 중 3회" 같은 표시가 나간다. 올리려면 contracts.MAX_CLARIFY_TURNS 를 '
+                "함께 고칠 것."
+            )
+        return self
+
+
+class AuthConfig(_ConfigBase):
+    """토큰 파라미터. **비밀이 아니다** — 값이 새도 위조에 쓸 수 없다 (D-41).
+
+    비밀은 서명 키 하나뿐이고 그건 `Secrets` 에 있다.
+    """
+
+    algorithm: Literal["HS256", "HS384", "HS512"] = "HS256"
+    #: 응급 도메인이라 세션이 짧다. 길게 잡으면 탈취 토큰의 유효기간이 길어진다.
+    expire_minutes: int = Field(default=60, ge=5, le=1440)
+
+
+class ServeConfig(_ConfigBase):
     host: str = "127.0.0.1"
     port: int = 8000
     engine: Literal["stub", "graph"] = "stub"
     cors_origins: list[str] = Field(default_factory=list)
 
+    #: 기동 시 임베딩 모델을 미리 올린다 (D-53).
+    #: 끄면 **첫 질의가 로딩을 맞는다** — 02 §12.4 로 스트리밍이 없어 그 시간이 침묵이 된다.
+    #: 노드를 고치며 서버를 자주 재시작하는 개발 중에만 끈다:
+    #:     PETTRIAGE__SERVE__WARMUP=false make serve
+    warmup: bool = True
 
-class AppConfig(BaseModel):
+
+class AppConfig(_ConfigBase):
     """YAML 전체 트리."""
 
     model: ModelConfig = Field(default_factory=ModelConfig)
@@ -134,6 +206,7 @@ class AppConfig(BaseModel):
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     triage: TriageConfig = Field(default_factory=TriageConfig)
     serve: ServeConfig = Field(default_factory=ServeConfig)
+    auth: AuthConfig = Field(default_factory=AuthConfig)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -148,6 +221,17 @@ class Secrets(BaseSettings):
     anthropic_api_key: SecretStr | None = None
     langchain_api_key: SecretStr | None = None
     database_url: str | None = None
+
+    #: JWT 서명 키. **기본값을 주지 않는다.**
+    #:
+    #: `"change-me-in-production"` 같은 자리표시자를 기본값으로 두면
+    #: **아무도 안 바꾼 채 그대로 배포된다.** 키를 아는 사람은 누구나 토큰을 위조한다.
+    #: 없으면 `app.auth` 가 명시적으로 실패한다 — 조용히 약한 키로 도는 것보다 낫다.
+    #: 만들 때: `python -c "import secrets; print(secrets.token_urlsafe(32))"`
+    #:
+    #: 알고리즘·만료 시간은 **여기 없다.** 비밀이 아니므로 `configs/*.yaml` 의
+    #: `auth` 절로 옮겼다 (D-41 — 파라미터는 설정, 비밀은 환경변수).
+    jwt_secret_key: SecretStr | None = None
 
     data_dir: Path = Field(default_factory=paths.data_dir)
     vectorstore_dir: Path = Field(default_factory=lambda: paths.data_dir().parent / ".chroma")
@@ -202,6 +286,16 @@ def _env_overrides(prefix: str = "PETTRIAGE__") -> dict[str, Any]:
     return out
 
 
+class UnknownConfigKey(ValueError):
+    """설정에 없는 키가 들어왔다. **조용히 무시하지 않는다.**
+
+    `PETTRIAGE__SERVE__ENGIN=graph`(오타)가 조용히 버려지면서
+    로그는 *"환경변수가 설정을 덮었다 — serve.engin=graph"* 라고 말했다.
+    **덮지 않았는데 덮었다고 적혔고**, 그 로그가 04 §8 재현성의 근거였다.
+    실험 기록이 오염되는 경로다 (2026-08-02 재현).
+    """
+
+
 def load_config(profile: str = "default") -> AppConfig:
     """`configs/default.yaml` → `configs/<profile>.yaml` → 환경변수 순으로 덮는다.
 
@@ -232,7 +326,21 @@ def load_config(profile: str = "default") -> AppConfig:
         log.warning("프로파일 %s.yaml 이 없다 — default.yaml 만 적용되었다.", profile)
 
     merged = _deep_merge(merged, _env_overrides())
-    return AppConfig.model_validate(merged)
+    try:
+        return AppConfig.model_validate(merged)
+    except ValidationError as e:
+        unknown = [
+            ".".join(str(x) for x in err["loc"])
+            for err in e.errors()
+            if err["type"] == "extra_forbidden"
+        ]
+        if not unknown:
+            raise
+        raise UnknownConfigKey(
+            f"설정에 없는 키다: {', '.join(unknown)}. "
+            "오타이거나 이름이 바뀐 값이다. 조용히 무시하면 실험 기록이 오염된다 "
+            "(configs/README.md 의 키 목록 참조)."
+        ) from e
 
 
 @lru_cache(maxsize=1)

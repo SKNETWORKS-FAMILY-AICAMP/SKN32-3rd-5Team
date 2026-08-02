@@ -44,6 +44,77 @@ jobs:
       - name: 층 0 — 코퍼스 검증
         run: pettriage-verify
 
+  db-deps:
+    #  test 잡은 '.[api,dev]' 만 깐다. 그래서 auth/pets 는 CI 에서 **임포트조차 되지 않았고**,
+    #  passlib·PyJWT·PyMySQL 이 pyproject 에 없다는 사실이 424줄이 들어온 뒤에도 안 잡혔다.
+    #  게다가 DATABASE_URL 이 있을 때만 로드되는 구조라 ruff 가 문법만 보고 지나갔다.
+    #  이 잡은 **설치가 해결되는가 + 그 코드가 실제로 도는가** 를 본다.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e '.[api,db,dev]' -c constraints.txt
+      - name: 비밀번호 해싱이 실제로 되는가
+        # passlib 1.7.4 는 bcrypt>=4.1 과 깨져 **9바이트 비밀번호에서도** ValueError 를 냈다.
+        # 설치가 해결되는 것과 도는 것은 다르다.
+        run: |
+          python -c "
+          from pettriage.app.auth import hash_password, verify_password
+          h = hash_password('hunter22!')
+          assert h.startswith('\$2') and verify_password('hunter22!', h)
+          assert not verify_password('wrong', h)
+          print('OK — bcrypt 왕복')
+          "
+      - name: 계정·프로필 API 테스트 (SQLite 인메모리)
+        run: pytest -q tests/test_auth_api.py
+      - name: DATABASE_URL 이 있는데 의존성이 없으면 기동을 멈추는가
+        # 조용히 인증 없는 앱으로 넘어가면 안 된다 (04 §8).
+        run: |
+          pip uninstall -y PyJWT
+          DATABASE_URL="sqlite+pysqlite:///:memory:" python -c "
+          import sys
+          try:
+              from pettriage.app.routes import ALL_ROUTERS
+          except Exception as e:
+              print(f'OK — 기동 중단: {type(e).__name__}'); sys.exit(0)
+          print('::error::의존성이 없는데 앱이 떴다. 인증이 빠진 채 서비스된다')
+          sys.exit(1)
+          "
+
+  rag-deps:
+    #  test 잡은 '.[api,dev]' 만 깐다. 그래서 rag 그룹(langchain·chromadb·
+    #  sentence-transformers)의 버전 충돌이 CI 를 통과해 팀원 PC 에서 처음 터졌다.
+    #  이 잡은 **설치가 실제로 해결되는지**를 본다 — 테스트는 여기서 돌리지 않는다.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: rag·ingest 그룹까지 설치가 해결되는가
+        run: pip install -e '.[api,rag,ingest,dev]' -c constraints.txt
+      - name: 임포트가 실제로 되는가
+        run: |
+          python -c "import chromadb, langchain_core, langchain_community, langgraph"
+          python -c "import sentence_transformers, transformers, numpy, pandas, PIL, piexif"
+      - name: 베이스 모델 아키텍처를 transformers 가 아는가 (D-42)
+        # Qwen3 지원은 transformers 4.51 부터다. 핀이 내려가면 학습 당일에야 발견된다.
+        run: |
+          python -c "
+          import sys, transformers
+          from transformers.models.auto.configuration_auto import CONFIG_MAPPING_NAMES
+          if 'qwen3' not in CONFIG_MAPPING_NAMES:
+              print(f'::error::transformers {transformers.__version__} 는 Qwen3 를 모른다 (D-42). 4.51 이상 필요')
+              sys.exit(1)
+          print(f'OK — transformers {transformers.__version__} · Qwen3 지원')
+          "
+      - name: 학습 그룹도 해결되는가 (설치는 하지 않는다)
+        run: pip install --dry-run -e '.[train]' -c constraints.txt
+
   no-data-committed:
     #  공개 저장소이므로 자료 파일이 커밋되지 않았는지 확인한다 (D-29)
     runs-on: ubuntu-latest

@@ -7,8 +7,9 @@
 
 model:
   # D-42 — Qwen3-4B. revision 을 비워두면 재현이 깨지므로 학습 착수 시 커밋 해시를 박는다.
+  # 2026-08-01 스모크 테스트 시점 HF 캐시에서 확인한 해시 (refs/main).
   base_id: Qwen/Qwen3-4B
-  revision: null
+  revision: 1cfa9a7208912126459214e8b04321603b3df60c
   max_seq_len: 4096
   dtype: bfloat16
   load_in_4bit: true
@@ -36,11 +37,17 @@ train:
 retrieval:
   embedding_model: BAAI/bge-m3
   top_k: 5
-  # 이 값 미만이면 검색 실패로 보고 거절한다 (02 §8.3). 골든셋으로 튜닝한다.
-  score_threshold: 0.35
+  # D-46 — 실측으로 정했다. 근거 있음 0.547~0.733 / 근거 없음 0.494~0.659 로 **겹친다.**
+  # 임계값만으로는 거절을 만들 수 없다. 근거 있는 질의를 거절하지 않는 쪽으로 낮게 둔다.
+  # 재현: python scripts/calibrate_threshold.py
+  score_threshold: 0.50
   rerank: false
   chunk_strategy: substance      # D-14 물질 단위
   fixed_chunk_size: 500          # 비교군 전용 (04 E1)
+  # D-44 — 벡터DB는 Chroma. memory 는 모델·디스크 없이 도는 테스트용이다.
+  store: chroma
+  persist_dir: .chroma
+  collection: external
 
 triage:
   llm_fallback: true
@@ -48,8 +55,18 @@ triage:
   # 조류는 체중당 임계치가 0건이라 정량 슬롯을 요구하지 않는다 (D-09 개정).
   quantitative_species: [dog, cat]
 
+# 토큰 파라미터 (D-41). **비밀은 여기 없다** — 서명 키는 .env 의 JWT_SECRET_KEY 다.
+auth:
+  algorithm: HS256
+  # 응급 도메인이라 세션을 짧게 잡는다. 길수록 탈취 토큰의 유효기간이 길어진다.
+  expire_minutes: 60
+
 serve:
   host: 127.0.0.1
   port: 8000
   engine: stub                   # graph 로 바꾸면 LangGraph 엔진을 쓴다 (D-40)
   cors_origins: []
+  # D-53 — 기동 시 임베딩 모델을 미리 올린다. 서버가 로딩을 내고 사용자는 안 낸다.
+  # 끄면 첫 질의가 로딩을 맞고, 스트리밍이 없어 그 시간이 침묵이 된다 (02 §12.4).
+  # 노드 고치며 재시작이 잦은 개발 중에만: PETTRIAGE__SERVE__WARMUP=false make serve
+  warmup: true
