@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from pettriage.app.contracts import AskResponse, Citation, TriageResult
+from pettriage.app.contracts import DISCLAIMER, AskResponse, Citation, TriageResult
 
 
 # ─────────────────────────────────────────────────────────────
@@ -97,15 +97,22 @@ def test_no_evidence_is_refusal_not_error(client: TestClient):
 
 
 def test_slot_clarify_then_answer(client: TestClient):
-    """되묻기 → 슬롯 충족 → 답변. 세션이 슬롯을 이어받는가."""
-    first = client.post("/api/ask", json={"question": "초콜릿을 먹었어요", "species": "dog"}).json()
+    """되묻기 → 슬롯 충족 → 답변. 세션이 슬롯을 이어받는가.
+
+    질문이 `다크초콜릿` 인 이유 — 초콜릿 역치는 **테오브로민 기준**이라
+    종류를 모르면 환산이 불가능하고, 엔진이 한 번 더 되묻는다
+    (`test_초콜릿_종류를_모르면_되묻는다` 참조).
+    """
+    first = client.post(
+        "/api/ask", json={"question": "다크초콜릿을 먹었어요", "species": "dog"}
+    ).json()
     assert first["status"] == "clarify"
     assert set(first["clarify"]["missing"]) == {"weight_kg", "amount_g"}
 
     second = client.post(
         "/api/ask",
         json={
-            "question": "초콜릿을 먹었어요",
+            "question": "다크초콜릿을 먹었어요",
             "session_id": first["session_id"],
             "weight_kg": 5.0,
             "amount_g": 30,
@@ -241,7 +248,7 @@ def test_full_text_carries_escalation_conditions(client: TestClient):
     d = client.post(
         "/api/ask",
         json={
-            "question": "초콜릿을 먹었어요",
+            "question": "다크초콜릿을 먹었어요",
             "species": "dog",
             "weight_kg": 5.0,
             "amount_g": 30,
@@ -277,10 +284,10 @@ def test_clarify_budget_resets_on_progress(client: TestClient):
     sid = None
     seq = []
     for body in (
-        {"question": "초콜릿을 먹었어요"},
-        {"question": "초콜릿을 먹었어요", "species": "dog"},
-        {"question": "초콜릿을 먹었어요", "weight_kg": 5.0},
-        {"question": "초콜릿을 먹었어요", "amount_g": 30},
+        {"question": "다크초콜릿을 먹었어요"},
+        {"question": "다크초콜릿을 먹었어요", "species": "dog"},
+        {"question": "다크초콜릿을 먹었어요", "weight_kg": 5.0},
+        {"question": "다크초콜릿을 먹었어요", "amount_g": 30},
     ):
         if sid:
             body["session_id"] = sid
@@ -351,3 +358,102 @@ def test_response_contract_violation_becomes_refusal(client: TestClient):
         assert "수의학적 진단이 아닙니다" in r.json()["disclaimer"]
     finally:
         client.app.dependency_overrides.clear()
+
+
+# ─────────────────────────────────────────────────────────────
+# 2026-08-02 검토 회귀 — 안전 불변식이 "불릴 때만" 지켜지던 것들
+# ─────────────────────────────────────────────────────────────
+def test_초콜릿_종류를_모르면_되묻는다(client: TestClient):
+    """초콜릿 역치 `20 mg/kg` 은 **테오브로민** 기준이지 초콜릿 질량이 아니다.
+
+    함량은 밀크 2 · 다크 5 · 베이킹 14 mg/g 로 **7배** 다르다 (S-034).
+    종류를 모르는 채 아무 값이나 고르면 그 순간부터 **우리가 만든 숫자가
+    등급을 판정한다** — D-51 이 막은 것과 같은 종류다. 그래서 되묻는다.
+    골든셋 G-047 이 기대하는 동작이기도 하다.
+    """
+    d = client.post(
+        "/api/ask",
+        json={"question": "초콜릿을 먹었어요", "species": "dog", "weight_kg": 4.0, "amount_g": 20},
+    ).json()
+    assert d["status"] == "clarify"
+    assert "다크" in d["clarify"]["question"] and "밀크" in d["clarify"]["question"]
+
+
+def test_섭취량이_등급을_바꾼다(client: TestClient):
+    """되물어 받은 값을 **실제로 쓴다** (D-50).
+
+    예전에는 `_STUB_RULES` 의 상수를 그대로 게이트에 넣어서, 4kg 개가
+    0.1g 을 먹든 500g 을 먹든 답이 `CALL_NOW` 로 같았다. *"체중당 섭취량으로
+    판단합니다"* 라고 되물어 놓고 그 값을 버리고 있었다 (2026-08-02 검토).
+    """
+    levels = []
+    for amount in (1, 20, 200):
+        d = client.post(
+            "/api/ask",
+            json={
+                "question": "다크초콜릿을 먹었어요",
+                "species": "dog",
+                "weight_kg": 4.0,
+                "amount_g": amount,
+            },
+        ).json()
+        levels.append(d["triage"]["level"])
+    # 1g→1.2 · 20g→25 · 200g→250 mg/kg. 역치 20(임상징후)·40-50(중증) 을 차례로 넘는다
+    assert levels == [1, 3, 4], levels
+
+
+def test_답변에_계산_근거가_실린다(client: TestClient):
+    """판정에 쓴 수치를 보여주지 않으면 보호자가 검산할 수 없다 (04 §8)."""
+    d = client.post(
+        "/api/ask",
+        json={
+            "question": "다크초콜릿을 먹었어요",
+            "species": "dog",
+            "weight_kg": 4.0,
+            "amount_g": 20,
+        },
+    ).json()
+    assert "다크 5mg/g" in d["answer"]
+    assert "mg/kg" in d["answer"]
+
+
+def test_연락처는_엔진을_거치는_모든_응답에서_제거된다(client: TestClient):
+    """D-47 이 **주입 지점**에서 강제된다.
+
+    예전에는 `scrub_contacts` 의 유일한 호출부가 `graph.nodes.finalize` 였고,
+    `GraphEngine` 은 `NODES_IMPLEMENTED=False` 라 만들어지지도 않았다 —
+    **그때까지 `/api/ask` 응답은 어떤 연락처 필터도 통과하지 않았다.**
+    """
+    from pettriage.app import deps
+    from pettriage.app.safety_engine import SafetyEngine
+
+    class Leaky:
+        name = "leaky"
+
+        def ask(self, req, session):  # noqa: ANN001
+            return AskResponse.model_construct(
+                status="answered",
+                session_id=session.session_id,
+                answer="다크초콜릿은 5 mg/g 입니다.\nASPCA APCC 888-426-4435 로 연락하세요.",
+                triage=TriageResult(
+                    level=3,
+                    message="지금 연락하세요",
+                    escalation_conditions=["구토", "Pet Poison Helpline (855)-764-7661 로 연락"],
+                ),
+                citations=[Citation(source_id="S-034", publisher="Veterinary Sciences")],
+                clarify=None,
+                refusal=None,
+                disclaimer=DISCLAIMER,
+            )
+
+    deps.set_engine(Leaky())
+    try:
+        assert isinstance(deps.get_engine(), SafetyEngine)  # 주입이 강제한다
+        d = client.post("/api/ask", json={"question": "다크초콜릿", "species": "dog"}).json()
+    finally:
+        deps.set_engine(None)
+
+    assert "888-426-4435" not in d["full_text"]
+    assert "764-7661" not in d["full_text"]
+    assert "5 mg/g" in d["answer"]  # 안전한 정보는 살아남는다
+    assert d["triage"]["escalation_conditions"] == ["구토"]  # 항목 단위로만 뺀다

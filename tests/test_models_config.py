@@ -80,7 +80,11 @@ def test_every_default_task_has_spec():
 def test_verify_task_is_weighted_highest():
     """④ 근거 검증이 환각 방지의 핵심이다 (D-05)."""
     mix_cfg = load_config("default").train.task_mix
-    assert mix_cfg[Task.VERIFY] == max(mix_cfg.values())
+    # 동률에서도 참인 `== max(...)` 로는 "가장 높다"를 보장하지 못한다.
+    # **유일한 최댓값**인지 확인한다 (2026-08-02 정정).
+    top = max(mix_cfg.values())
+    assert mix_cfg[Task.VERIFY] == top
+    assert sum(1 for v in mix_cfg.values() if v == top) == 1, mix_cfg
 
 
 def test_prompt_forbids_invention():

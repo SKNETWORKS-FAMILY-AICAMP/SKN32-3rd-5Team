@@ -44,10 +44,79 @@ class TestQuantitativeClause:
         text = verbalize(_dog_chocolate())
         assert "체중 1kg당 20mg/kg" not in text
 
-    def test_absolute_unit_gets_per_weight_prefix(self):
-        """체중당 단위가 아니면 "체중 1kg당"을 붙여야 의미가 산다."""
+    def test_기준을_모르면_기준을_붙이지_않는다(self):
+        """⚠️ 이 테스트는 2026-08-02 에 **정반대로 뒤집혔다.**
+
+            # 예전
+            def test_absolute_unit_gets_per_weight_prefix(self):
+                '''체중당 단위가 아니면 "체중 1kg당"을 붙여야 의미가 산다.'''
+                text = verbalize(_dog_chocolate(dose="2.3", unit="g"))
+                assert "체중 1kg당 2.3g 이상 섭취 시" in text
+
+        `unit="g"` 로만 검사해서 그럴듯해 보였지만, `_dose_phrase` 는 `/kg` 이 없으면
+        **무조건** `"체중 1kg당"` 을 붙이고 있었다. 실제 코퍼스에서 2건이 왜곡됐다 —
+        `"0.5% of body weight"` 가 `"체중 1kg당 0.5%"` 로, `"8.2kg 개가 포도 4-5알"` 이
+        `"체중 1kg당 4-5알"`(약 8배)로 나갔다.
+
+        **테스트가 왜곡을 정답으로 고정하고 있었다.** 지금은 기준을 모르면
+        수치만 말한다 — 틀린 기준보다 낫다 (D-38).
+        """
         text = verbalize(_dog_chocolate(dose="2.3", unit="g"))
-        assert "체중 1kg당 2.3g 이상 섭취 시" in text
+        assert "2.3g 이상 섭취 시" in text
+        assert "체중 1kg당" not in text
+
+    def test_출처가_밝힌_기준은_그대로_쓴다(self):
+        """`basis` 칸에 기준이 있으면 **그것을** 붙인다. 만들지 않는다."""
+        text = verbalize(_dog_chocolate(dose="0.5", unit="%", basis="체중 대비"))
+        assert "0.5%(체중 대비) 이상 섭취 시" in text
+
+    def test_코퍼스에_지어낸_기준이_남아있지_않다(self):
+        """전수 회귀 — 888청크 어디에도 `체중 1kg당` 이 없어야 한다.
+
+        이 절은 **출처에 없는 말**이다. 한 건이라도 있으면 D-38 위반이다.
+        """
+        from pathlib import Path
+
+        from pettriage.ingest.facts_io import load_facts
+        from pettriage.paths import find_root
+
+        root = find_root() or Path.cwd()
+        facts = load_facts(root / "data" / "facts" / "facts_ohb.csv")
+        bad = [f.fact_id for f in facts if "체중 1kg당" in verbalize(f)]
+        assert not bad, bad
+
+    def test_파이프_구분자가_문장으로_새지_않는다(self):
+        """`|` 는 CSV 직렬화 구분자이지 문장 부호가 아니다.
+
+        `toxic_part`·`effect` 가 `LIST_FIELDS` 에 없어서 그대로 나갔다 —
+        *"잎|꽃잎|꽃가루|꽃병 물이 독성 부위다"* 가 18청크에서 실측됐다.
+        """
+        from pathlib import Path
+
+        from pettriage.ingest.facts_io import load_facts
+        from pettriage.paths import find_root
+
+        root = find_root() or Path.cwd()
+        facts = load_facts(root / "data" / "facts" / "facts_ohb.csv")
+        bad = [f.fact_id for f in facts if "|" in verbalize(f)]
+        assert not bad, bad
+
+    def test_조사를_병기하지_않는다(self):
+        """`아보카도은(는)` 같은 표기는 검색 임베딩과 가독성을 함께 해친다.
+
+        `_josa` 기계가 이미 있었는데 네 자리가 하드코딩이었다 —
+        `안전로`(→안전으로) 7건 · `과(와)` 15건 · `g가 권장` 142건 · `g다.` 9건.
+        """
+        from pathlib import Path
+
+        from pettriage.ingest.facts_io import load_facts
+        from pettriage.paths import find_root
+
+        root = find_root() or Path.cwd()
+        facts = load_facts(root / "data" / "facts" / "facts_ohb.csv")
+        both = ("은(는)", "이(가)", "과(와)", "와(과)", "다(이다)", "안전로")
+        bad = [(f.fact_id, p) for f in facts for p in both if p in verbalize(f)]
+        assert not bad, bad[:10]
 
     def test_missing_dose_omits_the_clause_entirely(self):
         """조류는 정량 임계치가 0건 → 정량 절이 자동으로 사라진다."""

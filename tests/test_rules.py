@@ -9,7 +9,9 @@ from __future__ import annotations
 import pytest
 
 from pettriage.compute.rules import (
+    COMPUTABLE_UNITS,
     SEVERITY,
+    Rule,
     computable_for,
     has_quantitative,
     load_rules,
@@ -108,11 +110,60 @@ class TestComputableGate:
         assert rules and rules[0].unit == "g leaves/kg"
         assert not computable_for("주목", "dog")
 
-    def test_계산_가능_행은_단위가_정형이다(self) -> None:
-        ok = {"mg/kg", "g/kg", "mL/kg", "%"}
+    def test_계산_가능_행은_전부_환산된다(self) -> None:
+        """`computable=Y` 인 행은 **반드시 `mg/kg` 으로 환산된다.**
+
+        ⚠️ 이 테스트는 2026-08-02 에 목록을 직접 들지 않도록 바뀌었다.
+
+            ok = {"mg/kg", "g/kg", "mL/kg", "%"}      # ← 자기 목록을 갖고 있었다
+
+        `mL/kg` 이 여기 있었기 때문에, 빌더와 환산표가 어긋난 상태
+        (빌더는 계산 가능, `_MG_PER_KG` 에는 없음)를 **테스트가 통과시켰다.**
+        목록을 세 곳(빌더·리더·테스트)에 두면 테스트가 어긋남을 못 잡는다.
+        이제 단일 출처를 보고, 환산이 실제로 되는지까지 확인한다.
+        """
         for r in load_rules():
-            if r.computable:
-                assert r.unit in ok, f"{r.fact_id} 단위 {r.unit!r} 가 계산 가능으로 표시됐다"
+            if not r.computable:
+                continue
+            assert (
+                r.unit in COMPUTABLE_UNITS
+            ), f"{r.fact_id} 단위 {r.unit!r} 가 계산 가능으로 표시됐다"
+            assert (
+                to_mg_per_kg(r.low, r.unit) is not None
+            ), f"{r.fact_id} 단위 {r.unit!r} 가 환산되지 않는다"
+
+    def test_역치가_전부_환산불가면_크래시하지_않는다(self) -> None:
+        """`min()` 을 빈 시퀀스로 부르면 터진다. 정성 답변으로 내려가야 한다.
+
+        빌더가 `computable=Y` 로 표시했는데 리더가 환산을 못 하는 상황 —
+        두 목록이 어긋나면 언제든 다시 생긴다. 그때 크래시가 아니라
+        `level=None`(= LLM 판정에 맡긴다)이 나오는지 확인한다.
+        """
+        import pettriage.compute.rules as rules_mod
+
+        fake = Rule(
+            fact_id="F-TEST-001",
+            substance="가상물질",
+            species="dog",
+            threshold_type="임상징후 발현",
+            dose="5",
+            unit="mL/kg",  # 환산표에 없다 — 밀도를 모르면 질량으로 못 바꾼다
+            computable=True,
+            effect="",
+            signs="구토",
+            onset="",
+            source_id="S-TEST",
+            citation="",
+            note="",
+        )
+        orig = rules_mod.computable_for
+        rules_mod.computable_for = lambda s, sp: [fake]  # type: ignore[assignment]
+        try:
+            v = rules_mod.rule_level_for("가상물질", "dog", 1000.0)
+        finally:
+            rules_mod.computable_for = orig  # type: ignore[assignment]
+        assert v.level is None
+        assert "환산표에 없다" in v.reason
 
     def test_계산_가능_행은_수치가_있다(self) -> None:
         for r in load_rules():

@@ -191,8 +191,17 @@ class TestPets:
         _signup(client)
         return {"Authorization": f"Bearer {_login(client).json()['access_token']}"}
 
-    def test_토큰_없이는_403(self, client):
-        assert client.post("/api/pets", json={"name": "코코", "species": "dog"}).status_code == 403
+    def test_토큰_없이는_401(self, client):
+        """인증 정보가 **없는** 것은 401(Unauthorized) 이다.
+
+        ⚠️ 2026-08-02에 `403 → 401` 로 바뀌었다. 코드가 아니라 **테스트가 틀렸다.**
+        `deps.get_current_user_id` 는 주석부터 *"실패하면 401"* 이라고 적고 있고,
+        `HTTPBearer(auto_error=True)` 의 상태 코드가 FastAPI 0.13x 에서 403→401 로
+        바뀌면서 드러났다. 의미상으로도 401 이 맞다 —
+        403 은 "누군지 알지만 권한이 없다" 이고, 여기는 누군지조차 모른다.
+        """
+        r = client.post("/api/pets", json={"name": "코코", "species": "dog"})
+        assert r.status_code == 401
 
     def test_잘못된_토큰은_401(self, client):
         r = client.get("/api/pets", headers={"Authorization": "Bearer not-a-real-token"})

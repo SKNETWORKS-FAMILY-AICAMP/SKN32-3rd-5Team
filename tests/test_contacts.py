@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from pettriage.safety import GUIDANCE, ScrubResult, has_contact, scrub_contacts
@@ -118,9 +120,19 @@ class TestGuidanceWording:
         assert "한다." not in GUIDANCE
 
     def test_특정_기관을_지목하지_않는다(self) -> None:
-        """국내에 미국 APCC 에 대응하는 공식 창구가 없다 — 있는 것처럼 적으면 환각이다."""
+        """국내에 미국 APCC 에 대응하는 공식 창구가 없다 — 있는 것처럼 적으면 환각이다.
+
+        ⚠️ 두 번째 단언은 2026-08-02에 다시 썼다. 예전 형태는 **공허하게 참**이었다.
+
+            assert not any(c.isdigit() and c not in "24" for c in GUIDANCE.replace("24시", ""))
+
+        `"24시"` 를 지우고 나면 `GUIDANCE` 에 숫자가 하나도 남지 않으므로 `any(...)` 는
+        언제나 거짓이었다. 게다가 `c not in "24"` 때문에 `2`·`4` 로만 이뤄진 번호가
+        남아 있어도 통과했다. **번호가 없다**를 직접 검사한다.
+        """
         assert "동물병원" in GUIDANCE
-        assert not any(c.isdigit() and c not in "24" for c in GUIDANCE.replace("24시", ""))
+        assert not re.search(r"\d", GUIDANCE.replace("24시", "")), GUIDANCE
+        assert not has_contact(GUIDANCE)
 
     def test_안내_문장_자체는_걸리지_않는다(self) -> None:
         """`연락` 이 들어 있어도 기관명·번호가 없으므로 남아야 한다."""
