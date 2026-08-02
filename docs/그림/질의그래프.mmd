@@ -1,0 +1,58 @@
+%% 이 파일은 `python scripts/draw_graph.py` 가 생성한다. 손으로 고치지 않는다.
+%% 원본은 src/pettriage/graph/build.py 의 build_graph() 다.
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	classify(classify)
+	extract(extract)
+	clarify(clarify)
+	filter(filter)
+	retrieve(retrieve)
+	compute(compute)
+	rules(rules)
+	compress(compress)
+	generate(generate)
+	judge(judge)
+	decide(decide)
+	verify(verify)
+	retry(retry)
+	simplify(simplify)
+	answered(answered)
+	refuse_scope(refuse_scope)
+	refuse_nohit(refuse_nohit)
+	refuse_verify(refuse_verify)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> classify;
+	answered --> __end__;
+	clarify --> __end__;
+	compress --> generate;
+	compute --> rules;
+	filter --> retrieve;
+	generate --> judge;
+	judge --> decide;
+	refuse_nohit --> __end__;
+	refuse_scope --> __end__;
+	refuse_verify --> __end__;
+	retry --> retrieve;
+	rules --> compress;
+	simplify --> answered;
+	classify -.-> refuse_scope;
+	classify -.-> extract;
+	extract -.-> clarify;
+	extract -.-> filter;
+	retrieve -.-> compute;
+	retrieve -.-> compress;
+	retrieve -.-> refuse_nohit;
+	retrieve -.-> refuse_verify;
+	decide -. &nbsp;end&nbsp; .-> __end__;
+	decide -.-> verify;
+	verify -.-> simplify;
+	verify -.-> retry;
+	verify -. &nbsp;end&nbsp; .-> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

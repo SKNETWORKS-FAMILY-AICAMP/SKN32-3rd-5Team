@@ -68,6 +68,15 @@ class CaseResult:
     actual_status: Status
     status_ok: bool
 
+    #: **왜 거절했는가.** 골든셋에 `expected_refusal_reason` 열이 처음부터 있었는데
+    #: 하네스가 **한 번도 읽지 않았다** (2026-08-02 1차 평가에서 발견).
+    #:
+    #: 그래서 *"거절했다"* 와 *"올바른 이유로 거절했다"* 가 구분되지 않았고,
+    #: `범위밖` 을 기대한 건이 `되묻기상한` 으로 거절돼도 **통과**였다.
+    #: `none` 유형 9건이 그렇게 100% 초록이었다 — 위장이다 (원칙 2).
+    expected_refusal_reason: str = ""
+    actual_refusal_reason: str = ""
+
     expected_level: int | None = None
     actual_level: int | None = None
 
@@ -127,9 +136,22 @@ class CaseResult:
         )
 
     @property
+    def reason_ok(self) -> bool | None:
+        """거절 이유가 맞는가. 기대값이 없으면 `None`(채점 안 함).
+
+        **`refused` 일 때만 본다.** 되묻기·정상 응답에는 거절 이유가 없다 —
+        없는 것을 틀렸다고 세면 분모가 오염된다 (04 §1.2).
+        """
+        if not self.expected_refusal_reason or self.actual_status != "refused":
+            return None
+        return self.actual_refusal_reason == self.expected_refusal_reason
+
+    @property
     def passed(self) -> bool:
-        """이 건이 통과인가 — 상태·등급·근거·문구를 모두 만족해야 한다."""
+        """이 건이 통과인가 — 상태·**거절 이유**·등급·근거·문구를 모두 만족해야 한다."""
         if self.error is not None or not self.status_ok:
+            return False
+        if self.reason_ok is False:
             return False
         if self.expected_level is not None and self.actual_level != self.expected_level:
             return False
@@ -144,6 +166,7 @@ def score_case(
     *,
     status: Status | None,
     level: int | None,
+    refusal_reason: str = "",
     answer_text: str,
     citations: Sequence[str],
     latency_ms: float | None = None,
@@ -157,6 +180,7 @@ def score_case(
     """
     expected_status = (row.get("expected_status") or "").strip()
     expected_level = parse_level(row.get("expected_triage"))
+    expected_reason = (row.get("expected_refusal_reason") or "").strip()
 
     must_cite = split_pipe(row.get("must_cite"))
     must_contain = split_pipe(row.get("must_contain"))
@@ -187,6 +211,8 @@ def score_case(
         expected_status=expected_status,  # type: ignore[arg-type]
         actual_status=status,  # type: ignore[arg-type]
         status_ok=(status == expected_status),
+        expected_refusal_reason=expected_reason,
+        actual_refusal_reason=(refusal_reason or "").strip(),
         expected_level=expected_level,
         actual_level=level,
         cite_any=cite_any,

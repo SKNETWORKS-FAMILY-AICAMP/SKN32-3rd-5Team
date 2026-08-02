@@ -23,6 +23,18 @@ dependencies = [
   #   `ImportError: email-validator is not installed` 로 죽는다 (2026-08-02 PR#3 CI).
   #   순수 파이썬이고 작아서 핵심에 두는 비용이 거의 없다.
   "email-validator>=2.2,<3",
+  # 질의 그래프의 런타임. **핵심 의존성이다** (2026-08-02 랭그래프 도입).
+  #   `graph/build.py` 가 `StateGraph` 로 파이프라인을 조립하고
+  #   `GraphEngine` 이 그것만 돌린다 — 없으면 엔진이 아예 안 뜬다.
+  #   예전에는 [rag] 에 있었다. 그러면 `.[api]` 만 깐 CI test 잡에서
+  #   **그래프가 한 줄도 실행되지 않는다** — email-validator 와 같은 사고이고,
+  #   D-48 교훈 #6(424줄이 CI에서 한 줄도 안 돌았다)의 재발이다.
+  #   둘 다 순수 파이썬이라 핵심에 두는 비용이 작다 (chromadb·torch 를 안 끌고 온다).
+  "langgraph>=0.2.62,<0.3",
+  "langchain-core>=0.3.59,<0.4",
+  # `graph/state.py` 가 직접 임포트한다. pydantic 이 어차피 끌고 오지만,
+  # **직접 임포트하는 것은 직접 선언한다** — 남의 의존성에 얹으면 조용히 끊긴다.
+  "typing-extensions>=4.12",
 ]
 
 [project.optional-dependencies]
@@ -31,8 +43,7 @@ api = [
   "uvicorn[standard]>=0.34,<0.35",
 ]
 rag = [
-  "langgraph>=0.2.62,<0.3",
-  "langchain-core>=0.3.59,<0.4",
+  # langgraph·langchain-core 는 **핵심 의존성으로 올라갔다** (위 dependencies 참조).
   "langchain-community>=0.3.24,<0.4",
   "sentence-transformers>=3.3,<4",
   "chromadb>=0.6.3,<0.7",

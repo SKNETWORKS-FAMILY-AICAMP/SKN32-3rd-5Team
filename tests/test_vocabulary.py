@@ -438,3 +438,51 @@ def test_Term_은_불변이다():
     assert isinstance(t, Term)
     with pytest.raises(dataclasses.FrozenInstanceError):
         t.substance = "바꿀 수 없다"  # type: ignore[misc]
+
+
+# ── 종은 물질이 아니다 (D-67) ─────────────────────────────────
+class TestSpeciesIsNotASubstance:
+    """2026-08-02 1차 평가에서 드러난 오탐. 코퍼스 이름의 **종 한정어**가
+    물질 부품으로 떨어져 나왔다 — `췌장염(고양이)` → 부품 `고양이`.
+    """
+
+    def test_species_word_is_not_a_mention(self):
+        from pettriage.compute.vocabulary import mention_in
+
+        # 도메인 밖 질의가 "물질을 말했다" 로 잡혀 D-46 의 범위밖 방어를 통과했다.
+        assert mention_in("고양이 캣타워 추천 좀 해주세요", assumptions=False) is None
+
+    def test_species_word_does_not_shadow_a_real_substance(self):
+        """오탐 하나가 **정탐 하나를 지웠다.**
+
+        `고양이` 가 먼저 잡혀서 코퍼스에 실제로 있는 `향초·왁스멜트·인센스` 를
+        못 찾았다. 첫 매칭을 반환하던 것도 함께 고쳤다 — 이제 가장 긴 것을 고른다.
+        """
+        from pettriage.compute.vocabulary import mention_in
+
+        assert mention_in("고양이가 향초를 핥았는데 위험할까요", assumptions=False) == "향초"
+
+    def test_species_cannot_enter_the_closed_list(self):
+        """②가 종을 물질로 올려도 **문에서 막힌다** (D-59)."""
+        from pettriage.compute.vocabulary import resolve_substance
+
+        for w in ("고양이", "강아지", "앵무새", "조류", "반려동물"):
+            assert resolve_substance(w, None).name is None, w
+
+    def test_real_substances_still_resolve(self):
+        """막느라 정상 물질을 죽이지 않았다."""
+        from pettriage.compute.vocabulary import mention_in
+
+        for q, want in (
+            ("고양이가 백합을 씹었어요", "백합"),
+            ("강아지가 초콜릿을 먹었어요", "초콜릿"),
+            ("고양이한테 우유를 매일 조금씩 줘도 되나요", "우유"),
+        ):
+            assert mention_in(q, assumptions=False) == want, q
+
+    def test_species_vocabulary_has_one_source(self):
+        """`slots.py` 가 따로 들고 있어서 어휘 쪽에서 걸러낼 수 없었다 (P2)."""
+        from pettriage.compute.vocabulary import SPECIES_WORDS
+        from pettriage.graph.nodes.slots import _SPECIES_KEYWORDS
+
+        assert _SPECIES_KEYWORDS is SPECIES_WORDS
