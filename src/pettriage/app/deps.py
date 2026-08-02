@@ -148,12 +148,23 @@ def get_db():
 
 
 #: 모듈 전역 싱글턴. 인자 기본값에서 호출하면 요청마다 새로 만들어진다 (B008).
-_bearer = HTTPBearer()
+#:
+#: ⚠️ **`auto_error=False` 다. 상태 코드를 라이브러리에 맡기지 않는다.**
+#:
+#: 기본값(`auto_error=True`)이면 토큰이 없을 때 FastAPI 가 직접 예외를 낸다.
+#: 그런데 그 코드가 버전마다 다르다 — `0.115.6`(핀된 값)은 **403**,
+#: `0.13x` 이상은 **401**. 2026-08-02 에 이것 때문에
+#: **로컬은 초록인데 CI 는 빨간** 상태가 만들어졌다.
+#:
+#: 값이 갈리는 것보다 나쁜 것은 **어느 쪽이 우리 결정인지 아무도 모르는 것**이다.
+#: 우리는 401 로 정한다 — 403 은 *"누군지 알지만 권한이 없다"* 이고,
+#: 여기는 **누군지조차 모른다.** 그 결정을 우리 코드에 적는다 (D-40).
+_bearer = HTTPBearer(auto_error=False)
 _bearer_dep = Depends(_bearer)
 
 
-def get_current_user_id(credentials: HTTPAuthorizationCredentials = _bearer_dep) -> str:
-    """Bearer 토큰 → `user_id`. 실패하면 401.
+def get_current_user_id(credentials: HTTPAuthorizationCredentials | None = _bearer_dep) -> str:
+    """Bearer 토큰 → `user_id`. 실패하면 **401** (인증 정보 없음·만료·위조 모두).
 
     **`jwt` 를 여기서 임포트하지 않는다** (D-40). `app.auth` 가 우리 예외로 번역해 주고
     이 함수는 그것만 본다. 라이브러리를 바꿔도 배달 계층은 그대로다.
@@ -163,6 +174,12 @@ def get_current_user_id(credentials: HTTPAuthorizationCredentials = _bearer_dep)
     """
     from .auth import TokenExpiredError, TokenInvalidError, decode_access_token
 
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="인증이 필요합니다.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     try:
         return decode_access_token(credentials.credentials)
     except TokenExpiredError:
@@ -175,16 +192,12 @@ def get_current_user_id(credentials: HTTPAuthorizationCredentials = _bearer_dep)
         ) from None
 
 
-#: 선택적 Bearer. `auto_error=False` 라 토큰이 없어도 401 을 자동으로 내지 않는다 —
-#: DB 없는 구성에서는 토큰이 없는 것이 정상이므로 판단을 `get_owner_id` 가 한다.
-_bearer_optional_dep = Depends(HTTPBearer(auto_error=False))
-
 #: DB 없는 데모 구성의 단일 소유자.
 #: 그 구성에는 **사용자 개념 자체가 없으므로** 넘나들 상대도 없다.
 DEMO_OWNER = "demo"
 
 
-def get_owner_id(creds: HTTPAuthorizationCredentials | None = _bearer_optional_dep) -> str:
+def get_owner_id(creds: HTTPAuthorizationCredentials | None = _bearer_dep) -> str:
     """다이어리 기록의 **소유자**. 없으면 401 (DB 구성에 한해).
 
     두 구성을 구분한다 — `routes/__init__.py` 가 라우터를 고르는 규칙과 같다.

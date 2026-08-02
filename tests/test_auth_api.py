@@ -192,16 +192,27 @@ class TestPets:
         return {"Authorization": f"Bearer {_login(client).json()['access_token']}"}
 
     def test_토큰_없이는_401(self, client):
-        """인증 정보가 **없는** 것은 401(Unauthorized) 이다.
+        """인증 정보가 **없는** 것은 401(Unauthorized) 이다. **버전과 무관하게.**
 
-        ⚠️ 2026-08-02에 `403 → 401` 로 바뀌었다. 코드가 아니라 **테스트가 틀렸다.**
-        `deps.get_current_user_id` 는 주석부터 *"실패하면 401"* 이라고 적고 있고,
-        `HTTPBearer(auto_error=True)` 의 상태 코드가 FastAPI 0.13x 에서 403→401 로
-        바뀌면서 드러났다. 의미상으로도 401 이 맞다 —
-        403 은 "누군지 알지만 권한이 없다" 이고, 여기는 누군지조차 모른다.
+        ⚠️ 이 테스트는 2026-08-02에 두 번 손댔다. 그 경위가 요점이다.
+
+        1. `403` 을 기대하고 있었다. 로컬(FastAPI 0.141)에서 401 이 나와 실패했다
+        2. *"테스트가 틀렸다"* 로 보고 `401` 로 바꿨다 → **CI 가 빨개졌다.**
+           CI 는 `constraints.txt` 의 `fastapi==0.115.6` 을 쓰고, 그 버전의
+           `HTTPBearer(auto_error=True)` 는 **403** 을 낸다
+        3. 진짜 문제는 값이 아니라 **결정의 소재지**였다 — 상태 코드를
+           라이브러리가 정하고 있었고, 그래서 버전마다 답이 달라졌다
+
+        그래서 `auto_error=False` 로 바꾸고 **401 을 우리가 낸다** (`deps._bearer`).
+        403 은 *"누군지 알지만 권한이 없다"* 이고 여기는 **누군지조차 모른다.**
+        이제 이 테스트는 어느 FastAPI 버전에서도 같은 답을 낸다.
+
+        > **로컬이 초록인데 CI 가 빨간 것은 둘 중 하나가 틀린 게 아니라,
+        > 우리가 정하지 않은 것을 둘이 각자 정하고 있다는 뜻이다.**
         """
         r = client.post("/api/pets", json={"name": "코코", "species": "dog"})
         assert r.status_code == 401
+        assert r.headers.get("WWW-Authenticate") == "Bearer"
 
     def test_잘못된_토큰은_401(self, client):
         r = client.get("/api/pets", headers={"Authorization": "Bearer not-a-real-token"})
