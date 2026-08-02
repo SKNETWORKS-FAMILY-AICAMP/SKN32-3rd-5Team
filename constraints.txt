@@ -24,6 +24,12 @@ langgraph==0.2.62
 # langchain-community 0.3.24 부터 numpy<2 제약이 풀린다 (py3.11 에서 필수)
 langchain-core==0.3.63
 langchain-community==0.3.24
+# LLM 연동을 LangChain 으로 한다 (D-71). **0.3.8 이 위 핀들과 맞는 가장 높은 버전이다** —
+# 0.3.35 는 core>=0.3.78 · openai>=1.104.2 를 요구해 넷을 연쇄로 올려야 한다.
+langchain-openai==0.3.8
+# langchain-community 가 umbrella 를 끌고 온다. 안 박아두면 pip 이 최신을 집어
+# core 상한과 충돌한다.
+langchain==0.3.25
 langsmith==0.2.10
 
 # ── 임베딩 · 벡터DB (D-19 · 02 §11) ───────────────────────

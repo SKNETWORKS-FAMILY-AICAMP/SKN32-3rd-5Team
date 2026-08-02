@@ -430,6 +430,15 @@ def report(results: list[CaseResult], *, engine_name: str, model_name: str = "?"
 
 def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="골든셋 평가 하네스 (04 §4)")
+    ap.add_argument(
+        "--arm",
+        choices=["none", "A", "A-LC", "C", "D"],
+        help=(
+            "04 §3 비교군을 이름으로 고른다 (models/serving/arms.py). "
+            "`PETTRIAGE__MODEL__*` 를 손으로 맞추다 하나 빠뜨리면 "
+            "**다른 조건으로 재고도 모른다** — D 를 잰다고 생각하며 C 를 잰다"
+        ),
+    )
     ap.add_argument("--engine", choices=["stub", "graph"], help="기본값은 configs 의 serve.engine")
     ap.add_argument(
         "--goldenset", nargs="*", type=Path, help="기본값은 eval/goldenset/golden_*.csv"
@@ -474,6 +483,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     a = ap.parse_args(argv)
+
+    # ⚠️ **설정을 읽기 전에** 세운다 — `get_config` 는 `lru_cache` 라 한 번 읽히면 굳는다.
+    if a.arm:
+        from pettriage.models.serving.arms import apply_arm
+
+        print(f"비교군 {a.arm} — {apply_arm(a.arm)}")
 
     paths = a.goldenset or sorted(GOLDEN_DIR.glob("golden_*.csv"))
     rows = load_goldenset(paths)

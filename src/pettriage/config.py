@@ -67,8 +67,9 @@ class ModelConfig(_ConfigBase):
 
     #: **어느 클라이언트로 서빙할 것인가** (04 §3 비교군).
     #:
-    #:   none  모델 없이 돈다 — 5태스크가 전부 폴백. **비교군 없음(코드·규칙만)**
-    #:   api   대형 LLM (`api_model`).                        **비교군 A**
+    #:   none      모델 없이 돈다 — 5태스크가 전부 폴백. **비교군 없음(코드·규칙만)**
+    #:   api       대형 LLM (`api_model`) — `openai` SDK 직접.  **비교군 A**
+    #:   langchain 같은 모델을 **LangChain 으로** 부른다 (D-71 · 필수 산출물)
     #:   qwen  `base_id`(+`adapter_path`). 어댑터 없으면 베이스. **비교군 D / C**
     #:   echo  테스트용 고정 응답
     #:
@@ -79,7 +80,7 @@ class ModelConfig(_ConfigBase):
     #:
     #: `adapter_path` 유무로 자동 판단하지 않는다 — `null` 이 *"베이스 Qwen"* 인지
     #: *"Qwen 안 씀"* 인지 구분이 안 된다. **묻지 않고 정하지 않는다.**
-    provider: Literal["none", "api", "qwen", "echo"] = "api"
+    provider: Literal["none", "api", "langchain", "qwen", "echo"] = "api"
 
     #: `provider="api"` 일 때 쓸 모델 이름. 비밀이 아니므로 여기 둔다 (D-41).
     api_model: str = "gpt-4o-mini"

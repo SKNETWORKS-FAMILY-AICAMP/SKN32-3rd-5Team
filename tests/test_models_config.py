@@ -224,3 +224,62 @@ def test_no_leakage_when_inputs_differ():
         )
     ]
     assert check_leakage(train, dev) == []
+
+
+# ── 프롬프트와 검증기가 같은 목록을 본다 (D-73) ────────────────
+class TestLabelsAreShared:
+    """**코드는 아는데 모델은 모르는 목록**을 만들지 않는다.
+
+    2026-08-02 이서은 팀원 발견 — ①분류 프롬프트가 *"허용된 라벨 중 하나만
+    출력한다"* 라고만 적고 **그 라벨이 무엇인지는 안 적었다.** 모델은
+    `'위험성우려'`·`'high_risk'` 를 냈고 코드가 전부 `unknown` 으로 걸러 거절이 됐다.
+
+    결과가 뒤집혔다 — **키워드 폴백(통과 10%)보다 진짜 LLM(3.3%)이 더 나빴다.**
+    """
+
+    def test_classify_prompt_lists_every_allowed_label(self):
+        from pettriage.graph.nodes.classify import ALLOWED_INTENTS
+        from pettriage.models.prompts import system_prompt
+
+        prompt = system_prompt(Task.CLASSIFY)
+        missing = [label for label in ALLOWED_INTENTS if label not in prompt]
+        assert not missing, f"검증기는 아는데 프롬프트에 없는 라벨: {missing}"
+
+    def test_validator_and_prompt_share_one_source(self):
+        """손으로 두 곳에 적으면 하나만 고치는 일이 반드시 생긴다 (D-22).
+
+        `ALLOWED_INTENTS` 에 `" "` 가 들어가 있던 사고(2026-08-02)도
+        두 곳에 적혀 있어서 안 드러났다.
+        """
+        from pettriage.graph.nodes.classify import ALLOWED_INTENTS
+
+        assert ALLOWED_INTENTS is SPECS[Task.CLASSIFY].labels
+
+    def test_verify_prompt_lists_its_labels(self):
+        """④ 근거 검증도 같다 — 라벨이 어긋나면 판정이 통째로 버려진다."""
+        from pettriage.models.prompts import system_prompt
+
+        prompt = system_prompt(Task.VERIFY)
+        for label in SPECS[Task.VERIFY].labels:
+            assert label in prompt, label
+
+    def test_intent_type_covers_the_labels(self):
+        """`graph.state.Intent` 가 라벨 + `unknown` 을 덮는다.
+
+        타입과 목록이 어긋나면 정상 라벨이 타입 검사에서 죽는다.
+        """
+        from typing import get_args
+
+        from pettriage.graph.state import Intent
+
+        allowed = set(get_args(Intent))
+        assert set(SPECS[Task.CLASSIFY].labels) <= allowed
+        assert "unknown" in allowed, "폴백 라벨이 타입에 없다"
+
+    def test_free_output_tasks_have_no_label_block(self):
+        """압축·평이화는 자유 출력이다. 없는 라벨을 프롬프트가 지어내면 안 된다."""
+        from pettriage.models.prompts import system_prompt
+
+        for task in (Task.COMPRESS, Task.SIMPLIFY):
+            assert SPECS[task].labels == ()
+            assert "[라벨]" not in system_prompt(task)

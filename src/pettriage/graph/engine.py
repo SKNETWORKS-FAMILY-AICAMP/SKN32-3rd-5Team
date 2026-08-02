@@ -230,14 +230,23 @@ class GraphEngine:
     def _triage_result(self, state: GraphState) -> TriageResult:
         level = int(state.get("triage_level") or TriageLevel.VISIT_SOON)
         lv = TriageLevel(level)
+        rule = state.get("rule_level")
+        llm = state.get("llm_level")
         return TriageResult(
             level=level,
             name=lv.name,
             badge=lv.badge,
             message=lv.message,
             escalation_conditions=list(state.get("escalation_conditions") or []),
-            rule_level=state.get("rule_level"),
-            llm_level=state.get("llm_level"),
+            rule_level=rule,
+            llm_level=llm,
+            # 🔴 **이 줄이 없었다.** 계약이 `overridden == (llm < rule)` 을 검증하므로,
+            #    LLM 이 실제로 낮추려 한 순간 `ValidationError` 가 나고 응답을
+            #    만들 수 없었다 → `판정불가` 거절.
+            #    **게이트가 가장 중요한 일을 하는 그 순간에 답이 안 나갔다.**
+            #    `llm_level` 이 늘 `None` 이라(D-65) 이 경로가 한 번도 안 돌아
+            #    드러나지 않았다. 정의는 `gate.py` 한 곳에서 온다 (D-22).
+            overridden=(rule is not None and llm is not None and llm < rule),
         )
 
     def _citations_from_hits(self, hits: list) -> list[Citation]:

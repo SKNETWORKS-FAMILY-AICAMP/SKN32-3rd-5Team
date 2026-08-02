@@ -24,13 +24,18 @@ from __future__ import annotations
 
 import logging
 
-from ...models.tasks import Task
+from ...models.tasks import SPECS, Task
 from ..state import GraphState
 
 log = logging.getLogger(__name__)
 
 #: 허용 라벨. LLM 출력이 여기 없으면 폴백한다 (05 §4).
-ALLOWED_INTENTS = ("intoxication", "symptom", "nutrition", "general")
+#:
+#: ⚠️ **프롬프트와 같은 것을 본다** (D-73 · D-22). 손으로 적어 두면
+#: *"코드는 아는데 모델은 모르는 목록"* 이 생기고, 실제로 그랬다 —
+#: 모델이 `'위험성우려'` 를 내고 코드가 전부 `unknown` 으로 걸러 거절이 됐다.
+#: 여기 `" "` 가 들어가 있던 사고(2026-08-02)도 두 곳에 적혀 있어서 안 드러났다.
+ALLOWED_INTENTS = SPECS[Task.CLASSIFY].labels
 
 
 def _mentions_substance(question: str) -> bool:

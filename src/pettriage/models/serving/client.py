@@ -88,13 +88,25 @@ class LocalQwenClient:
         cuda = torch.cuda.is_available()
         kw: dict = {"revision": self._revision}
 
-        # ① dtype — **CPU 에서는 bfloat16 을 쓰지 않는다.** 지원은 되지만 느리다.
+        # ① dtype — 설정값을 따르되, **CPU 에서 못 쓰는 것만 바꾼다.**
+        #
+        # ⚠️ 처음에는 CPU 면 무조건 float32 로 올렸다. 그런데 4B 를 float32 로 올리면
+        #    **RAM 약 16GB** 다 — 노트북에서는 스왑하거나 죽는다. bfloat16 은 CPU 에서
+        #    느리지만 **8GB 로 절반**이고, 스왑보다는 느린 편이 낫다.
+        #    float16 만 CPU 에서 연산이 제대로 안 돌아 float32 로 올린다.
         want = {"bfloat16": torch.bfloat16, "float16": torch.float16, "auto": "auto"}.get(
             self._dtype, torch.bfloat16
         )
-        kw["torch_dtype"] = want if cuda else torch.float32
+        if not cuda and want is torch.float16:
+            log.warning("CPU 에서 float16 은 연산이 안 된다 — float32 로 올린다 (RAM 2배).")
+            want = torch.float32
+        kw["torch_dtype"] = want
         if not cuda:
-            log.warning("GPU 가 없다 — float32/CPU 로 올린다. 4B 생성은 매우 느리다.")
+            log.warning(
+                "GPU 가 없다 — CPU 로 올린다 (dtype=%s). 4B 생성은 매우 느리다. "
+                "RAM 은 bfloat16 ≈8GB · float32 ≈16GB 다.",
+                self._dtype,
+            )
 
         # ② 4bit — bitsandbytes 가 있고 GPU 가 있을 때만.
         if self._4bit and cuda:
@@ -140,12 +152,38 @@ class LocalQwenClient:
         """
         self._ensure()
         assert self._tok is not None and self._model is not None
-        text = self._tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        # ⚠️ **Qwen3 는 기본이 사고 모드(thinking)다.**
+        #
+        #   그냥 부르면 답 앞에 `<think> … </think>` 를 수백 토큰 쏟는다. 우리 태스크는
+        #   ①분류가 `max_tokens=16`, ④검증이 짧은 라벨이라 **사고 토큰만 내고 잘린다** —
+        #   라벨이 아예 안 나오고, 코드는 그것을 허용목록 밖으로 걸러 폴백한다.
+        #   D-73 으로 프롬프트에 라벨을 실어도 **모델이 답을 시작하기 전에 끝난다.**
+        #
+        #   CPU 에서는 그 사고 토큰이 그대로 시간이다 — 느린 것의 절반이 이것이다.
+        #   04 §8 재현성 관점에서도 사고 길이가 실행마다 달라지면 지연이 안 재진다.
+        #
+        #   `enable_thinking` 은 Qwen3 계열 템플릿에만 있다. 다른 모델에서도 돌아야 하므로
+        #   **받아주는 경우에만** 넘긴다 — 없는 인자를 넘기면 TypeError 로 죽는다.
+        kw = {"tokenize": False, "add_generation_prompt": True}
+        try:
+            text = self._tok.apply_chat_template(messages, enable_thinking=False, **kw)
+        except TypeError:
+            text = self._tok.apply_chat_template(messages, **kw)
         inputs = self._tok(text, return_tensors="pt").to(self._model.device)
         out = self._model.generate(
             **inputs,
             max_new_tokens=max_tokens,
-            do_sample=False,  # 04 §8 — 평가 재현성. 샘플링을 쓰지 않는다
+            # 04 §8 — 평가 재현성. 샘플링을 쓰지 않는다.
+            do_sample=False,
+            # ⚠️ **모델이 들고 온 샘플링 값을 명시적으로 지운다.**
+            #    Qwen3 의 `generation_config.json` 은 temperature=0.6 · top_p=0.95 ·
+            #    top_k=20 을 담고 있다. `do_sample=False` 면 안 쓰이지만 **남아 있다.**
+            #    누가 나중에 `do_sample=True` 로 바꾸면 그 값들이 **조용히 적용되고**,
+            #    같은 질의가 실행마다 달라진다 — 원인을 찾기 매우 어렵다.
+            #    설정을 비워 두는 것과 명시적으로 끄는 것은 다르다 (D-69 · D-58).
+            temperature=None,
+            top_p=None,
+            top_k=None,
         )
         return self._tok.decode(out[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
 
@@ -217,6 +255,79 @@ class APIClient:
             temperature=0,
         )
         return resp.choices[0].message.content or ""
+
+
+class LangChainClient:
+    """**LangChain 으로 LLM 을 연동한다** (필수 산출물 · D-71).
+
+        · LangChain을 활용하여 벡터데이터베이스와 LLM 연동
+
+    ⚠️ 2026-08-02 점검에서 `langchain` 이 소스 어디에서도 **쓰이지 않는다**는 것이
+    드러났다 — 쓰이는 것은 `langgraph`(오케스트레이션)뿐이고, LLM 은 `openai` SDK 를,
+    벡터DB는 `chromadb` 를 직접 부르고 있었다. `config.py` 의 `langchain_api_key`
+    한 줄이 전부였다. D-64 와 같은 모양이다 — **이름만 있고 물건이 없었다.**
+
+    ## 무엇을 LangChain 으로 하고 무엇을 안 하나 (D-71)
+
+        LLM 연동    ✅ 이 클래스. `langchain_core` 의 메시지 타입 + `ChatOpenAI`
+        벡터DB      ❌ `retrieval/store.py` 가 chromadb 를 직접 쓴다
+
+    벡터DB를 추상 뒤에 두지 않은 것은 **게을러서가 아니라 그래야 할 것이 있어서**다 —
+    `filter_by_threshold`(D-46 실측 임계값) · `dedupe_by_substance` ·
+    `to_chroma_where`(빈 필터 → `EmptyFilter`, D-56) · `publisher`·`locator` 메타
+    (D-37 인용 요건) · `Hit.merged_sources`. **D-46 은 실측에서 나온 우리 도메인의
+    사실이고, 그런 판단은 추상 뒤에서 못 한다.**
+
+    ## `APIClient` 와 무엇이 다른가
+
+    **같은 모델을 부른다.** 다른 것은 *무엇을 거쳐 부르는가* 뿐이다.
+    그래서 둘의 결과가 같아야 하고, 같다는 것이 곧 `LLMClient` 프로토콜이
+    실제로 갈아 끼울 수 있는 추상이라는 증거다 (D-21 · 04 §5).
+    """
+
+    def __init__(self, model: str = "gpt-4o-mini", base_url: str | None = None):
+        self.name = f"langchain:{model}" + (f"@{base_url}" if base_url else "")
+        self._model = model
+        self._base_url = base_url
+
+    def _chat(self, max_tokens: int):
+        from langchain_openai import ChatOpenAI
+
+        from ...config import get_secrets
+
+        key = get_secrets().openai_api_key
+        return ChatOpenAI(
+            model=self._model,
+            base_url=self._base_url,  # None 이면 OpenAI 본가
+            api_key=key.get_secret_value() if key else "sk-none",  # type: ignore[arg-type]
+            temperature=0,  # 04 §8 — 평가 재현성
+            max_tokens=max_tokens,  # type: ignore[call-arg]
+        )
+
+    @staticmethod
+    def _to_messages(pairs: list[dict[str, str]]) -> list:
+        """`prompts.build_messages` 의 dict → `langchain_core` 메시지.
+
+        **프롬프트의 단일 출처는 `models/prompts.py` 다** (D-22). 여기서 다시 쓰지
+        않는다 — LangChain 을 쓴다고 프롬프트가 갈라지면 04 §3 이 태스크별로
+        재는 지표가 **무엇을 잰 건지 모르게 된다.**
+        """
+        from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
+        kinds = {"system": SystemMessage, "user": HumanMessage, "assistant": AIMessage}
+        return [kinds.get(m["role"], HumanMessage)(content=m["content"]) for m in pairs]
+
+    def run(self, task: Task, user_input: str, *, max_tokens: int = 512) -> str:
+        from ..prompts import build_messages
+
+        out = self._chat(max_tokens).invoke(self._to_messages(build_messages(task, user_input)))
+        return str(out.content)
+
+    def run_raw(self, system: str, user_input: str, *, max_tokens: int = 512) -> str:
+        """5태스크 **밖**의 호출. 파인튜닝 태스크를 빌려 쓰지 않는다 (04 §3)."""
+        pairs = [{"role": "system", "content": system}, {"role": "user", "content": user_input}]
+        out = self._chat(max_tokens).invoke(self._to_messages(pairs))
+        return str(out.content)
 
 
 class EchoClient:

@@ -43,6 +43,27 @@ class TaskSpec:
     verified_by: str  # 05 §4 — LLM 출력에 붙는 검증 코드
     metric: str  # 04 §3 태스크별 지표
 
+    #: **이 태스크가 낼 수 있는 라벨.** 비어 있으면 자유 출력이다.
+    #:
+    #: ⚠️ 여기가 단일 출처다 (D-22 · D-73). 2026-08-02 실측에서 —
+    #:
+    #:     ① 프롬프트는 *"허용된 라벨 중 하나만 출력한다"* 라고만 적었다.
+    #:        **그 라벨이 무엇인지는 안 적혀 있었다.**
+    #:     ② 코드는 `ALLOWED_INTENTS` 로 정확히 대조했다.
+    #:
+    #:   모델은 보기를 모르니 `'위험성우려'`·`'high_risk'` 같은 그럴듯한 말을 냈고,
+    #:   코드가 전부 `unknown` 으로 걸러 **거절**로 보냈다. 결과가 뒤집혔다 —
+    #:   **키워드 폴백(통과 10%)보다 진짜 LLM(3.3%)이 더 나빴다.**
+    #:   *(이서은 팀원 발견)*
+    #:
+    #:   프롬프트와 검증기가 **같은 목록을 봐야 한다.** 프롬프트에 손으로 다시 적으면
+    #:   라벨이 하나 늘어날 때 같은 사고가 반복된다.
+    labels: tuple[str, ...] = ()
+
+    #: 라벨의 뜻. 프롬프트에 함께 실어 **모델이 경계를 알게** 한다.
+    #: `general` 이 *"우리가 다루지 않는 질문"* 이라는 것은 설명 없이는 알 수 없다 (D-46).
+    label_hints: dict[str, str] | None = None
+
 
 SPECS: dict[Task, TaskSpec] = {
     Task.CLASSIFY: TaskSpec(
@@ -51,6 +72,13 @@ SPECS: dict[Task, TaskSpec] = {
         output_kind="단일 라벨",
         verified_by="허용목록 검증 · 미분류 시 폴백",
         metric="macro F1",
+        labels=("intoxication", "symptom", "nutrition", "general"),
+        label_hints={
+            "intoxication": "물질을 먹었거나 핥았거나 접촉했다",
+            "symptom": "증상만 말하고 물질은 말하지 않았다",
+            "nutrition": "급여·영양·사료에 대한 질문이다",
+            "general": "우리가 다루지 않는 질문 — 이름 짓기·훈련·보험·브랜드 추천",
+        },
     ),
     Task.SLOT: TaskSpec(
         task=Task.SLOT,
@@ -75,6 +103,7 @@ SPECS: dict[Task, TaskSpec] = {
         output_kind="문장별 3값 라벨",
         verified_by="판정에 따른 게이트 · 재검색 트리거 · 문장 제거",
         metric="근거없음 탐지 재현율 (**놓치면 환각이 나간다**)",
+        labels=("근거있음", "근거없음", "모순"),
     ),
     Task.SIMPLIFY: TaskSpec(
         task=Task.SIMPLIFY,
