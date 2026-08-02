@@ -137,10 +137,19 @@ class LocalQwenClient:
         """메시지 → 생성. `run` 과 `run_raw` 가 **같은 경로**를 쓴다.
 
         갈라 두면 한쪽만 `do_sample=False` 를 빠뜨리는 식으로 조용히 어긋난다.
+
+        `enable_thinking=False` — Qwen3는 기본적으로 답 앞에 `<think>...</think>`
+        추론 블록을 길게 쓴다. 5태스크는 전부 짧고 구조화된 출력이 목표이고
+        (05 §4 — 라벨 하나·JSON 하나), 학습 샘플의 target도 사고 과정 없이
+        바로 답만 담고 있다(`prompts.build_sample`). 추론에서 생각 모드를 켜 두면
+        `max_tokens`이 사고 과정에서 다 소진돼 진짜 답이 나오기 전에 잘리고,
+        학습·추론 프롬프트가 어긋난다(이 모듈 머리말 "같은 문자열을 쓴다").
         """
         self._ensure()
         assert self._tok is not None and self._model is not None
-        text = self._tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        text = self._tok.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
+        )
         inputs = self._tok(text, return_tensors="pt").to(self._model.device)
         out = self._model.generate(
             **inputs,
