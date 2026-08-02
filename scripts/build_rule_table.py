@@ -36,6 +36,22 @@ from pettriage.ingest.templates import THRESHOLD_TYPES  # noqa: E402
 
 OUT_NAME = "정량임계치.csv"
 
+#: **정성 등급 표** — 양을 몰라도 나오는 바닥 (D-50).
+#:
+#: 왜 두 번째 표가 필요한가 (2026-08-02 흡수에서 드러났다) —
+#: 코퍼스 888행 중 **정성 등급(`triage_level`)을 가진 행이 91행**인데, 그중
+#: 정량 역치까지 가진 행은 극소수다. 그래서 `정량임계치.csv`(15행)만으로는
+#: **등급이 있는 사실의 대부분이 런타임에 도달하지 못한다.**
+#:
+#:     조류   정성 25행 · 정량 **0행**   ← 정성 경로가 없으면 조류는 통째로 죽는다
+#:
+#: D-09 개정이 *"조류는 체중당 임계치가 0건이라 체중·섭취량을 요구하지 않는다"* 라고
+#: 적어 둔 그 자리다. 조류는 처음부터 **정성으로만** 답하게 설계돼 있었고,
+#: 그 표가 없었다. 흡수 전에는 `graph/engine.py` 안의 하드코딩 12줄이 그 자리를
+#: 대신하고 있었다 — 사람이 손으로 적은 등급이 `apply_gate` 의 바닥이 되고 있었다.
+QUAL_NAME = "정성등급.csv"
+QUAL_FIELDS = ("substance", "species", "triage_level", "signs", "fact_ids", "source_ids")
+
 #: 계산 노드가 **체중과 곱해 판정할 수 있는** 단위.
 #:
 #: `seeds`·`leaves`·`drupes` 같은 개수 단위는 여기 없다 —
@@ -109,6 +125,46 @@ def build(facts_dir: Path) -> list[dict[str, str]]:
     return out
 
 
+def build_qualitative(facts) -> list[dict[str, str]]:
+    """(물질 × 종) → **최고 등급 + 상승 조건.**
+
+    같은 (물질 × 종)에 등급이 여럿이면 **높은 쪽**을 쓴다 — D-13(과소평가가 최우선
+    위험)이 정한 방향이다. 낮은 쪽을 고르면 그 선택이 곧 과소평가다.
+
+    `signs` 를 함께 싣는 이유 — `MONITOR` 는 상승 조건 없이 응답에 실을 수 없다
+    (D-39 · `TriageResult._monitor_needs_conditions`). 조건이 없으면 등급이 있어도
+    답을 못 만든다.
+    """
+    from collections import defaultdict
+
+    acc: dict[tuple[str, str], dict] = defaultdict(
+        lambda: {"level": 0, "signs": [], "facts": [], "sources": []}
+    )
+    for f in facts:
+        if not f.triage_level:
+            continue
+        name = (f.substance or "").strip()
+        if not name:
+            continue
+        e = acc[(name, f.species)]
+        e["level"] = max(e["level"], int(f.triage_level))
+        e["signs"] += [x for x in (f.signs or []) if x]
+        e["signs"] += [x for x in (f.escalation_conditions or []) if x]
+        e["facts"].append(f.fact_id)
+        e["sources"].append(f.source_id)
+    return [
+        {
+            "substance": sub,
+            "species": sp,
+            "triage_level": str(e["level"]),
+            "signs": "|".join(dict.fromkeys(e["signs"])),
+            "fact_ids": "|".join(dict.fromkeys(e["facts"])),
+            "source_ids": "|".join(dict.fromkeys(e["sources"])),
+        }
+        for (sub, sp), e in sorted(acc.items())
+    ]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="사실 표에서 규칙 테이블을 파생한다")
     ap.add_argument("--write", action="store_true", help="compute/tables/ 에 기록")
@@ -147,6 +203,16 @@ def main() -> int:
         w = csv.DictWriter(f, fieldnames=list(FIELDS))
         w.writeheader()
         w.writerows(rows)
+
+    from pettriage.ingest.facts_io import load_all
+
+    qual = build_qualitative(load_all(root / "data" / "facts"))
+    qdest = root / "src" / "pettriage" / "compute" / "tables" / QUAL_NAME
+    with qdest.open("w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=QUAL_FIELDS, lineterminator="\n")
+        w.writeheader()
+        w.writerows(qual)
+    print(f"→ {qdest}  ({len(qual)}행 · 정성 등급)")
     print(f"\n→ {dest}")
     print("  ⚠ 이 파일은 **생성물이다.** 손으로 고치지 말고 사실 표를 고친 뒤 다시 돌린다.")
     return 0

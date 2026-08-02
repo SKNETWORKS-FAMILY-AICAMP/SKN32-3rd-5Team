@@ -10,7 +10,8 @@
 
 엔진을 어떻게 잡는가
     `QAEngine` 프로토콜(`ask(req, session) -> AskResponse`)에만 의존한다 (D-40).
-    WS2가 `GraphEngine` 을 완성하면 `--engine graph` 한 마디로 갈아끼운다.
+    `--engine graph` 로 갈아끼운다. 기본값은 `configs/*.yaml` 의 `serve.engine`
+    (`eval` 프로파일은 이미 `graph` 다).
     **이 파일은 그때 손대지 않는다.**
 
 ⚠️ 지금 기본 엔진은 `stub` 이다
@@ -27,6 +28,7 @@ import argparse
 import contextlib
 import csv
 import json
+import os
 import re
 import sys
 import time
@@ -96,6 +98,49 @@ def build_request(row: dict[str, str]):
 # ─────────────────────────────────────────────────────────────
 # 실행
 # ─────────────────────────────────────────────────────────────
+
+
+def _provenance() -> dict[str, object]:
+    """**이 숫자가 무엇으로 나온 것인가** (04 §8 · `eval/reports/README.md`).
+
+    `eval/reports/README.md` 는 처음부터 리포트 머리말에 코퍼스·설정·의존성 해시를
+    적으라고 요구했다. 그런데 하네스는 **엔진 이름만 남겼다** — 사람이 손으로 적게
+    두면 안 적히고, 안 적힌 리포트는 나중에 해석할 수 없다.
+
+    ⚠️ **`dirty` 가 참이면 그 결과는 재현할 수 없다.** 커밋되지 않은 변경 위에서
+    잰 숫자이고, 그 상태를 남에게 줄 방법이 없다. 숨기지 않고 적는다 —
+    *"측정하지 않은 것을 0 으로 적지 않는다"* 와 같은 이유다.
+    """
+    import subprocess
+
+    def git(*args: str) -> str:
+        try:
+            return subprocess.run(
+                ["git", *args], capture_output=True, text=True, timeout=5, check=False
+            ).stdout.strip()
+        except Exception:  # noqa: BLE001 — git 이 없거나 저장소가 아니면 그냥 비운다
+            return ""
+
+    from pettriage.config import get_config
+
+    cfg = get_config()
+    head = git("rev-parse", "HEAD")
+    return {
+        "repo_commit": head or "(git 없음)",
+        # 커밋 안 된 변경 위에서 쟀는가. 참이면 **재현 불가**다.
+        "dirty": bool(git("status", "--porcelain")),
+        "profile": os.getenv("PETTRIAGE_PROFILE", "default"),
+        "engine_configured": cfg.serve.engine,
+        "model_provider": cfg.model.provider,
+        "model_base_id": cfg.model.base_id,
+        "model_revision": cfg.model.revision,
+        "embedding_model": cfg.retrieval.embedding_model,
+        "top_k": cfg.retrieval.top_k,
+        "score_threshold": cfg.retrieval.score_threshold,
+        "max_clarify_turns": cfg.triage.max_clarify_turns,
+    }
+
+
 def make_engine(kind: str | None):
     """엔진 1개를 만든다. 이름은 리포트에 그대로 박힌다."""
     from pettriage.config import get_config
@@ -106,9 +151,15 @@ def make_engine(kind: str | None):
 
         return StubEngine()
     if kind == "graph":
-        from pettriage.graph.engine import GraphEngine  # type: ignore[attr-defined]
+        from pettriage.app.safety_engine import SafetyEngine
+        from pettriage.graph.engine import GraphEngine
 
-        return GraphEngine()
+        # ⚠️ **반드시 감싼다** (D-47 · D-54). 서비스 경로는 `deps.get_engine()` 이
+        #    감싸는데 하네스는 엔진을 직접 만든다 — 안 감싸면 **평가만 다른 코드를 잰다.**
+        #    코퍼스 응급 자료가 전부 미국 것이라 답변에 톨프리 번호가 실릴 수 있고,
+        #    그러면 계약 `_no_foreign_contacts` 가 터져 그 케이스가 **오류로 집계된다.**
+        #    실제로는 스크러빙되어 정상 응답이 나가는 건이다 — 지표가 틀어진다.
+        return SafetyEngine(GraphEngine())
     raise SystemExit(f"알 수 없는 엔진: {kind!r} (stub | graph)")
 
 
@@ -229,6 +280,7 @@ def run(rows: Iterable[dict[str, str]], engine) -> list[CaseResult]:
                     row,
                     status=resp.status,
                     level=resp.triage.level if resp.triage else None,
+                    refusal_reason=resp.refusal.reason if resp.refusal else "",
                     answer_text=scored_text(resp),  # 상승 조건 포함 · 고지 문구 제외
                     citations=[c.source_id for c in resp.citations],
                     latency_ms=elapsed,
@@ -266,12 +318,21 @@ def _table(title: str, groups: dict[str, Summary]) -> list[str]:
     return out
 
 
-def report(results: list[CaseResult], *, engine_name: str) -> str:
+def report(results: list[CaseResult], *, engine_name: str, model_name: str = "?") -> str:
     s = summarize(results)
     L: list[str] = []
     L.append("=" * 66)
     L.append(f"  평가 하네스 — 엔진 `{engine_name}` · 골든셋 {s.n}건")
+    # **무엇으로 잰 건지 모르는 숫자를 남기지 않는다** (04 §8).
+    #   엔진 이름만 박혀 있어서 같은 `graph` 라도 gpt-4o-mini 로 잰 건지
+    #   Qwen 베이스로 잰 건지 리포트에서 구분할 수 없었다 (D-65).
+    L.append(f"  모델 `{model_name}`")
     L.append("=" * 66)
+    if model_name.startswith("none"):
+        L.append("  ⚠️ **모델 없이 돌았다** — 05 §4 의 5태스크가 전부 폴백이다.")
+        L.append("     이 수치는 LLM 성능이 아니라 **코드·규칙만의 기준선**이다 (04 §3).")
+        L.append("     특히 ④ 근거 검증은 draft=context 라 판정이 항상 `근거있음` 이다 —")
+        L.append("     근거없음 탐지 재현율은 0인 채 초록으로 보인다. 그렇게 읽지 않는다.")
     if engine_name == "stub":
         L.append("  ⚠️ StubEngine 은 물질 3종만 아는 고정 지식 엔진이다.")
         L.append("     아래 수치는 시스템 성능이 아니라 **베이스라인**이다 (04 §5 구성 A).")
@@ -349,6 +410,9 @@ def report(results: list[CaseResult], *, engine_name: str) -> str:
             why = r.error or (
                 f"상태 {r.expected_status}→{r.actual_status}"
                 if not r.status_ok
+                # **거절했는데 이유가 다르다** — 상태만 보면 통과로 보이는 자리다.
+                else f"거절이유 {r.expected_refusal_reason}→{r.actual_refusal_reason or '(없음)'}"
+                if r.reason_ok is False
                 else f"등급 {r.expected_level}→{r.actual_level}"
                 if r.expected_level != r.actual_level
                 else "근거/문구"
@@ -423,12 +487,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not a.no_warmup:
         warm_up(engine, rows)  # 첫 건에 모델 로딩이 섞이지 않게 (D-53)
     results = run(rows, engine)
-    print(report(results, engine_name=engine.name))
+    from pettriage.models.serving.factory import client_name
+
+    model_name = client_name()
+    print(report(results, engine_name=engine.name, model_name=model_name))
 
     if a.json:
         a.json.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "engine": engine.name,
+            "model": model_name,
+            # **엔진 이름만으로는 무엇을 잰 건지 모른다** (04 §8).
+            "provenance": _provenance(),
             "goldenset": [p.name for p in paths],
             "n": len(results),
             "latency": {

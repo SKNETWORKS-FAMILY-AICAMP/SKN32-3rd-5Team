@@ -22,7 +22,7 @@ import logging
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, model_validator
@@ -65,8 +65,60 @@ class _ConfigBase(BaseModel):
 class ModelConfig(_ConfigBase):
     """생성·파인튜닝 모델 (D-42)."""
 
+    #: **어느 클라이언트로 서빙할 것인가** (04 §3 비교군).
+    #:
+    #:   none  모델 없이 돈다 — 5태스크가 전부 폴백. **비교군 없음(코드·규칙만)**
+    #:   api   대형 LLM (`api_model`).                        **비교군 A**
+    #:   qwen  `base_id`(+`adapter_path`). 어댑터 없으면 베이스. **비교군 D / C**
+    #:   echo  테스트용 고정 응답
+    #:
+    #: ⚠️ 이 키가 없던 동안 노드 4곳이 `APIClient()` 를 **직접 만들고 있었다**
+    #: (2026-08-02 발견). `client.py` 머리말은 *"교체가 설정 한 줄로 끝난다"* 고
+    #: 적어 뒀는데 **그 한 줄이 없었고**, `LocalQwenClient` 는 아무도 부르지 않았다.
+    #: 그래서 04 비교표의 C·D 열을 **채울 방법 자체가 없었다** (D-40 · D-65).
+    #:
+    #: `adapter_path` 유무로 자동 판단하지 않는다 — `null` 이 *"베이스 Qwen"* 인지
+    #: *"Qwen 안 씀"* 인지 구분이 안 된다. **묻지 않고 정하지 않는다.**
+    provider: Literal["none", "api", "qwen", "echo"] = "api"
+
+    #: `provider="api"` 일 때 쓸 모델 이름. 비밀이 아니므로 여기 둔다 (D-41).
+    api_model: str = "gpt-4o-mini"
+
+    #: OpenAI 호환 엔드포인트. `None` 이면 OpenAI 본가.
+    #:
+    #: **`Qwen3-4B` 를 호스팅 API 로 부르는 길**이다 — GPU 없이 04 비교군 D 에
+    #: 가장 가까운 조건을 잴 수 있다. 다만 **같은 조건은 아니다**:
+    #: 사업자가 서빙하는 가중치의 revision·양자화를 우리가 확인할 수 없어
+    #: `model.revision`(`1cfa9a72…`) 이 **걸리지 않는다.**
+    #: 리포트에는 `D(근사 · 호스팅)` 로 적고 사유를 단다 (04 §8).
+    api_base_url: str | None = None
+
     base_id: str = "Qwen/Qwen3-4B"
     revision: str | None = None  # 재현성: 모델도 버전을 고정한다
+
+    #: `revision` 은 **`base_id` 와 짝이다.** 커밋 해시는 저장소마다 다르다.
+    #:
+    #: `base_id` 만 바꾸고 `revision` 을 그대로 두면 `from_pretrained` 가 404 로 죽는데,
+    #: 오류 메시지가 *"revision 이 저 저장소 것이 아니다"* 라고 말해 주지 않는다.
+    #: 8GB 를 받다가 만나면 시간이 아깝다. **설정 단계에서 막는다.**
+    _KNOWN_PINS: ClassVar[dict[str, str]] = {
+        "Qwen/Qwen3-4B": "1cfa9a7208912126459214e8b04321603b3df60c",
+    }
+
+    @model_validator(mode="after")
+    def _revision_belongs_to_base_id(self) -> ModelConfig:
+        if not self.revision:
+            return self
+        owner = next((b for b, r in self._KNOWN_PINS.items() if r == self.revision), None)
+        if owner and owner != self.base_id:
+            raise ValueError(
+                f"model.revision {self.revision[:8]}… 은 {owner!r} 의 커밋인데 "
+                f"base_id 가 {self.base_id!r} 다. 저장소를 바꾸면 revision 도 바꾸거나 비운다.\n"
+                "  · 비우면 그 저장소의 최신을 받는다 — **재현이 깨진다.** "
+                "04 §8 재현성 표에 실제로 쓴 커밋을 적을 것."
+            )
+        return self
+
     max_seq_len: int = 4096
     dtype: Literal["bfloat16", "float16", "auto"] = "bfloat16"
     load_in_4bit: bool = True
@@ -262,17 +314,54 @@ def _parse_scalar(raw: str) -> Any:
         return raw
 
 
+def _override_sources(prefix: str = "PETTRIAGE__") -> dict[str, str]:
+    """오버라이드를 읽을 곳 — **`.env` 파일 + 셸 환경변수.** 셸이 이긴다.
+
+    ⚠️ **예전에는 `os.environ` 만 봤다.** 그런데 `.env.example` 은 처음부터
+    이렇게 안내하고 있었다 —
+
+        # 단발 오버라이드 — 이중 밑줄로 configs 값을 덮는다.
+        #   PETTRIAGE__RETRIEVAL__TOP_K=8
+        #   PETTRIAGE__SERVE__ENGINE=graph
+
+    **그 두 줄은 한 번도 동작한 적이 없다** (2026-08-02 확인). `Secrets` 가
+    pydantic-settings 로 `.env` 를 읽기는 하지만 그것은 **모델 필드만** 채우고
+    `os.environ` 에 내보내지 않는다. `extra="ignore"` 라 `PETTRIAGE__…` 는
+    **조용히 버려졌다** — 예외도 경고도 없이.
+
+    `UnknownConfigKey` 가 오타를 잡으려고 만들어졌는데, 오타가 아니라 **파일
+    자체가 안 읽히는 경로**가 그 옆에 있었다. 안내가 거짓이면 사람은 설정을
+    바꿨다고 믿고 **안 바뀐 조건으로 측정한다** — 04 §8 재현성이 무너지는
+    방식이 같다.
+
+    셸을 우선하는 이유 — `.env` 는 그 컴퓨터의 상시 설정이고, 셸 변수는
+    *"이번 한 번"* 이다. 한 번짜리가 상시를 이겨야 비교군을 갈아끼울 수 있다.
+    """
+    from dotenv import dotenv_values
+
+    merged: dict[str, str] = {}
+    try:
+        for k, v in dotenv_values(".env").items():
+            if k.startswith(prefix) and v is not None:
+                merged[k] = v
+    except Exception as e:  # noqa: BLE001
+        # 설정 하나 때문에 기동이 죽는 것은 과하다 (`_parse_scalar` 와 같은 판단).
+        log.warning(".env 를 읽지 못했다 — 셸 환경변수만 본다: %s", type(e).__name__)
+    merged.update({k: v for k, v in os.environ.items() if k.startswith(prefix)})
+    return merged
+
+
 def _env_overrides(prefix: str = "PETTRIAGE__") -> dict[str, Any]:
     """`PETTRIAGE__RETRIEVAL__TOP_K=8` → `{"retrieval": {"top_k": 8}}`.
 
-    임시 실험에 YAML을 고치지 않아도 되게 한다.
+    임시 실험에 YAML을 고치지 않아도 되게 한다. **`.env` 와 셸 둘 다** 본다.
     **덮어쓴 값은 로그에 남는다** — 실험 결과를 나중에 해석하려면 필수다 (04 §8).
 
     리스트는 YAML 표기를 쓴다: ``PETTRIAGE__TRIAGE__QUANTITATIVE_SPECIES="[dog, cat]"``
     """
     out: dict[str, Any] = {}
     applied: list[str] = []
-    for key, raw in sorted(os.environ.items()):
+    for key, raw in sorted(_override_sources(prefix).items()):
         if not key.startswith(prefix):
             continue
         node = out

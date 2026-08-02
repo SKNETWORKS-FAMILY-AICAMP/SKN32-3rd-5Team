@@ -20,24 +20,32 @@ pytest -m todo -k slot  # 한 노드만
 
 ## 노드 순서 (02 §2)
 
-```
-classify_intent ─┬─ general → refuse (범위밖 · D-46) ────────────────┐
-                 │                                                   │
-                 └─ 그 외 → extract_slots ─┬─ 결측·물질미상 → ask_clarify (상한 2회 · D-49)
-                                           │                         │
-                                           └─ 충족 → build_filter → retrieve
-                                                       → compute → compress
-                                                       → generate → decide_triage
-                                                       → verify_grounding
-                                                            ├─ 통과 → simplify ──┐
-                                                            └─ 실패 → retrieve (1회)
-                                                                     → 그래도 실패 → refuse
-                                                                                   │
-                                     모든 경로가 마지막에 만난다 ──────────────► finalize
-```
+⚠️ **여기에 그림을 다시 그리지 않는다.** 순서는 `graph/build.py` 의 `build_graph()`
+한 곳에만 있고, 그림은 거기서 뽑는다 —
 
-**`finalize` 는 `answered` 만 통과시키는 것이 아니다.** 거절·되묻기도 지나간다 —
-거절 문구에 미국 핫라인을 넣는 실수를 막기 위해서다 (D-47).
+    python scripts/draw_graph.py     # → docs/그림/질의그래프.mmd
+
+2026-08-02 까지 이 자리에 손으로 그린 아스키 구조도가 있었고, 거기 `finalize` 가
+*"모든 경로가 마지막에 만난다"* 로 그려져 있었다. **실제로는 파이프라인이 `finalize` 를
+한 번도 부르지 않았다** — 연락처 차단(D-47)은 `app/safety_engine.py` 의 래퍼로
+옮겨 갔고 그림만 남아 있었다. 래퍼가 거절·되묻기까지 훑기 때문에 그쪽이 옳고,
+**그림이 틀린 것이다.** 틀린 그림은 없는 그림보다 나쁘다 — 읽는 사람이 그것을 믿고
+코드를 안 본다 (D-22 · D-38).
+
+갈림길만 말로 남긴다. 조건은 `build.py` 의 `_after_*` 라우터에 있다.
+
+- `classify` — 도메인 밖(`general`·`unknown`)은 **검색조차 하지 않는다** (D-46)
+- `extract` — 결측·물질미상은 되묻기로 빠진다 (D-10 · D-49)
+- `retrieve` — 히트 0건이면 거절. **첫 검색이면 `근거없음`, 재검색이면 `검증실패`**
+- `decide` — 조건 없는 MONITOR·판정 근거 없음은 여기서 끝난다 (D-39)
+- `verify` — 실패하면 `retrieve` 로 **되돌아간다** (`MAX_RETRY` 회). 05 §5 가
+  *"선형 체인으로 표현 불가"* 라고 한 순환이 이것이고, 랭그래프를 쓰는 유일한 이유다
+
+## `finalize` 는 그래프 안에 없다
+
+연락처 차단은 `deps.get_engine()` 이 엔진을 `SafetyEngine` 으로 **감싸서** 한다 (D-47).
+그래프 안에 두면 `answered` 경로만 훑게 되어 **거절 문구에 들어간 미국 핫라인을 놓친다.**
+`nodes.finalize` 는 그 이전 구현이고 지금은 아무도 부르지 않는다.
 
 ## 절대 어기면 안 되는 것
 
@@ -47,7 +55,7 @@ classify_intent ─┬─ general → refuse (범위밖 · D-46) ─────
 - **증상만 있거나 물질이 미상이면 되묻는다 (D-49).** 검색으로 원인을 찾지 않는다
 - **트리아지는 `apply_gate` 를 거친다** (D-09). `max()` 를 직접 쓰지 않는다.
   규칙이 낸 값은 확정이 아니라 **바닥**이므로, 적중했다고 LLM 판정을 건너뛰지 않는다 (D-50)
-- **`finalize` 가 마지막이다** (D-47). 이 뒤에 문장을 덧붙이면 연락처 차단이 무력해진다
+- **`SafetyEngine` 이 마지막이다** (D-47). 그 뒤에 문장을 덧붙이면 연락처 차단이 무력해진다
 - **사용자에게 나가는 문장은 존댓말이다.** 청크의 평서체(`~다`)를 그대로 내보내지 않는다
 
 ## 속도 — 캐시보다 먼저 지킬 것 셋 (D-53)
@@ -110,21 +118,22 @@ hits = dedupe_by_substance(hits)                        # 같은 물질 접기
 
 from .classify import ALLOWED_INTENTS, classify_intent
 from .compute import compute_metrics
-from .generate import compress_context, finalize, generate_draft, simplify
+from .generate import compress_context, finalize, generate_draft, judge_triage, simplify
 from .retrieve import build_filter, retrieve
 from .slots import ask_clarify, extract_slots
-from .triage import decide_triage
+from .triage import apply_rule_table, decide_triage
 from .verify import MAX_RETRY, verify_grounding
 
 #: 노드 구현이 끝나면 **WS2 가 True 로 바꾼다.**
 #: 이 값이 False 인 동안 `GraphEngine` 은 생성 자체가 실패한다 —
 #: 반쯤 구현된 그래프로 평가를 돌리면 지표가 오염되기 때문이다 (04 §8).
-NODES_IMPLEMENTED = False
+NODES_IMPLEMENTED = True
 
 __all__ = [
     "ALLOWED_INTENTS",
     "MAX_RETRY",
     "NODES_IMPLEMENTED",
+    "apply_rule_table",
     "ask_clarify",
     "build_filter",
     "classify_intent",
@@ -134,6 +143,7 @@ __all__ = [
     "extract_slots",
     "finalize",
     "generate_draft",
+    "judge_triage",
     "retrieve",
     "simplify",
     "verify_grounding",

@@ -73,6 +73,7 @@ D-59 ③이 나눈 것이 이 둘이고, 여기는 앞의 절반만 담당한다
 from __future__ import annotations
 
 import csv
+import logging
 import re
 from dataclasses import dataclass
 from functools import lru_cache
@@ -178,6 +179,11 @@ def is_word_hit(text: str, alias: str) -> bool:
         is_word_hit("파스타를", "파")         → False   뒤가 한글인데 `스타` 는 조사가 아니다
         is_word_hit("대파를 먹었어요", "대파")  → True    `를` 뒤가 공백
         is_word_hit("소주방", "소주")         → False   `방` 은 조사가 아니다
+        is_word_hit("사과 3개 먹었어요", "개")  → False   숫자 뒤 1글자는 **의존명사**다
+
+    마지막 규칙은 흡수(2026-08-02)에서 나왔다 — `_extract_species` 의 `"개"` 가
+    *"고양이가 사과 3개 먹었어요"* 를 **`dog`** 으로 만들었다. 한글 경계만 봐서는
+    `3개` 의 앞이 숫자라 통과한다. **수사 뒤의 1글자는 낱말이 아니라 단위다.**
 
     형태소 분석은 하지 않는다. **표가 작을 때 규칙도 작아야 유지된다.**
     """
@@ -187,6 +193,8 @@ def is_word_hit(text: str, alias: str) -> bool:
         start = i + 1
         if i > 0 and _HANGUL.match(text[i - 1]):
             continue  # 앞이 한글 — 다른 낱말의 꼬리다
+        if n == 1 and i > 0 and text[i - 1].isdigit():
+            continue  # 숫자 + 1글자 = **의존명사**다 (3`개` · 2`알` · 5`마리`)
         rest = text[i + n :]
         if not rest or not _HANGUL.match(rest[0]):
             return True  # 문말이거나 공백·부호·영문·숫자
@@ -360,6 +368,11 @@ def resolve_substance(surface: str, species: str | None = None) -> Resolution:
         `Resolution`. `assumption` 이 참이면 부르는 쪽이 `assumed_substance` 에
         남겨야 한다 — **밝히지 않은 추정은 환각이다** (D-59 ⑤).
     """
+    # **종은 물질이 아니다.** ②가 `고양이` 를 물질로 올려도 여기서 멈춘다 —
+    # `resolve` 는 폐쇄 목록으로 올리는 유일한 문이고, 문에서 막는 것이 D-59 다.
+    if surface.strip() in _SPECIES_TERMS:
+        log.info("종 이름을 물질로 올리려 했다 — %r. 되묻기로 보낸다 (D-67).", surface.strip())
+        return Resolution(surface=surface.strip(), name=None, how="없음")
     s = (surface or "").strip()
     if not s or s == NONE:
         return Resolution(surface=s, name=None, how="없음")
@@ -412,6 +425,100 @@ def _near(surface: str, species: str | None) -> tuple[str, ...]:
         elif len(t.substance) >= MIN_TERM_LEN and is_word_hit(surface, t.substance):
             out.add(t.substance)  # 역방향 — 짧은 코퍼스 이름은 보지 않는다
     return tuple(sorted(out))
+
+
+#: 코퍼스 물질명이 **열거를 담는 구분자.** `우유·유제품` · `감귤류(레몬·자몽·라임)`.
+#: 코퍼스가 스스로 적은 이름들이라 여기서 쪼개도 **우리가 만든 말이 아니다** (D-38).
+#: 종을 가리키는 한국어 표기. **어휘의 단일 출처는 이 모듈이다** (P2 · D-22).
+#: 예전에는 `graph/nodes/slots.py` 가 들고 있었고, 그래서 **물질 어휘 쪽에서
+#: 종을 걸러낼 방법이 없었다.**
+log = logging.getLogger(__name__)
+
+SPECIES_WORDS: dict[str, tuple[str, ...]] = {
+    "dog": ("강아지", "개", "멍멍이", "댕댕이"),
+    "cat": ("고양이", "냥이", "야옹이"),
+    "bird": ("앵무새", "잉꼬"),
+}
+
+#: **물질이 아닌 말.** 종과 그 총칭이다.
+#:
+#: ⚠️ 이것은 D-60 이 걷어낸 것 같은 *차단 목록*이 아니다. **타입 구분**이다 —
+#: 종은 이미 이 모듈이 아는 다른 종류의 어휘이고, 물질 어휘와 겹칠 수 없다.
+#:
+#: 왜 필요했나 (2026-08-02 1차 평가에서 발견) — 코퍼스 이름을 괄호로 쪼개면
+#: **종 한정어가 물질 부품으로 떨어져 나온다.**
+#:
+#:     췌장염(고양이)          → 부품 '고양이'      ← 종 한정어다. 물질이 아니다
+#:     자일리톨(무설탕 껌·사탕)  → 부품 '무설탕 껌'   ← 진짜 열거다 ✅
+#:
+#: 그 결과 **`"고양이가 ~"` 로 시작하는 모든 질의가 물질을 말한 것**이 되고,
+#: `고양이` 가 6건 모호라 물질미상 되묻기로 빠졌다. `"고양이 캣타워 추천"`(G-015)이
+#: D-46 의 범위밖 방어를 그대로 통과한 이유다.
+#:
+#: 더 나쁜 것은 **가림**이었다 — `mention_in` 이 첫 매칭을 반환하므로
+#: *"고양이가 향초를 핥았는데"* 에서 `고양이` 가 먼저 잡혀 **코퍼스에 실제로 있는
+#: `향초·왁스멜트·인센스`** 를 못 찾았다. 오탐 하나가 정탐 하나를 지웠다.
+#:
+#: `개` 는 `MIN_TERM_LEN=2` 에 막혀 살아 있었다 — 운이었지 설계가 아니다.
+_SPECIES_TERMS: frozenset[str] = frozenset(
+    [w for ws in SPECIES_WORDS.values() for w in ws]
+    + ["조류", "포유류", "반려동물", "반려견", "반려묘", "반려조"]
+)
+
+
+_PARTS = re.compile(r"[·,()（）\[\]/]|\s—\s")
+
+
+def mention_in(text: str, species: str | None = None, *, assumptions: bool = True) -> str | None:
+    """문장에서 **물질을 가리키는 표면형**을 하나 찾는다. 없으면 `None`.
+
+    ⚠️ **여기가 단일 출처다** (P2 · D-22). 예전에는 `graph/nodes/slots.py` 와
+    `graph/nodes/classify.py` 가 각자 규칙을 들고 있었고, 실제로 어긋났다 —
+
+        "고양이한테 우유를 매일 조금씩 줘도 되나요"
+          slots     → `우유` 를 찾는다 (코퍼스 `우유·유제품` 의 부품까지 본다)
+          classify  → 못 찾는다 (전체 이름만 봤다) → **`general` 범위밖 거절**
+
+    슬롯이 잡은 질의가 분류에서 죽었다. 같은 함수를 쓰면 그런 일이 안 생긴다.
+
+    찾는 순서 — **구체적인 것이 먼저다.**
+
+        ① 별칭      대파 · 프라이팬 · 무설탕껌      (표가 근거와 함께 정의한 것)
+        ② 코퍼스 이름 그대로   백합 · 부동액 · 튤립
+        ③ 코퍼스가 괄호 안에 열거한 이름   우유·유제품 → `우유`
+
+    Args:
+        assumptions: 거짓이면 **추정 별칭을 빼고** 본다. 종을 모르는 단계(①분류)에서
+            `프라이팬`·`냄비` 를 끌어오면 종과 무관하게 중독으로 분류된다.
+
+    Returns:
+        **표면형**이다. 정규화된 물질명이 아니다 — 정규화는 `resolve_substance`
+        한 곳에서만 한다. 여기서 이름을 확정하면 `추정` 이라는 사실을 잃는다 (D-59 ⑤).
+    """
+    from .aliases import resolve as resolve_alias
+
+    for a in resolve_alias(text, species):
+        if assumptions or not a.is_assumption:
+            return a.alias
+
+    terms = [t for t in load_vocabulary() if not species or species in t.covers]
+    whole = [t.substance for t in terms if is_word_hit(text, t.substance)]
+    if whole:
+        return max(whole, key=len)
+
+    # **가장 긴 것을 고른다** — 전체 이름(`whole`)과 같은 규칙이다.
+    # 예전에는 첫 매칭을 반환해서 `load_vocabulary()` 의 **파일 순서**가 답을 정했다.
+    # 순서에 의존하는 판정은 자료가 한 줄 늘면 조용히 바뀐다 (D-22).
+    parts = {
+        part
+        for t in terms
+        for raw in _PARTS.split(t.substance)
+        if (part := raw.strip())
+        and len(part) >= MIN_TERM_LEN
+        and part not in _SPECIES_TERMS  # 종은 물질이 아니다
+        and is_word_hit(text, part)
+    }
+    return max(parts, key=len) if parts else None
 
 
 def candidates_for(species: str | None = None) -> tuple[str, ...]:

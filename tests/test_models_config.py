@@ -25,14 +25,80 @@ def test_default_profile_loads():
 
 def test_profile_overrides_default():
     assert load_config("eval").serve.engine == "graph"
-    assert load_config("eval").triage.max_clarify_turns == 0
     # 덮지 않은 값은 default 를 유지한다
     assert load_config("eval").model.base_id == "Qwen/Qwen3-4B"
+
+
+def test_eval_profile_does_not_disable_clarify():
+    """**평가에서도 되묻는다** (D-66 · D-57 로 뒤집은 값).
+
+    예전에는 `0` 이었다. 그러면 되묻기 기대 15건이 **구조적으로 통과 불가**가 되고,
+    *"결측을 알아채고 멈췄다"* 는 핵심 안전 동작이 측정에서 사라진다.
+    근거였던 *"분모가 흔들린다"* 는 성립하지 않았다 — `clarify` 도 `refused` 도
+    `triage` 가 없어 등급 분모에서 **똑같이** 빠진다.
+    """
+    assert load_config("eval").triage.max_clarify_turns == MAX_CLARIFY_TURNS
 
 
 def test_env_overrides_yaml(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("PETTRIAGE__RETRIEVAL__TOP_K", "9")
     assert load_config("default").retrieval.top_k == 9
+
+
+def test_dotenv_overrides_yaml(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    """`.env` 의 `PETTRIAGE__…` 도 설정을 덮는다.
+
+    ⚠️ **한 번도 동작한 적이 없었다** (2026-08-02 확인). `.env.example` 은
+    처음부터 `PETTRIAGE__SERVE__ENGINE=graph` 를 예시로 안내했는데,
+    `_env_overrides` 는 `os.environ` 만 봤고 pydantic-settings 는 `.env` 를
+    `os.environ` 에 내보내지 않는다. `extra="ignore"` 라 **경고도 없이 버려졌다.**
+
+    안내가 거짓이면 사람은 설정을 바꿨다고 믿고 **안 바뀐 조건으로 측정한다.**
+    04 §8 재현성이 무너지는 방식이 오타(`UnknownConfigKey`)와 같다.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("PETTRIAGE__MODEL__PROVIDER=none\n", encoding="utf-8")
+    assert load_config("default").model.provider == "none"
+
+
+def test_shell_beats_dotenv(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    """`.env` 는 그 컴퓨터의 상시 설정, 셸 변수는 *"이번 한 번"* 이다.
+
+    한 번짜리가 이겨야 04 §3 비교군을 한 줄로 갈아끼울 수 있다.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("PETTRIAGE__MODEL__PROVIDER=none\n", encoding="utf-8")
+    monkeypatch.setenv("PETTRIAGE__MODEL__PROVIDER", "qwen")
+    assert load_config("default").model.provider == "qwen"
+
+
+def test_serving_provider_reaches_the_client(monkeypatch: pytest.MonkeyPatch):
+    """설정이 **서빙 클라이언트까지** 닿는다 (D-65).
+
+    2026-08-02 까지 노드 4곳이 `APIClient()` 를 직접 만들어서 `model.*` 절이
+    서빙에 안 닿았고, `LocalQwenClient` 는 아무도 생성하지 않았다.
+    04 §3 비교표의 C·D 열을 **채울 방법 자체가 없었다.**
+    """
+    from pettriage.config import reset_caches
+    from pettriage.models.serving.factory import get_client, reset_client
+
+    monkeypatch.setenv("PETTRIAGE__MODEL__PROVIDER", "none")
+    reset_caches()
+    reset_client()
+    assert get_client() is None, "provider=none 인데 클라이언트가 만들어졌다"
+
+    monkeypatch.setenv("PETTRIAGE__MODEL__PROVIDER", "qwen")
+    reset_caches()
+    reset_client()
+    c = get_client()
+    assert c is not None and c.name.startswith("qwen:"), c
+    # revision 핀이 서빙에 걸리는지 — 학습 경로에만 걸려 있었다
+    assert c._revision == load_config("default").model.revision  # noqa: SLF001
+    # 프로토콜이 요구하지 않아 구현이 빠져 있었다
+    assert hasattr(c, "run_raw"), "generate.py 가 부르는 순간 AttributeError 다"
+
+    reset_caches()
+    reset_client()
 
 
 def test_clarify_limit_matches_contract():
