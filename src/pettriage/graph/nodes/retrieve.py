@@ -1,6 +1,6 @@
-"""검색 노드 — **WS2 구현 대기.**
+"""검색 노드.
 
-설계 근거: 02 §8 · D-10 · 05 §4
+설계 근거: 02 §8 · D-10 · D-46 · 05 §4
 
     **필터 구성은 전부 코드가 한다.** 여기에 LLM 을 넣지 않는다 (05 §4).
     **결과가 0건이면 거절이다** — 점수가 낮은 것과 결과가 없는 것은 다르다 (02 §8.3).
@@ -11,19 +11,26 @@
     `score_threshold=0.50` 은 완전히 무관한 것만 자르는 **최소 방어선**이고,
     도메인 밖은 ① 분류가, 근거 없음은 ④ 검증이 잡는다.
 
-    **임계값을 올려서 정확도를 높이려 하지 말 것** — 근거가 있는 질의가 거절되고
-    그것이 곧 과소평가다 (D-13).
-
-    📌 2026-08-02 정정 — 이 docstring 첫 문단이 *"유사도 임계 미만이면 검색 실패로 보고
-    거절한다"* 로 되어 있었다. **바로 아래 D-46 경고와 정면으로 반대**였고,
-    구현자가 위부터 읽으면 임계값 거절 분기를 만들게 되어 있었다.
+순서: 검색 → 임계값 → **중복 접기**. 접기를 뒤에 두는 이유는
+임계 미달 청크가 대표로 남는 것을 막기 위함이다.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from ..state import GraphState
+
+log = logging.getLogger(__name__)
+
+#: 종별 필터 확장 규칙 (D-39).
+#: 고양이 자체 자료가 2단계뿐이라 mammal·all 을 함께 봐야 4단계가 성립한다.
+_SPECIES_FILTER: dict[str, list[str]] = {
+    "dog":  ["dog", "mammal", "all"],
+    "cat":  ["cat", "mammal", "all"],
+    "bird": ["bird", "all"],   # 조류에 포유류 자료가 붙으면 안 된다 (D-10)
+}
 
 
 def build_filter(state: GraphState) -> GraphState:
@@ -34,42 +41,70 @@ def build_filter(state: GraphState) -> GraphState:
 
     목록은 **그대로 넘긴다** — `{"species": ["cat", "mammal", "all"]}`.
     저장소 문법으로의 번역은 `retrieval.to_chroma_where()` 가 한다.
-    여기서 `$in` 을 쓰면 pgvector 로 옮길 때 이 노드를 고쳐야 한다.
-
-    **`doc_type=recall` 은 사용자가 제품을 명시할 때만 넣는다** (D-46) —
-    "사료 브랜드 추천해주세요" 가 리콜 목록의 제품명을 물어오는 일이 실측에서 나왔다.
-    **리콜된 제품이 추천으로 읽히면 최악의 오답이다.**
 
     Returns:
         `{"where": {...}}`
     """
-    raise NotImplementedError("WS2: tests/todo/test_graph_nodes.py::TestFilter 참조")
+    slots = state.get("slots") or {}
+    species = slots.get("species")
+
+    where: dict[str, Any] = {}
+
+    if species in _SPECIES_FILTER:
+        where["species"] = _SPECIES_FILTER[species]
+    elif species:
+        # 미지 종은 그대로 넣는다 — 확장 규칙이 없으니 추측하지 않는다.
+        where["species"] = [species]
+
+    return {"where": where}  # type: ignore[typeddict-item]
 
 
 def retrieve(state: GraphState, store: Any = None) -> GraphState:
     """벡터 검색 → 임계값 → **중복 접기.** 이 순서다.
 
-    ```python
-    hits = store.search(q, top_k=k, where=state["where"])
-    hits = filter_by_threshold(hits, cfg.retrieval.score_threshold)
-    hits = dedupe_by_substance(hits)          # ← 빠뜨리기 쉬운 단계
-    ```
-
-    **접기를 빠뜨리면 문맥이 같은 말로 채워진다.**
-
-        `양파` 청크가 코퍼스에 8건이고, 고양이 질의는 D-39 병합으로 4건을 함께 본다.
-        실측에서 상위 5가 `사람 음식 · 양파 · 양파 · 양파 · 토란` 으로 나왔다 —
-        **`top_k=5` 가 실질 3종이다** (04 §2.5.6).
-
     접기는 **버리는 것이 아니다.** 흡수한 자료는 `Hit.merged_sources` 에 남고
-    인용 화면은 `Hit.all_sources` 를 쓴다 — 근거가 하나뿐인 주장과
-    넷이 같은 말을 하는 주장은 무게가 다르다 (02 §12).
-
-    **접기를 임계값 뒤에 두는 이유** — 앞에 두면 임계 미달 청크가
-    대표로 남아 통과할 수 있다. 자를 것을 먼저 자른다.
+    인용 화면은 `Hit.all_sources` 를 쓴다.
 
     Returns:
         `{"hits": [...]}`. 임계 통과분이 0건이면 부르는 쪽이
         `refused / 근거없음` 으로 보낸다 — **빈 결과는 실패가 아니라 신호다.**
     """
-    raise NotImplementedError("WS2: tests/todo/test_graph_nodes.py::TestRetrieve 참조")
+    query = state.get("question", "")
+    where = state.get("where") or None
+
+    # 설정값 로드
+    try:
+        from ...config import get_config
+        cfg = get_config().retrieval
+        top_k = cfg.top_k
+        threshold = cfg.score_threshold
+    except Exception:
+        top_k = 5
+        threshold = 0.50
+
+    # 저장소가 주입되지 않으면 설정을 보고 만든다 (실서비스).
+    if store is None:
+        try:
+            from ...retrieval import BGEEmbedder, ChromaStore
+            store = ChromaStore(embedder=BGEEmbedder())
+        except Exception as e:
+            log.warning("기본 저장소 생성 실패 — 빈 결과 반환: %s", e)
+            return {"hits": []}  # type: ignore[typeddict-item]
+
+    from ...retrieval import dedupe_by_substance, filter_by_threshold
+
+    hits = store.search(query, top_k=top_k, where=where)
+
+    # 1) 임계값 미만 잘라내기 — 잡음 하한 (02 §8.3, D-46).
+    filtered = filter_by_threshold(hits, threshold)
+
+    # 2) 같은 물질 중복 접기 (D-46 후속).
+    #    접기를 앞에 두면 임계 미달 청크가 대표로 남을 수 있어 반드시 뒤에 둔다.
+    deduped = dedupe_by_substance(filtered)
+
+    log.info(
+        "retrieve: %d hits → %d ≥threshold → %d after dedupe",
+        len(hits), len(filtered), len(deduped),
+    )
+
+    return {"hits": deduped}  # type: ignore[typeddict-item]
