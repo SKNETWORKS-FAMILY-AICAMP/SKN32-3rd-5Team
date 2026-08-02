@@ -13,13 +13,12 @@
 from __future__ import annotations
 
 import logging
-import os
 
 from fastapi import APIRouter, Depends
 
 from ..chat_logger import log_chat_turn
 from ..contracts import AskRequest, AskResponse
-from ..deps import get_engine, get_sessions
+from ..deps import get_engine, get_optional_db, get_sessions
 from ..engine import QAEngine, refuse
 from ..session import SessionStore
 
@@ -27,25 +26,12 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["ask"])
 
 
-def _get_optional_db():
-    """DATABASE_URL 있을 때만 DB 세션 yield. 없으면 None."""
-    if not os.getenv("DATABASE_URL"):
-        yield None
-        return
-    try:
-        from ..database import get_db
-        yield from get_db()
-    except Exception as e:  # noqa: BLE001 — DB 문제로 API가 죽지 않게 한다.
-        log.warning("optional DB 세션 획득 실패: %s", type(e).__name__)
-        yield None
-
-
 @router.post("/ask", response_model=AskResponse)
 def ask(
     req: AskRequest,
     engine: QAEngine = Depends(get_engine),
     sessions: SessionStore = Depends(get_sessions),
-    db=Depends(_get_optional_db),
+    db=Depends(get_optional_db),
 ) -> AskResponse:
     session = sessions.get_or_create(req.session_id)
     try:

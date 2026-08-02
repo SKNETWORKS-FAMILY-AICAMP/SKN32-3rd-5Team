@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from typing import Any
 
 from ..state import GraphState
@@ -27,9 +28,9 @@ log = logging.getLogger(__name__)
 #: 종별 필터 확장 규칙 (D-39).
 #: 고양이 자체 자료가 2단계뿐이라 mammal·all 을 함께 봐야 4단계가 성립한다.
 _SPECIES_FILTER: dict[str, list[str]] = {
-    "dog":  ["dog", "mammal", "all"],
-    "cat":  ["cat", "mammal", "all"],
-    "bird": ["bird", "all"],   # 조류에 포유류 자료가 붙으면 안 된다 (D-10)
+    "dog": ["dog", "mammal", "all"],
+    "cat": ["cat", "mammal", "all"],
+    "bird": ["bird", "all"],  # 조류에 포유류 자료가 붙으면 안 된다 (D-10)
 }
 
 
@@ -59,6 +60,86 @@ def build_filter(state: GraphState) -> GraphState:
     return {"where": where}  # type: ignore[typeddict-item]
 
 
+def _augment(state: GraphState) -> str:
+    """질의에 **정규화된 물질명**을 덧붙인다 (D-62).
+
+    ⚠️ 흡수 전에는 `state["question"]` 원문만 임베딩했다. 그러면
+    **별칭 표가 검색에 아무 영향을 못 준다** —
+
+        "5kg 고양이가 대파를 40g쯤 뜯어 먹었어요"
+          코퍼스에 `대파` 는 0건.  `알리움류(양파·마늘·리크·차이브)` 로 적혀 있다
+          → 원문만 넣으면 못 찾는다.  골든셋 `G-039` 가 실패하던 바로 그 이유다
+
+    ②가 `대파 → 알리움류` 로 올려 뒀으므로 그 이름을 검색어에 싣는다.
+    하나로 못 좁힌 경우(`모호`)는 **후보를 전부** 싣는다 — 하나를 고르면
+    나머지를 배제한 것이고 그 배제가 곧 진단이다 (D-11 · D-49 · D-58).
+
+    원문을 **지우지 않고 덧붙인다.** 원문의 증상·정황 서술이 검색 신호이고,
+    확장어가 그것을 밀어내면 D-59 ②가 든 세 번째 실패(*"확장어가 검색을 엉뚱한
+    쪽으로 끌고 간다"*)가 된다.
+    """
+    question = state.get("question", "")
+    extra: list[str] = []
+
+    substance = (state.get("slots") or {}).get("substance")
+    if substance and substance not in question:
+        extra.append(substance)
+
+    for cand in state.get("substance_candidates") or []:  # type: ignore[typeddict-item]
+        if cand not in question and cand not in extra:
+            extra.append(cand)
+
+    if not extra:
+        return question
+    log.info("retrieve: 검색어 보강 %s", extra)
+    return f"{question} {' '.join(extra)}"
+
+
+@lru_cache(maxsize=1)
+def _default_store() -> Any:
+    """주입이 없을 때 쓰는 저장소. **프로세스에 하나만 만든다** (D-53).
+
+    ⚠️ 예전에는 `retrieve` 안에서 **매 호출마다** 이렇게 만들었다 —
+
+        store = ChromaStore(embedder=BGEEmbedder())
+
+    `embedder.get_embedder` 의 docstring 이 바로 이 코드를 **하면 안 되는 예**로
+    적어 두고 있었다: *"✗ 노드 안에서 이렇게 쓰면 — 그리고 이게 자연스러운 코드다.
+    인스턴스가 매번 새로 생기면 그 캐시가 아무 소용이 없다."*
+    `BGEEmbedder()` 를 직접 만들면 **lru_cache 를 우회해 질의마다 모델을 다시 올린다.**
+
+    2026-08-02 첫 실측에서 그대로 드러났다 — **LLM 을 한 번도 안 부른 조건**에서
+    p50 이 4.71초였다. 임베딩 자체는 실측 193ms 다. 나머지는 재로딩이다.
+    하네스가 워밍업 1회를 버리는데, 매번 다시 올리면 그 워밍업도 소용이 없다.
+
+    설정(`retrieval.persist_dir`·`collection`)도 이제 실제로 읽는다 — 예전에는
+    `ChromaStore` 기본값(`.chroma` · `external`)이 우연히 같아서 안 드러났다.
+    다르게 두는 순간 **설정과 다른 컬렉션을 조용히 뒤졌을 것이다** (D-40).
+
+    Returns:
+        `VectorStore` 또는 **`None`** — 만들지 못하면 부르는 쪽이 빈 결과로 간다.
+        여기서 터지면 질의 하나가 아니라 서비스가 죽는다.
+    """
+    try:
+        from ...config import get_config
+        from ...retrieval import ChromaStore, get_embedder
+
+        cfg = get_config().retrieval
+        return ChromaStore(
+            embedder=get_embedder(cfg.embedding_model),  # ← 팩토리를 쓴다 (D-53)
+            persist_dir=cfg.persist_dir,
+            collection=cfg.collection,
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("기본 저장소 생성 실패 — 빈 결과 반환: %s", e)
+        return None
+
+
+def reset_default_store() -> None:
+    """설정을 바꿔 가며 도는 하네스·테스트가 부른다."""
+    _default_store.cache_clear()
+
+
 def retrieve(state: GraphState, store: Any = None) -> GraphState:
     """벡터 검색 → 임계값 → **중복 접기.** 이 순서다.
 
@@ -69,12 +150,13 @@ def retrieve(state: GraphState, store: Any = None) -> GraphState:
         `{"hits": [...]}`. 임계 통과분이 0건이면 부르는 쪽이
         `refused / 근거없음` 으로 보낸다 — **빈 결과는 실패가 아니라 신호다.**
     """
-    query = state.get("question", "")
+    query = _augment(state)
     where = state.get("where") or None
 
     # 설정값 로드
     try:
         from ...config import get_config
+
         cfg = get_config().retrieval
         top_k = cfg.top_k
         threshold = cfg.score_threshold
@@ -84,11 +166,8 @@ def retrieve(state: GraphState, store: Any = None) -> GraphState:
 
     # 저장소가 주입되지 않으면 설정을 보고 만든다 (실서비스).
     if store is None:
-        try:
-            from ...retrieval import BGEEmbedder, ChromaStore
-            store = ChromaStore(embedder=BGEEmbedder())
-        except Exception as e:
-            log.warning("기본 저장소 생성 실패 — 빈 결과 반환: %s", e)
+        store = _default_store()
+        if store is None:
             return {"hits": []}  # type: ignore[typeddict-item]
 
     from ...retrieval import dedupe_by_substance, filter_by_threshold
@@ -104,7 +183,9 @@ def retrieve(state: GraphState, store: Any = None) -> GraphState:
 
     log.info(
         "retrieve: %d hits → %d ≥threshold → %d after dedupe",
-        len(hits), len(filtered), len(deduped),
+        len(hits),
+        len(filtered),
+        len(deduped),
     )
 
     return {"hits": deduped}  # type: ignore[typeddict-item]

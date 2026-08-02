@@ -306,8 +306,22 @@ def test_bird_is_not_asked_for_weight(client: TestClient):
     assert d["status"] == "answered"
 
 
-def test_eval_profile_disables_clarify(monkeypatch: pytest.MonkeyPatch):
-    """평가 중 되묻기가 섞이면 과소평가율 분모가 흔들린다 (04 §4.1)."""
+def test_eval_profile_keeps_clarify(monkeypatch: pytest.MonkeyPatch):
+    """**평가에서도 되묻는다** (D-66). 이 테스트는 뒤집힌 것이다 (D-57).
+
+    예전 이름은 `test_eval_profile_disables_clarify` 였고 근거는
+    *"되묻기가 섞이면 과소평가율 분모가 흔들린다 (04 §4.1)"* 였다.
+    2026-08-02 첫 실측에서 **그 근거가 성립하지 않는다**는 것이 드러났다 —
+
+      · 하네스는 이미 **첫 응답만** 채점한다. 다회차로 번지지 않는다
+      · `clarify` 도 `refused` 도 `triage` 가 없어 **등급 분모에서 똑같이 빠진다**
+      · 도피는 `--fail-missed` 게이트가 이미 막는다
+      · 04 §4.1 에는 **그런 문장이 없었다** — 인용이 가리키는 곳이 비어 있었다
+
+    끈 채로는 되묻기 기대 15건이 **구조적으로 통과 불가**였고, 그래서
+    *"결측을 알아채고 멈췄다"* 는 핵심 안전 동작(D-10 · D-49 · 02 §6.2)이
+    측정에서 통째로 사라져 있었다. **틀린 동작을 고정한 테스트는 함께 뒤집는다.**
+    """
     from pettriage import config as config_mod
     from pettriage.app import deps
     from pettriage.app.main import create_app
@@ -318,9 +332,13 @@ def test_eval_profile_disables_clarify(monkeypatch: pytest.MonkeyPatch):
     deps.reset_state()
 
     c = TestClient(create_app())
+    # 종이 없다 — D-10 상 검색으로 넘어가면 안 되고, 되물어야 한다.
     d = c.post("/api/ask", json={"question": "초콜릿을 먹었어요"}).json()
-    assert d["status"] == "refused"
-    assert d["refusal"]["reason"] == "되묻기상한"
+    assert d["status"] == "clarify", d
+    assert "species" in d["clarify"]["missing"], d["clarify"]
+    # **무엇을 되물었는지가 남아야 한다.** 끈 상태에서는 이 문장이 아예 생성되지 않아
+    # 04 §7 실패 분석에 쓸 재료가 없었다.
+    assert d["clarify"]["question"].strip()
 
 
 def test_graph_engine_builds_when_ready(monkeypatch: pytest.MonkeyPatch):

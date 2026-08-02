@@ -11,7 +11,14 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal
+
+# ⚠️ `typing.TypedDict` 가 아니라 **`typing_extensions`** 다.
+#    파이썬 3.11 이하의 `typing.TypedDict` 는 필드별 `Required/NotRequired` 정보를
+#    런타임에 안 남겨서 pydantic 이 스키마를 못 만든다. 랭그래프가 그 스키마로
+#    그래프 구조를 그리므로, 이것을 안 바꾸면 **아키텍처 다이어그램을 생성할 수 없다**
+#    (필수 산출물 ②). 동작은 완전히 같다.
+from typing_extensions import TypedDict
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +45,12 @@ class Slots(TypedDict, total=False):
     #:
     #: 거짓일 때는 **키를 두지 않는다** (D-10).
     substance_is_assumed: bool
+    #: 추정을 탔을 때 **사용자가 실제로 쓴 말**. `substance_is_assumed` 와 짝이다.
+    #:
+    #: 가정을 밝히려면 *"무엇을 무엇으로 봤는지"* 둘 다 필요하다 — `PTFE 로 가정했습니다`
+    #: 만으로는 사용자가 자기 말(`프라이팬`)과 연결하지 못해 **정정할 기회를 잃는다** (D-59 ④).
+    #: 확정으로 올라온 경우에는 키를 두지 않는다 (D-10).
+    substance_surface: str
     amount_g: float
     elapsed_hours: float
     signs: list[str]
@@ -60,6 +73,17 @@ class GraphState(TypedDict, total=False):
     missing_slots: list[str]
     clarify_turns: int
     clarify_question: str
+    #: ②가 LLM 으로 뽑았나, 규칙 폴백이었나 (05 §6 — 폴백은 기록한다).
+    slot_llm_used: bool
+    #: 물질을 하나로 못 좁혔을 때의 후보 전체. **하나를 고르면 나머지를 배제한 것이고
+    #: 그 배제가 곧 진단이다** — 고르지 않고 전부 검색어로 넘긴다 (D-49 · D-58).
+    substance_candidates: list[str]
+    #: **물질은 아는데 이 종 자료가 없다** (D-68). 되묻기가 아니라 `근거없음` 거절로 간다.
+    #:
+    #: `향초` 는 코퍼스에 있으나 `covers={'bird'}` 뿐이다. 고양이 보호자에게
+    #: *"어떤 물질인가요"* 를 되물어도 답이 안 나온다 — **응급 상황에서 못 쓸 질문은
+    #: 거절보다 나쁘다.** 조류 자료를 고양이에 적용하는 것은 더 나쁘다 (D-10).
+    off_species_substance: str
 
     # ── 검색 · 계산 ─────────────────────────────────────────
     where: dict[str, Any]  # 검색 필터 — 코드가 만든다 (05 §4)
@@ -85,6 +109,10 @@ class GraphState(TypedDict, total=False):
     answer: str
     refusal_reason: str
     removed_contacts: list[str]  # 연락처 차단으로 뺀 문장 (D-47). 비면 아무것도 안 뺐다
+    #: 이 응답을 만드는 동안 LLM 대신 폴백을 탄 태스크 이름 (05 §6).
+    #: 전역 `generate.LLM_FALLBACKS` 는 서버에서 요청 간에 누적되므로 **상태에 남긴다** —
+    #: *"이 응답이 폴백으로 만들어졌는가"* 는 응답 단위로만 말할 수 있는 사실이다.
+    llm_fallbacks: list[str]
 
 
 def set_substance(slots: Slots, name: str | None, species: str | None = None) -> Slots:
@@ -141,8 +169,10 @@ def set_substance(slots: Slots, name: str | None, species: str | None = None) ->
     # **추정이라는 사실을 여기서 잃지 않는다.** 잃으면 도약이 확정처럼 나간다 (D-59 ⑤).
     if r.assumption:
         out["substance_is_assumed"] = True
+        out["substance_surface"] = r.surface
     else:
         out.pop("substance_is_assumed", None)
+        out.pop("substance_surface", None)
     return out
 
 

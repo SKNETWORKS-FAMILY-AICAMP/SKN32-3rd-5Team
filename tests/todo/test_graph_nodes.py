@@ -101,10 +101,16 @@ class TestSlots:
         from pettriage.graph.nodes import extract_slots
 
         out = extract_slots(
-            initial_state("앵무새 앞에서 프라이팬을 태웠어요", "s1", intent="intoxication")
+            initial_state(
+                "앵무새 앞에서 프라이팬을 태웠어요", "s1", intent="intoxication", species="bird"
+            )
         )
         got = out["slots"].get("substance")
-        assert got is None or is_known(got), f"{got!r} 는 폐쇄 목록 밖이다 — 생성이 아니라 선택이다"
+        # ⚠️ 예전에는 `got is None or is_known(got)` 였다. 그러면 **아무것도 못 찾을 때
+        # 검사가 통째로 안 돈다** — 2026-08-02 흡수에서 실제로 그렇게 초록이 났다.
+        # 방어적으로 쓴 조건이 검사를 무력화했다 (D-57 · 04 §8).
+        assert got == "PTFE", f"프라이팬을 못 올렸다: {got!r} — 별칭 표(D-59 ②)가 안 걸린다"
+        assert is_known(got)
 
     def test_assumed_substance_is_carried_to_the_response(self):
         """**추정으로 답하면 그 가정이 응답에 실려야 한다** (D-59 ⑤ · D-62).
@@ -124,10 +130,65 @@ class TestSlots:
             )
         )
         slots = out["slots"]
-        if slots.get("substance") == "PTFE":
-            assert (
-                slots.get("substance_is_assumed") is True
-            ), "추정 별칭을 탔는데 표시가 없다 — 도약이 확정처럼 나간다"
+        # ⚠️ 예전에는 `if slots.get("substance") == "PTFE":` 로 감쌌다.
+        # 물질을 못 찾으면 본문이 안 돌아 **거짓 초록**이 났다 (D-57).
+        assert slots.get("substance") == "PTFE", slots
+        assert (
+            slots.get("substance_is_assumed") is True
+        ), "추정 별칭을 탔는데 표시가 없다 — 도약이 확정처럼 나간다"
+        assert slots.get("substance_surface") == "프라이팬", "무엇을 보고 추정했는지 잃었다"
+
+    def test_assumption_reaches_the_contract_not_just_the_slots(self):
+        """**슬롯까지 옮긴 것으로는 아무것도 증명되지 않는다** (D-59 ⑤ · D-48 교훈 #6).
+
+        위 테스트는 2026-08-02 까지 초록이었다. 그런데 실제 응답은
+
+            슬롯:  {'substance': 'PTFE', 'substance_is_assumed': True}
+            응답:  assumed_substance=None · identified_substance=None
+
+        이었다 — `_build_response` 가 옮기지 않았고, 그래서 계약
+        `_assumption_must_be_stated` 는 **한 번도 발동한 적이 없었다.**
+        빈 필드는 검사할 것이 없기 때문이다. **초록 세 개가 그것을 못 잡았다.**
+
+        검사는 **경계에서** 해야 한다. 노드 출력이 아니라 **나가는 응답**을 본다.
+        """
+        from pettriage.app.contracts import AskResponse, Citation, TriageResult
+        from pettriage.graph.engine import _assumption_notice
+        from pettriage.schemas import TriageLevel
+
+        _LV = TriageLevel.EMERGENCY
+
+        slots = {"species": "bird", "substance": "PTFE", "substance_surface": "프라이팬"}
+        notice = _assumption_notice(slots)
+
+        # 확정 필드로 새지 않는다 — 추정이면 `identified_substance` 는 비어야 한다.
+        r = AskResponse(
+            status="answered",
+            session_id="s1",
+            answer=f"{notice} 환기하고 즉시 병원으로 가세요.",
+            triage=TriageResult(
+                level=_LV.value,
+                name=_LV.name,
+                badge=_LV.badge,
+                message=_LV.message,
+                escalation_conditions=["호흡곤란"],
+            ),
+            citations=[Citation(source_id="S-041", publisher="[출처 S-041]")],
+            assumed_substance="PTFE",
+            identified_substance=None,
+        )
+        assert "PTFE" in r.full_text
+        assert "프라이팬" in r.full_text, "무엇을 보고 추정했는지 사용자가 못 본다"
+
+        # 밝히지 않으면 **응답 자체를 만들 수 없다** — 계약이 여기서 터져야 한다.
+        with pytest.raises(ValueError):
+            AskResponse(
+                status="answered",
+                session_id="s1",
+                answer="환기하고 즉시 병원으로 가세요.",  # 가정을 안 밝혔다
+                citations=[Citation(source_id="S-041", publisher="[출처 S-041]")],
+                assumed_substance="PTFE",
+            )
 
     def test_clarify_stops_at_configured_limit(self):
         """되묻기 상한은 설정값이다. 넘으면 거절로 간다 (02 §9)."""

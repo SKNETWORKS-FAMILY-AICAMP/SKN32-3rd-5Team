@@ -23,20 +23,6 @@ from ..app.contracts import (
 )
 from ..app.session import Session
 from ..triage.levels import TriageLevel
-from .nodes import (
-    MAX_RETRY,
-    ask_clarify,
-    build_filter,
-    classify_intent,
-    compress_context,
-    compute_metrics,
-    decide_triage,
-    extract_slots,
-    generate_draft,
-    retrieve,
-    simplify,
-    verify_grounding,
-)
 from .state import GraphState, initial_state
 
 log = logging.getLogger(__name__)
@@ -45,37 +31,40 @@ log = logging.getLogger(__name__)
 class EngineNotReady(RuntimeError):
     """그래프 노드가 아직 구현되지 않았다.
 
-    `pytest -m todo` 로 남은 일을 확인한다.
+    ⚠️ `nodes.NODES_IMPLEMENTED` 가 `True` 인 지금은 **나지 않는다.**
+    노드를 다시 비우는 일이 생기면 `deps._build_engine` 이 이것을 잡아
+    `EngineUnavailable` 로 올린다 — 그 경로를 살려 두려고 남긴다.
     """
 
 
-# ─────────────────────────────────────────────────────────────
-# 규칙 테이블 (1차 판정) — 데모용 최소 세트.
-# 실제 규칙 테이블(WS1 사실표 기반)이 준비되면 교체된다.
-# ─────────────────────────────────────────────────────────────
-_RULE_TABLE: dict[tuple[str, str], tuple[TriageLevel, list[str]]] = {
-    ("초콜릿", "dog"): (TriageLevel.CALL_NOW, ["구토", "심박 증가", "발작"]),
-    ("초콜릿", "cat"): (TriageLevel.CALL_NOW, ["구토", "심박 증가"]),
-    ("포도", "dog"): (TriageLevel.EMERGENCY, []),
-    ("건포도", "dog"): (TriageLevel.EMERGENCY, []),
-    ("양파", "dog"): (TriageLevel.CALL_NOW, ["빈혈 증상", "무기력"]),
-    ("양파", "cat"): (TriageLevel.CALL_NOW, ["빈혈 증상", "무기력"]),
-    ("마늘", "dog"): (TriageLevel.CALL_NOW, ["빈혈 증상"]),
-    ("자일리톨", "dog"): (TriageLevel.EMERGENCY, []),
-    ("아보카도", "bird"): (TriageLevel.EMERGENCY, []),
-    ("백합", "cat"): (TriageLevel.EMERGENCY, []),
-    ("알로에", "cat"): (TriageLevel.VISIT_SOON, ["구토", "설사"]),
-    ("초콜릿", "bird"): (TriageLevel.EMERGENCY, []),
-}
-
-
 _REFUSAL_MESSAGES: dict[str, str] = {
-    "근거없음":   "제공된 자료에서 근거를 찾을 수 없습니다.",
-    "검증실패":   "답변의 근거를 확인하지 못했습니다.",
+    "근거없음": "제공된 자료에서 근거를 찾을 수 없습니다.",
+    "검증실패": "답변의 근거를 확인하지 못했습니다.",
     "되묻기상한": "필요한 정보를 확인하지 못해 답변을 드릴 수 없습니다.",
-    "판정불가":   "상태를 판단할 근거가 부족합니다.",
-    "범위밖":     "이 시스템은 반려동물 응급·건강 상담에 특화되어 있어 답변할 수 없습니다.",
+    "판정불가": "상태를 판단할 근거가 부족합니다.",
+    "범위밖": "이 시스템은 반려동물 응급·건강 상담에 특화되어 있어 답변할 수 없습니다.",
 }
+
+
+def _assumption_notice(slots: dict) -> str:
+    """**밝히지 않은 추정은 환각이다** — 그 가정을 문장 맨 앞에 세운다 (D-59 ⑤ · D-62).
+
+    `프라이팬 → PTFE` 는 도약이다. 무쇠·스테인리스 팬은 PTFE 를 내지 않는다.
+    답을 못 하는 것보다는 낫지만(D-13), **말없이 확정처럼 내보내는 것보다는 낫지 않다.**
+
+    ⚠️ 이 문장을 `AskResponse.full_text` 안에서 만들지 않는다.
+        계약(`_assumption_must_be_stated`)이 *"가정이 문장에 실렸나"* 를 보는데,
+        계약이 스스로 그 문장을 붙이면 **자기가 붙인 것을 자기가 확인하는 꼴**이라
+        검사가 항상 통과한다. 만드는 층과 검사하는 층을 분리한다 (D-57 · D-58).
+
+    조사를 쓰지 않는다 — 물질명이 `PTFE`·`자일리톨`처럼 받침 유무가 갈려
+    `으로/로`, `을/를` 이 문장마다 틀린다. 표기 사고는 신뢰를 깎는다.
+    """
+    surface = slots.get("substance_surface") or "말씀하신 것"
+    return (
+        f"[확인되지 않은 가정] '{surface}' = '{slots['substance']}'. "
+        f"확인된 것이 아니니 다르면 알려주세요."
+    )
 
 
 class GraphEngine:
@@ -99,6 +88,28 @@ class GraphEngine:
                 "남은 일: pytest -m todo"
             )
 
+        # ⚠️ **여기서 그래프를 컴파일한다.** 첫 질의로 미루지 않는다.
+        #
+        # 2026-08-02 실측 — `langgraph` 가 없는 환경에서 서버가 **정상 기동**하고,
+        # 모든 질의가 `ImportError` 를 맞아 `판정불가` 거절로 나갔다. HTTP 200 이었다.
+        # 팀원이 `git pull` 만 하고 재설치를 안 하면 정확히 이 상태가 된다 —
+        # *"시스템이 다 거절해요"* 만 보이고 원인은 안 보인다.
+        #
+        # **평가를 돌리면 전부 거절로 집계된다.** `deps.EngineUnavailable` 이
+        # *"조용히 스텁으로 내려가면 지표가 오염된다"* 며 막으려던 그 사고이고,
+        # 게으른 컴파일이 그 방어를 우회하고 있었다. **크게 실패하게 둔다** (04 §8).
+        try:
+            from .build import get_graph
+
+            get_graph()
+        except ImportError as e:
+            raise EngineNotReady(
+                f"질의 그래프를 만들 수 없다 — {e}. `langgraph` 는 **핵심 의존성**이다 "
+                "(2026-08-02 D-64 로 [rag] extra 에서 올라왔다). 저장소를 갱신했다면 "
+                "재설치가 필요하다:\n"
+                "  pip install -e '.[api,rag,ingest,dev]' -c constraints.txt"
+            ) from e
+
     def ask(self, req: AskRequest, session: Session) -> AskResponse:
         """질의 파이프라인 1회 실행."""
         # 세션 슬롯에 새 발화 정보 병합 (진전 있으면 되묻기 카운터 리셋).
@@ -113,7 +124,8 @@ class GraphEngine:
         except Exception as e:
             log.error(
                 "graph pipeline failure — type=%s session=%s",
-                type(e).__name__, session.session_id,
+                type(e).__name__,
+                session.session_id,
             )
             return self._refused(session, "판정불가", _REFUSAL_MESSAGES["판정불가"])
 
@@ -140,92 +152,22 @@ class GraphEngine:
         )
 
     def _run_pipeline(self, state: GraphState) -> GraphState:
-        """노드를 순서대로 실행. 분기 조건 만나면 조기 반환."""
-        # ① 분류
-        state.update(classify_intent(state))
+        """컴파일된 `StateGraph` 를 1회 돌린다.
 
-        # D-46: general/unknown 은 도메인 밖 → 검색 없이 거절
-        if state.get("intent") in ("general", "unknown"):
-            state["status"] = "refused"
-            state["refusal_reason"] = "범위밖"
-            return state
+        ⚠️ **여기 순서를 다시 적지 않는다.** 2026-08-02 까지 이 메서드는 79줄짜리
+            손으로 펼친 선형 실행기였고, 05 §5 가 *"선형 체인으로 표현 불가"* 라고
+            적어 둔 재검색 순환이 **복붙 4줄**로 들어가 있었다. 순서는 `build.py`
+            한 곳에만 있다 (D-40 · P2).
 
-        # ② 슬롯 추출
-        state.update(extract_slots(state))
-
-        # ③ 결측이면 되묻기
-        if state.get("missing_slots"):
-            state.update(ask_clarify(state))
-            if state.get("status") != "refused":
-                state["status"] = "clarify"
-            return state
-
-        # ④·⑤ 필터 + 검색
-        state.update(build_filter(state))
-        state.update(retrieve(state))
-
-        if not state.get("hits"):
-            state["status"] = "refused"
-            state["refusal_reason"] = "근거없음"
-            return state
-
-        # ⑥ 계산
-        state.update(compute_metrics(state))
-
-        # 규칙 테이블 1차 판정 (rule_level 세팅)
-        self._apply_rule_table(state)
-
-        # ⑦·⑧ 압축 + 초안
-        state.update(compress_context(state))
-        state.update(generate_draft(state))
-
-        # ⑨ 트리아지 (하향 금지 게이트)
-        state.update(decide_triage(state))
-        if state.get("status") == "refused":
-            return state
-
-        # ⑩ 근거 검증 (실패 시 1회 재검색)
-        state.update(verify_grounding(state))
-        if state.get("status") == "refused" and state.get("retry_count", 0) < MAX_RETRY:
-            state["retry_count"] = state.get("retry_count", 0) + 1
-            # 재검색 → 재압축 → 재초안 → 재검증
-            state.pop("status", None)
-            state.pop("refusal_reason", None)
-            state.update(retrieve(state))
-            if state.get("hits"):
-                state.update(compress_context(state))
-                state.update(generate_draft(state))
-                state.update(verify_grounding(state))
-            else:
-                state["status"] = "refused"
-                state["refusal_reason"] = "검증실패"
-                return state
-
-        if state.get("status") == "refused":
-            return state
-
-        # ⑪ 평이화
-        state.update(simplify(state))
-
-        state["status"] = "answered"
-        return state
-
-    def _apply_rule_table(self, state: GraphState) -> None:
-        """규칙 테이블에서 (물질 × 종) 매칭 → rule_level 세팅.
-
-        매칭 없으면 rule_level 은 None. decide_triage 가 판정불가로 처리한다.
+        `reset_llm_fallbacks()` 는 그래프 **밖**에서 부른다 — 전역 카운터를 비우는
+        것은 요청 하나의 경계에서 일어나는 일이고, 그 경계를 아는 것은 엔진이다.
         """
-        slots = state.get("slots") or {}
-        substance = slots.get("substance")
-        species = slots.get("species")
-        if not substance or not species:
-            return
-        key = (substance, species)
-        if key in _RULE_TABLE:
-            level, escalation = _RULE_TABLE[key]
-            state["rule_level"] = int(level)
-            if escalation:
-                state["escalation_conditions"] = escalation
+        from .build import RECURSION_LIMIT, get_graph
+        from .nodes.generate import reset_llm_fallbacks
+
+        reset_llm_fallbacks()
+        out = get_graph().invoke(state, config={"recursion_limit": RECURSION_LIMIT})
+        return dict(out)  # type: ignore[return-value]
 
     # ── 응답 조립 ────────────────────────────────────────────
 
@@ -257,12 +199,25 @@ class GraphEngine:
 
         # answered — 성공한 경우 세션 되묻기 카운터 리셋
         session.clarify_turns = 0
+
+        slots = state.get("slots") or {}
+        substance = slots.get("substance")
+        assumed = bool(substance) and bool(slots.get("substance_is_assumed"))
+
+        answer = state.get("answer") or state.get("draft", "")
+        if assumed:
+            answer = f"{_assumption_notice(slots)} {answer}".strip()
+
         return AskResponse(
             status="answered",
             session_id=session.session_id,
-            answer=state.get("answer") or state.get("draft", ""),
+            answer=answer,
             triage=self._triage_result(state),
             citations=self._citations_from_hits(state.get("hits") or []),
+            # **추정과 확정을 한 필드에 담지 않는다.** 담으면 읽는 쪽이 구분하지 않고
+            # 쓰게 되고, 그 순간 도약이 확정이 된다. 둘 중 **하나만** 찬다 (D-59 ⑤).
+            assumed_substance=substance if assumed else None,
+            identified_substance=None if assumed else substance,
         )
 
     def _refused(self, session: Session, reason: str, message: str) -> AskResponse:

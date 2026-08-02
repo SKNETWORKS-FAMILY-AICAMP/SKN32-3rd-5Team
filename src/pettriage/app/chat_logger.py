@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import TYPE_CHECKING
 
@@ -88,10 +89,8 @@ def log_chat_turn(
     except SQLAlchemyError as e:
         # 저장 실패는 응답을 막지 않는다.
         log.warning("chat_messages 저장 실패 (SQL) — session=%s: %s", session_id, type(e).__name__)
-        try:
+        with contextlib.suppress(Exception):
             db.rollback()
-        except Exception:
-            pass
     except Exception as e:  # noqa: BLE001 — 어떤 이유든 응답을 막지 않는다.
         log.warning("chat_messages 저장 실패 — session=%s: %s", session_id, type(e).__name__)
 
