@@ -44,6 +44,40 @@ THRESHOLD_TYPES = {
 #: 규칙 테이블에 넣어도 되는 임계치 종류. 나머지는 정량 문장을 만들지 않는다.
 USABLE_THRESHOLDS = {"임상징후 발현", "중증", "치사"}
 
+#: 코퍼스에 실제로 나오는 단위. **환산하지 않고 원문 표기를 그대로 쓴다** (01e 규칙 2·3).
+#:
+#: 목록에 없으면 WARN 이다 — 막으려는 게 아니라 **오식을 눈에 띄게** 하려는 것이다.
+#: `mg/kg` 과 `g/kg` 은 1,000배이고 실제로 S-034 에서 그 오류가 나왔다.
+KNOWN_UNITS = {
+    # 중독 — 체중당·절대량
+    "mg/kg",
+    "g/kg",
+    "mg",
+    "g",
+    "kg",
+    "mL/kg",
+    "mL",
+    "%",
+    "ppm",
+    "mg/g",
+    # 영양 기준표 (S-043 · S-056)
+    "IU",
+    "IU/kg",
+    "kcal",
+    "kcal/kg",
+    "kcal/g",
+    "㎍",
+    "µg",
+    "ug",
+    "kJ",
+    "배",
+    # 대사 체중 기준 에너지 요구량 — 개는 ^0.75, 고양이는 ^0.67 (S-043 p.25)
+    "kcal/kg^0.75",
+    "kcal/kg^0.67",
+    "kJ/kg^0.75",
+    "kJ/kg^0.67",
+}
+
 #: 경로① 스위치 (D-45). **이번 산출물 범위에서는 끈다.**
 #:
 #: 두 경로를 함께 켜면 같은 사실이 두 번 적재되어 top-k 를 잠식하고,
@@ -137,10 +171,25 @@ def check_row(row: dict[str, str], where: str, eligible: set[str] | None = None)
     # ── 정량 ────────────────────────────────────────────────
     dose, unit, ttype = g("dose"), g("unit"), g("threshold_type")
 
-    if dose and not ttype:
+    # `nutrition` 의 수치는 **권장량**이지 섭취 역치가 아니다.
+    # 이 규칙은 중독 자료(toxicity_*)를 염두에 두고 만들었고, 영양 기준표에 그대로 걸면
+    # 200행 넘는 권장량이 억지로 `기타` 를 달게 된다 — 뜻이 없는 값이 표에 쌓인다.
+    is_nutrition = g("doc_type") == "nutrition"
+
+    if dose and not ttype and not is_nutrition:
         # 성격을 모르는 수치는 역치로 오인된다. 지침 3장.
         out.append(
             Issue("ERROR", where, "수치가 있는데 threshold_type 이 비었다 — 지침 3장을 볼 것")
+        )
+    if is_nutrition and ttype in USABLE_THRESHOLDS:
+        # 권장량이 규칙 테이블에 들어가면 "이 이상 먹으면 위험"으로 뒤집힌다.
+        out.append(
+            Issue(
+                "ERROR",
+                where,
+                f"nutrition 인데 threshold_type={ttype!r} 이다 — "
+                "권장량은 중독 역치가 아니다. 비우거나 '성분 함량'을 쓸 것",
+            )
         )
     if dose and not unit:
         out.append(
@@ -210,19 +259,7 @@ def check_row(row: dict[str, str], where: str, eligible: set[str] | None = None)
             )
 
     # ── 단위 오식 ───────────────────────────────────────────
-    if unit and unit.replace(" ", "") not in {
-        "mg/kg",
-        "g/kg",
-        "mg",
-        "g",
-        "kg",
-        "mL/kg",
-        "mL",
-        "%",
-        "ppm",
-        "IU/kg",
-        "kcal/kg",
-    }:
+    if unit and unit.replace(" ", "") not in KNOWN_UNITS:
         out.append(Issue("WARN", where, f"보기 드문 단위: {unit!r} — 원문과 대조할 것"))
 
     return out
@@ -238,24 +275,60 @@ def check_file(
     return issues, rows
 
 
+#: 검색에서 **함께 반환되는** 종끼리 묶는다 (D-39 병합 검색).
+#:
+#: `cat` 질의는 `cat`·`mammal`·`all` 을 함께 본다. 그러므로
+#: `우유(cat)=NEVER` 와 `우유(mammal)=CAUTION` 은 **같은 답변 안에서 충돌한다.**
+#: 종 문자열이 다르다는 이유로 상충 검사를 건너뛰면 그 모순이 그대로 적재된다.
+CROSS_SPECIES_GROUPS: dict[str, str] = {
+    "dog": "포유류",
+    "cat": "포유류",
+    "mammal": "포유류",
+    "bird": "조류",
+    "all": "*",  # 모든 그룹과 함께 나온다
+}
+
+
+def _cross_keys(species: str) -> tuple[str, ...]:
+    g = CROSS_SPECIES_GROUPS.get(species.strip(), species.strip())
+    return ("포유류", "조류") if g == "*" else (g,)
+
+
 def check_cross(all_rows: list[dict[str, str]]) -> list[Issue]:
-    """파일 간 검사 — 병합 시점에 터지는 것들을 미리 잡는다."""
+    """표 전체를 가로지르는 검사.
+
+    ⚠️ 이 함수는 2026-08-02 까지 **한 번도 실행되지 않았다.**
+    `main()` 이 `if len(paths) > 1:` 로 감싸고 있었는데 사실 표는 한 개뿐이라
+    조건이 늘 거짓이었다. `make facts` 는 `ERROR 0` 으로 통과했고,
+    그동안 사과·수박·복숭아·망고의 급여 등급 충돌이 그대로 적재되고 있었다.
+
+        개에게 사과는 안전으로 분류된다. (출처: American Kennel Club, S-064)
+        개에게 사과는 조건부 급여다. 1회 권장량은 …  (출처: Hill's, S-047)
+
+    **파일 수와 무관하게 항상 돈다.** 한 파일 안에서도 출처 간 충돌은 일어난다.
+    """
     out: list[Issue] = []
 
     dup = [k for k, v in Counter(r.get("fact_id", "") for r in all_rows).items() if v > 1 and k]
     for k in sorted(dup):
         out.append(Issue("ERROR", "병합", f"fact_id 중복: {k}"))
 
-    # 같은 (물질 · 종) 에 서로 다른 급여 등급이 붙으면 어느 쪽이 맞는지 정해야 한다
-    grades: dict[tuple[str, str], set[str]] = defaultdict(set)
+    # 같은 (물질 · 종그룹) 에 서로 다른 급여 등급이 붙으면 어느 쪽이 맞는지 정해야 한다.
+    # 출처까지 함께 남긴다 — 무엇을 펼쳐 봐야 하는지 알려주지 않으면 검수가 안 된다.
+    grades: dict[tuple[str, str], dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     for r in all_rows:
         lv = (r.get("feeding_level") or "").strip()
-        if lv:
-            grades[(r.get("substance", ""), r.get("species", ""))].add(lv)
-    for (sub, sp), lv in sorted(grades.items()):
-        if len(lv) > 1:
+        if not lv:
+            continue
+        for g in _cross_keys(r.get("species", "")):
+            grades[(r.get("substance", ""), g)][lv].add(r.get("source_id", ""))
+    for (sub, g), by_level in sorted(grades.items()):
+        if len(by_level) > 1:
+            detail = " vs ".join(
+                f"{lv}({','.join(sorted(src))})" for lv, src in sorted(by_level.items())
+            )
             out.append(
-                Issue("WARN", "병합", f"{sub}({sp}) 급여 등급이 엇갈린다: {sorted(lv)} — 검수 필요")
+                Issue("WARN", "병합", f"{sub}[{g}] 급여 등급이 엇갈린다: {detail} — 검수 필요")
             )
     return out
 
@@ -288,13 +361,16 @@ def main() -> int:
             print("  · 문제 없음")
         print()
 
-    if len(paths) > 1:
-        cross = check_cross(all_rows)
-        issues += cross
-        print("[파일 간]")
-        for it in cross or [Issue("WARN", "병합", "문제 없음")]:
-            print(it if cross else "  · 문제 없음")
-        print()
+    # **파일 수와 무관하게 항상 돈다.** 예전에는 `if len(paths) > 1:` 이었고,
+    # 사실 표가 한 개라 이 검사가 한 번도 실행되지 않았다 (2026-08-02 검토).
+    cross = check_cross(all_rows)
+    issues += cross
+    print("[표 전체]")
+    for it in cross:
+        print(it)
+    if not cross:
+        print("  · 문제 없음")
+    print()
 
     errors = sum(1 for i in issues if i.level == "ERROR")
     warns = sum(1 for i in issues if i.level == "WARN")

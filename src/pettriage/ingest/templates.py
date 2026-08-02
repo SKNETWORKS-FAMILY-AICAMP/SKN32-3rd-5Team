@@ -24,6 +24,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from ..schemas import Fact
+from ..triage.levels import FeedingLevel
 
 # 한 절(clause) = (조건, 문장 생성기).
 # 조건이 False면 그 절은 출력되지 않는다.
@@ -67,6 +68,40 @@ def _strip_trailing_paren(word: str) -> str:
     return w or word
 
 
+#: 기호·단위를 **읽는 소리**로 판정한다.
+#:
+#: `10%` 를 그냥 두면 `%` 가 기호라 판단 불가가 되어 `기준은 10%이다(다).` 처럼
+#: 병기가 나갔다. 사람은 "십 퍼센트다" 라고 읽는다 — 받침이 있다.
+#: `mL`(밀리리터)·`kcal`(킬로칼로리)처럼 받침 없이 끝나는 것도 있으므로 소리로 적는다.
+#:
+#: ⚠️ **긴 것부터 적는다.** `_has_batchim` 이 위에서부터 `endswith` 로 보므로
+#: `("g", True)` 가 `("㎍", ...)` 보다 앞에 있으면 `㎍` 이 영영 안 걸린다.
+_UNIT_BATCHIM: tuple[tuple[str, bool], ...] = (
+    ("kcal", False),  # 킬로칼로리
+    ("kg", True),  # 킬로그램
+    ("mcg", True),  # 마이크로그램
+    ("㎍", True),  # 마이크로그램 — 조합 문자(U+338D). AAFCO 표가 이 글자를 쓴다
+    ("µg", True),  # 마이크로그램 — 마이크로 기호(U+00B5)
+    ("μg", True),  # 마이크로그램 — 그리스 소문자 뮤(U+03BC). 눈으로는 구별이 안 된다
+    ("mg", True),  # 밀리그램
+    ("mL", False),  # 밀리리터
+    ("ml", False),
+    ("IU", False),  # 아이유
+    ("g", True),  # 그램
+    ("%", True),  # 퍼센트
+    ("알", True),  # 개수 단위 — 포도 "4-5알"
+    ("개", False),
+)
+
+
+#: 알파벳 한 글자를 한국어로 읽었을 때 받침이 있는가.
+#:
+#: `RER = 1.25 × BER이다(다)` 가 나갔다 — `R` 이 기호로 취급돼 판단 불가였다.
+#: 사람은 "비이알이다" 라고 읽는다. 받침으로 끝나는 것은 **L·M·N·R** 넷뿐이다
+#: (엘·엠·엔·알). 나머지는 모두 모음으로 끝난다.
+_LATIN_BATCHIM = frozenset("LMNRlmnr")
+
+
 def _has_batchim(word: str) -> bool | None:
     """마지막 글자에 받침이 있는가. 판단할 수 없으면 `None`.
 
@@ -76,16 +111,22 @@ def _has_batchim(word: str) -> bool | None:
     **끝의 괄호 묶음은 통째로 무시한다.** 조사는 괄호가 아니라 그 앞의 말로 고른다 —
     `진통제(…아세트아미노펜)은` 이 아니라 `진통제(…아세트아미노펜)는` 이다.
     """
-    word = _strip_trailing_paren(word)
-    for ch in reversed(word.strip()):
+    word = _strip_trailing_paren(word).strip()
+    for suffix, batchim in _UNIT_BATCHIM:
+        if word.endswith(suffix):
+            return batchim
+    for ch in reversed(word):
         if ch.isspace() or ch in "[]{}<>·,.'\"":
             continue
         if "가" <= ch <= "힣":
             return (ord(ch) - 0xAC00) % 28 != 0
-        if ch.isdigit():
+        if ch in "0123456789":
             # 숫자는 읽는 소리로 판단한다 — 0·1·3·6·7·8 이 받침으로 끝난다.
+            # `isdigit()` 을 쓰지 않는다 — `③` 같은 것까지 참이라 엉뚱한 조사가 붙는다.
             return ch in "013678"
-        return None  # 영문·기호로 끝나면 판단하지 않는다
+        if ch.isascii() and ch.isalpha():
+            return ch in _LATIN_BATCHIM
+        return None  # 그 밖의 기호로 끝나면 판단하지 않는다
     return None
 
 
@@ -101,12 +142,43 @@ def _josa(word: str, with_batchim: str, without: str) -> str:
     return f"{word}{with_batchim if b else without}"
 
 
+def _wa(w: str) -> str:
+    """`와`/`과`. 받침이 있으면 `과` 다.
+
+    `반려동물와 부동액에 관한 자료다` 가 실제로 나갔다 — 하드코딩된 `와` 였다.
+    """
+    return _josa(w, "과", "와")
+
+
 def _eun(w: str) -> str:
     return _josa(w, "은", "는")
 
 
 def _ga(w: str) -> str:
     return _josa(w, "이", "가")
+
+
+def _ro(w: str) -> str:
+    """`으로`/`로`. 받침이 있으면 `으로`, 없거나 `ㄹ` 받침이면 `로` 다.
+
+    `개에게 사과는 **안전로** 분류된다` 가 실제로 나갔다 — 하드코딩된 `로` 였다.
+    `feeding_level_ko` 세 값 중 `안전`(받침 ㄴ)만 걸려서 7청크에서만 보였다
+    (2026-08-02 실측). `급여 금지`·`조건부` 는 받침이 없어 우연히 맞았다.
+    """
+    if not w:
+        return w
+    last = _strip_trailing_paren(w).strip()[-1:]
+    if "가" <= last <= "힣" and (ord(last) - 0xAC00) % 28 == 8:  # ㄹ 받침
+        return f"{w}로"
+    return _josa(w, "으로", "로")
+
+
+def _ida(w: str) -> str:
+    """서술격 조사. 받침이 있으면 `이다`, 없으면 `다`.
+
+    `기준은 1,000kcal 대사에너지 당다` 처럼 붙여 쓰면 문장이 깨진다.
+    """
+    return _josa(w, "이다", "다")
 
 
 #: 역치로 말할 수 있는 임계치 종류. 나머지는 정량 문장을 만들지 않는다.
@@ -126,14 +198,88 @@ def _has_reported_range(f: Fact) -> bool:
 
 
 def _dose_phrase(f: Fact) -> str:
-    """단위가 이미 체중당(`mg/kg`)이면 "체중 1kg당"을 덧붙이지 않는다.
+    """수치와 **그 수치가 무엇을 기준으로 하는가**를 함께 말한다.
 
-    붙이면 `체중 1kg당 20mg/kg` 이라는 이중 표기가 되어 수치가 왜곡된다.
+    기준을 지어내지 않는다 (D-38)
+    ---------------------------
+    예전에는 단위에 `/kg` 이 없으면 **무조건 `"체중 1kg당"` 을 붙였다.**
+    이중 표기(`체중 1kg당 20mg/kg`)를 막으려던 것인데, 반대 방향으로 넘어갔다 —
+    *기준을 모르는 값에 우리가 기준을 붙인* 것이다. 실측으로 2건이 왜곡됐다
+    (2026-08-02 검토).
+
+    ==========  ==========================  ====================  ====================
+    행           원문                        예전 (왜곡)            지금
+    ==========  ==========================  ====================  ====================
+    F-014-001   "0.5% of body weight"       체중 1kg당 0.5%        0.5%(체중 대비)
+                `basis="체중 대비"`
+    F-034-013   "8.2kg 개가 포도 4-5알"       체중 1kg당 4-5알       4-5알(체중 8.2 kg 개)
+                                            **약 8배 왜곡**
+    ==========  ==========================  ====================  ====================
+
+    `basis` 칸에 출처가 밝힌 기준이 이미 적혀 있는데 이 템플릿만 쓰지 않고 있었다.
+    **기준을 모르면 아무 절도 붙이지 않는다** — 수치만 말하는 편이 틀린 기준보다 낫다.
+
+    ⚠️ 이 함수의 동작을 고정한 테스트가 `tests/test_verbalize.py` 에 있었고,
+    `unit="g"` 로만 검사해서 왜곡이 그럴듯해 보였다. 함께 뒤집었다.
     """
     unit = f.unit or ""
     if "/kg" in unit.replace(" ", ""):
-        return f"{f.dose}{unit}"
-    return f"체중 1kg당 {f.dose}{unit}"
+        return f"{f.dose}{unit}"  # 이미 체중당이다
+    if f.basis:
+        return f"{f.dose}{unit}({f.basis})"  # 출처가 밝힌 기준을 그대로 쓴다
+    return f"{f.dose}{unit}"  # 기준을 모른다 — 만들지 않는다
+
+
+#: 급여 가부(축 B)를 **문장 첫머리에 못 박는다.**
+#:
+#: 처음에는 이 축이 문장에 아예 없었다. 그래서 `feeding_level=NEVER` 인
+#: **소금 블록(S-003, 앵무새)이 "권장량이다"로 나갔다** — 원문은 주지 말라고 한다.
+#: 2026-08-01 검색 점검 확장 중 발견. 04 §2.5.1의 문장화 충실도 목표는 **0** 이다.
+_FEEDING_LEAD = {
+    FeedingLevel.NEVER: "급여 금지다",
+    FeedingLevel.CAUTION: "조건부 급여다",
+    FeedingLevel.SAFE: "급여 가능하다",
+}
+
+
+def _feeding_sentence(f: Fact) -> str:
+    """급여 가부가 있으면 **그것부터** 말한다.
+
+    생애단계가 없으면 절을 뺀다 — `"앵무새 전 생애단계에게"` 는 사람이 쓰는 말이 아니다.
+    """
+    who = f"{f.species_ko} {f.life_stage}에게" if f.life_stage else f"{f.species_ko}에게"
+    return f"{who} {_eun(f.substance)} {_FEEDING_LEAD[f.feeding_level]}."
+
+
+def _has_feeding(f: Fact) -> bool:
+    return f.feeding_level is not None
+
+
+def _has_amount(f: Fact) -> bool:
+    """수량이 하나라도 있나. **없으면 그 행은 권장량이 아니다.**"""
+    return bool(f.dose) or bool(f.max_value)
+
+
+def _amount_phrase(value: str, unit: str | None) -> str:
+    """단위 없는 수량을 **버리지 않는다.**
+
+    `"얇은 조각 1~2쪽"` 처럼 값 자체에 단위가 들어 있는 경우 `unit` 이 비는데,
+    예전에는 `bool(f.unit)` 게이트에 걸려 **급여량이 통째로 사라졌다** (S-047 과일 6종).
+    수치를 못 붙이는 것과 안 말하는 것은 다르다.
+    """
+    return f"{value}{unit}" if unit else value
+
+
+def _is_composition(f: Fact) -> bool:
+    """**성분 조성**이지 권장량이 아니다.
+
+    같은 `doc_type=nutrition` 안에 성격이 다른 두 가지가 섞여 있다 —
+    S-043의 영양소 **권장량**과 S-044의 원료 **성분 함량**이다.
+
+    구분하지 않으면 *"어류기름 최소 100.71%가 권장된다"* 같은 문장이 나온다.
+    원문에 없는 주장이고, 그대로 벡터DB에 들어가면 그 자체가 환각의 출처다 (D-38).
+    """
+    return f.threshold_type == "성분 함량"
 
 
 TOXICITY_FOOD = Template(
@@ -143,11 +289,11 @@ TOXICITY_FOOD = Template(
         # "주의 대상"처럼 기본값을 채워 넣으면 출처에 없는 분류를 주장하게 된다.
         (
             _has("feeding_level"),
-            lambda f: f"{f.species_ko}에게 {_eun(f.substance)} {f.feeding_level_ko}로 분류된다.",
+            lambda f: f"{f.species_ko}에게 {_eun(f.substance)} {_ro(f.feeding_level_ko)} 분류된다.",
         ),
         (
             lambda f: not f.feeding_level,
-            lambda f: f"{f.species_ko}와 {f.substance}에 관한 자료다.",
+            lambda f: f"{_wa(f.species_ko)} {f.substance}에 관한 자료다.",
         ),
         # 정량 절 — 역치 성격이 확인된 값만. 조류는 임계치가 0건이라 항상 생략된다.
         (
@@ -159,13 +305,25 @@ TOXICITY_FOOD = Template(
             _has_reported_range,
             lambda f: (
                 f"증례 보고에서 {_dose_phrase(f)} 범위의 섭취가 "
-                f"{f.effect_ko}과(와) 함께 보고되었다."
+                f"{_wa(f.effect_ko)} 함께 보고되었다."
             ),
         ),
         # 역치가 없다고 명시된 경우 — 포도처럼 용량-반응이 성립하지 않는 물질
         (
             lambda f: f.threshold_type == "역치 없음",
             lambda f: "안전한 최소 섭취량이 확립되어 있지 않아, 양과 무관하게 주의가 필요하다.",
+        ),
+        # 성분 함량 — **섭취 역치가 아니라 그 식품에 독성 성분이 얼마나 들었는가.**
+        #
+        # 이 절이 없으면 초콜릿 종류별 테오브로민 함량(다크 5mg/g vs 밀크 2mg/g)이
+        # 문장에서 통째로 사라진다. "다크가 왜 더 위험한가"의 근거가 그 수치다.
+        (
+            lambda f: _is_composition(f) and bool(f.dose) and bool(f.unit),
+            lambda f: f"{f.dose}{f.unit} 수준의 함량이 보고되었다.",
+        ),
+        (
+            lambda f: _is_composition(f) and not f.dose and bool(f.effect),
+            lambda f: f"{f.effect_ko}.",
         ),
         (_has("signs"), lambda f: f"주요 증상은 {', '.join(f.signs)}이다."),
         (_has("onset"), lambda f: f"증상은 {f.onset} 이내에 나타난다."),
@@ -186,14 +344,16 @@ TOXICITY_PLANT = Template(
                 + f"{'은' if _has_batchim(f.substance) else '는'} {f.species_ko}에게 독성이 있다."
             ),
         ),
-        (_has("toxic_part"), lambda f: f"{_ga(f.toxic_part)} 독성 부위다."),
+        (_has("toxic_part"), lambda f: f"{_ga(f.toxic_part_ko)} 독성 부위다."),
         (
             _has_threshold,
             lambda f: f"{f.dose}{f.unit} 섭취 시 {_ga(f.effect_ko)} 보고되었다.",
         ),
         (
             _has_reported_range,
-            lambda f: f"증례 보고에서 {f.dose}{f.unit} 범위가 {f.effect_ko}과(와) 함께 보고되었다.",
+            lambda f: (
+                f"증례 보고에서 {f.dose}{f.unit} 범위가 {_wa(f.effect_ko)} 함께 보고되었다."
+            ),
         ),
         (_has("signs"), lambda f: f"주요 증상은 {', '.join(f.signs)}이다."),
         (_has("onset"), lambda f: f"증상은 {f.onset} 이내에 나타난다."),
@@ -205,8 +365,15 @@ EMERGENCY = Template(
     doc_type="emergency",
     clauses=[
         (
-            lambda f: True,
+            lambda f: f.triage_level is not None,
             lambda f: f"{f.species_ko}에서 {_eun(f.substance)} {f.triage_ko} 상황이다.",
+        ),
+        # 등급이 없으면 **등급을 말하지 않는다.** 기본값을 채우면 출처에 없는 분류가 된다.
+        # `emergency` 131행 중 82행이 등급 없이 들어오는데, 예전에는 전부
+        # "확인 필요 상황이다" 로 나갔다 — 4등급에 없는 말이다.
+        (
+            lambda f: f.triage_level is None,
+            lambda f: f"{f.species_ko}에서 {f.substance}에 관한 응급 안전 정보다.",
         ),
         (_has("signs"), lambda f: f"확인할 증상은 {', '.join(f.signs)}이다."),
         (
@@ -235,22 +402,66 @@ SYMPTOM = Template(
     ],
 )
 
+
 NUTRITION = Template(
     doc_type="nutrition",
     clauses=[
+        # ── 급여 가부(축 B)가 있으면 **그것이 첫 문장이다** ──────────
+        # 이 절이 없어서 `NEVER` 인 소금 블록이 "권장량이다"로 나갔다.
+        (_has_feeding, _feeding_sentence),
+        # ── 권장량 — 기준표에서 온 것 ────────────────────────────
+        # 급여 가부를 이미 말했으면 "권장량이다"를 덧붙이지 않는다.
+        # `조건부 급여다. 권장량이다.` 는 서로 다른 축을 뒤섞은 말이 된다.
         (
-            lambda f: True,
+            lambda f: not _is_composition(f) and not _has_feeding(f) and _has_amount(f),
             lambda f: f"{f.species_ko} {f.life_stage or '전 생애단계'}의 {f.substance} 권장량이다.",
         ),
+        # ── 수량도 급여 가부도 없는 행 ──────────────────────────
+        # **"권장량이다" 라고 말하면 안 된다.** 이런 행은 지침·계산식·참고 정보다.
+        #
+        #     "개 전 생애단계의 구리 간병증 식단에서 **제한하는** 식품 권장량이다."
+        #     ← substance 자체가 부정문인데 템플릿이 권장으로 단언했다
+        #     "개·고양이 전 생애단계의 대사에너지 계산식(1단계 총에너지) 권장량이다."
+        #     ← 계산식은 급여량이 아니다
+        #
+        # 17행이 이랬고, 음성 질의(`보험료가 얼마인가요`)가 이런 청크를 물어왔다.
+        # 내용이 없으니 무엇에나 어울려 보이기 때문이다 (2026-08-01 §2.5.4).
         (
-            lambda f: bool(f.dose) and bool(f.unit),
-            lambda f: f"최소 {f.dose}{f.unit}가 권장된다.",
+            lambda f: not _is_composition(f) and not _has_feeding(f) and not _has_amount(f),
+            lambda f: (
+                f"{f.species_ko} {f.life_stage or '전 생애단계'}의 "
+                f"{f.substance}에 관한 영양 지침이다."
+            ),
         ),
         (
-            lambda f: bool(f.max_value) and bool(f.unit),
-            lambda f: f"최대 허용량은 {f.max_value}{f.unit}다.",
+            lambda f: bool(f.dose) and not _is_composition(f),
+            lambda f: f"최소 {_ga(_amount_phrase(f.dose, f.unit))} 권장된다.",
         ),
-        (_has("basis"), lambda f: f"기준은 {f.basis}다."),
+        (
+            lambda f: bool(f.max_value) and not _is_composition(f),
+            lambda f: f"1회 권장량은 {_amount_phrase(f.max_value, f.unit)}까지다."
+            if _has_feeding(f)
+            else f"최대 허용량은 {_ida(_amount_phrase(f.max_value, f.unit))}.",
+        ),
+        # ── 성분 조성 — 급여 기준이 아니라 그 물질에 무엇이 얼마나 들었는가 ──
+        (
+            _is_composition,
+            lambda f: f"{f.substance}의 성분 함량 정보다.",
+        ),
+        (
+            lambda f: _is_composition(f) and bool(f.dose) and bool(f.unit),
+            lambda f: (
+                (f"{f.basis} " if f.basis else "")
+                + f"{f.dose}{f.unit} 수준으로 보고되었다."
+                # `effect_ko` 는 비었을 때 "임상 징후"를 돌려준다 — 성분 조성에는 없는 말이다.
+                # **있는지는 원본으로 판단하고, 출력은 `effect_ko`** 로 한다 (`|` 를 푼다).
+                + (f" {f.effect_ko}." if f.effect else "")
+            ),
+        ),
+        (
+            lambda f: bool(f.basis) and not _is_composition(f),
+            lambda f: f"기준은 {_ida(f.basis)}.",
+        ),
         (lambda f: True, _cite),
     ],
 )

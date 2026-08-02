@@ -7,7 +7,16 @@
 
 from __future__ import annotations
 
-from pettriage.retrieval.store import _matches, to_chroma_where
+import pytest
+
+from pettriage.retrieval.embedder import get_embedder
+from pettriage.retrieval.store import (
+    EmptyFilter,
+    InMemoryStore,
+    _matches,
+    to_chroma_where,
+)
+from pettriage.schemas import Chunk
 
 
 class TestToChromaWhere:
@@ -37,14 +46,60 @@ class TestToChromaWhere:
             ]
         }
 
-    def test_empty_values_are_dropped(self) -> None:
-        """빈 종 값이 섞여 들어와도 필터가 깨지지 않는다 — 종 미확인 경로가 있다 (D-10)."""
-        assert to_chroma_where({"species": ["", None]}) is None
+    def test_partially_empty_list_keeps_real_values(self) -> None:
+        """빈 값이 섞여 있어도 **실제 값이 하나라도 있으면** 그것으로 거른다."""
         assert to_chroma_where({"species": ["dog", ""]}) == {"species": "dog"}
+
+    def test_all_empty_raises(self) -> None:
+        """값이 전부 비면 `EmptyFilter` 다 — **필터 없음이 아니다** (D-10).
+
+        ⚠️ 이 테스트는 2026-08-02 에 **정반대로 뒤집혔다.**
+
+            # 예전
+            assert to_chroma_where({"species": ["", None]}) is None
+            #  ↑ 주석: "빈 종 값이 섞여 들어와도 필터가 깨지지 않는다"
+
+        필터가 깨진 게 아니라 **사라진** 것이었다. `None` 은 Chroma 에서
+        *"조건 없이 전부 검색"* 을 뜻하므로, 종이 미확인일 때 개 보호자에게
+        고양이 백합 청크가 나가는 경로였다 — D-10 의 정확한 반대다.
+        `InMemoryStore` 는 같은 입력에 0건을 냈으므로 두 구현이 갈려 있기도 했다.
+
+        **테스트가 틀린 동작을 정답으로 고정하고 있었다.** 그래서 그때까지
+        아무도 이것을 버그로 보지 못했다.
+        """
+        with pytest.raises(EmptyFilter):
+            to_chroma_where({"species": []})
+        with pytest.raises(EmptyFilter):
+            to_chroma_where({"species": ["", None]})
 
 
 class TestInMemoryMatchesSameSemantics:
     """두 구현이 같은 뜻으로 동작해야 한다. 안 그러면 저장소를 갈 때 결과가 바뀐다."""
+
+    def test_empty_list_means_zero_hits_in_both(self) -> None:
+        """빈 목록 — **두 구현이 갈리던 유일한 지점.** 이제 둘 다 0건이다.
+
+        `ChromaStore.search` 는 `EmptyFilter` 를 잡아 `[]` 를 내고,
+        `InMemoryStore` 는 `_matches` 가 `False` 라 애초에 0건이다.
+        """
+        assert not _matches({"species": "cat"}, {"species": []})
+        assert not _matches({"species": "cat"}, {"species": ["", None]})
+
+        store = InMemoryStore(get_embedder("hash-test"))
+        store.add(
+            [
+                Chunk(
+                    chunk_id="c1",
+                    text="고양이에게 백합은 치명적이다",
+                    source_id="S-030",
+                    publisher="ASPCA",
+                    species="cat",
+                    doc_type="toxicity_plant",
+                )
+            ]
+        )
+        assert store.search("백합", where={"species": []}) == []
+        assert len(store.search("백합", where={"species": ["cat"]})) == 1
 
     def test_list_membership(self) -> None:
         assert _matches({"species": "mammal"}, {"species": ["cat", "mammal", "all"]})

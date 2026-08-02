@@ -41,6 +41,16 @@ SPECIES_KO: dict[str, str] = {
 }
 
 
+def _unpipe(value: str | None) -> str:
+    """`|` 로 이어 붙인 값을 읽을 수 있는 문장 조각으로 바꾼다.
+
+    `"잎|꽃잎|꽃가루"` → `"잎, 꽃잎, 꽃가루"`. 값이 없으면 빈 문자열이다.
+    """
+    if not value:
+        return ""
+    return ", ".join(p.strip() for p in value.split("|") if p.strip())
+
+
 @dataclass
 class Fact:
     """원문에서 추출한 사실 1건. 문장이 아니라 **필드**다.
@@ -97,11 +107,35 @@ class Fact:
 
     @property
     def triage_ko(self) -> str:
-        return self.triage_level.badge if self.triage_level else "확인 필요"
+        """등급 배지. **없으면 빈 문자열이다 — 기본값을 만들지 않는다.**
+
+        예전에는 `"확인 필요"` 를 돌려주었다. 그런데 그것은 4등급 어디에도 없는 말이고,
+        **출처가 등급을 주지 않은 자료에 우리가 등급을 붙이는 것**이었다.
+
+            "앵무새에서 향초·왁스멜트·플러그인 방향제(VOC)는 **확인 필요 상황이다**."
+            ← S-078 은 등급을 표기하지 않는다. emergency 131행 중 **82행**이 이랬다.
+
+        `TOXICITY_FOOD` 의 급여 등급 절에는 같은 규율이 이미 적혀 있었다 —
+        *"등급이 없으면 생략한다. 기본값을 채워 넣으면 출처에 없는 분류를 주장하게 된다."*
+        `EMERGENCY` 에만 적용되지 않았다 (2026-08-01 골든셋 검수에서 발견).
+        """
+        return self.triage_level.badge if self.triage_level else ""
 
     @property
     def effect_ko(self) -> str:
-        return self.effect or "임상 징후"
+        return _unpipe(self.effect) or "임상 징후"
+
+    @property
+    def toxic_part_ko(self) -> str:
+        """독성 부위. **`|` 를 문장 부호로 바꾼다.**
+
+        `|` 는 CSV 안에서 여러 값을 담기 위한 **직렬화 구분자**이지 문장 부호가 아니다.
+        `signs`·`escalation_conditions` 는 `facts_io.LIST_FIELDS` 가 이미 쪼개는데
+        `toxic_part`·`effect` 는 목록에 없어서 그대로 새어 나갔다 —
+        *"잎|꽃잎|꽃가루|꽃병 물이 독성 부위다"* 가 18청크에서 실측됐다 (2026-08-02).
+        임베딩과 화면 양쪽을 해친다.
+        """
+        return _unpipe(self.toxic_part)
 
 
 @dataclass
@@ -113,6 +147,11 @@ class Chunk:
     source_id: str
     species: Species
     doc_type: DocType
+    #: 발행처. **인덱스가 들고 있어야 한다** — `Citation.publisher` 가 필수인데
+    #: 청크에 없으면 검색 결과로 근거를 만들 수 없다. `source_id` 만으로는
+    #: 되찾을 방법이 저장소 어디에도 없었다 (2026-08-02 검토).
+    #: 기존 인덱스와의 호환을 위해 기본값을 둔다 — 재적재하면 채워진다.
+    publisher: str = ""
     substance: str | None = None
     route: Literal["원문적재", "사실추출"] = "사실추출"
     quote: str | None = None  # 경로 ②는 비운다 (D-37)

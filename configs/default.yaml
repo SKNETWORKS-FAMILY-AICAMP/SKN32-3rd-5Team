@@ -55,8 +55,18 @@ triage:
   # 조류는 체중당 임계치가 0건이라 정량 슬롯을 요구하지 않는다 (D-09 개정).
   quantitative_species: [dog, cat]
 
+# 토큰 파라미터 (D-41). **비밀은 여기 없다** — 서명 키는 .env 의 JWT_SECRET_KEY 다.
+auth:
+  algorithm: HS256
+  # 응급 도메인이라 세션을 짧게 잡는다. 길수록 탈취 토큰의 유효기간이 길어진다.
+  expire_minutes: 60
+
 serve:
   host: 127.0.0.1
   port: 8000
   engine: stub                   # graph 로 바꾸면 LangGraph 엔진을 쓴다 (D-40)
   cors_origins: []
+  # D-53 — 기동 시 임베딩 모델을 미리 올린다. 서버가 로딩을 내고 사용자는 안 낸다.
+  # 끄면 첫 질의가 로딩을 맞고, 스트리밍이 없어 그 시간이 침묵이 된다 (02 §12.4).
+  # 노드 고치며 재시작이 잦은 개발 중에만: PETTRIAGE__SERVE__WARMUP=false make serve
+  warmup: true

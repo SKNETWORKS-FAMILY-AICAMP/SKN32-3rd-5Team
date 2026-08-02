@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import ResponseValidationError
@@ -80,8 +81,66 @@ def _install_response_guard(app: FastAPI) -> None:
         )
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """기동 시 **엔진을 만들고** 임베딩 모델을 미리 올린다 (D-53).
+
+    ## ① 엔진을 여기서 만든다 — 실패를 첫 요청까지 미루지 않는다
+
+    `get_engine()` 은 원래 첫 요청에서 lazy 로 불렸다. 그래서
+    `serve.engine=graph` 인데 노드가 비어 있으면 **서버는 조용히 뜨고 첫 사용자가 500 을 받았다.**
+    `EngineUnavailable` 은 *"스텁으로 내려가면 평가가 오염된다"* 를 위해 일부러 크게 실패하는
+    예외인데(04 §8), 그 실패가 기동이 아니라 사용자에게 도착하면 의미가 없다.
+
+    ## ② `cfg.serve.engine` 이 아니라 **실제 엔진 이름**을 본다
+
+    `PETTRIAGE_ALLOW_ENGINE_FALLBACK=1` 이면 `graph` 설정이어도 스텁으로 내려간다.
+    설정만 보고 워밍업하면 **쓰지도 않을 모델을 올린다.**
+
+    ## ③ 워밍업은 기동을 막지 않는다
+
+    모델을 못 받는 환경(오프라인 CI · GPU 없는 팀원)에서도 API 계약과 화면은 돌아야 한다.
+    실패하면 로그에 남기고 `/api/health` 의 `model_loaded=false` 로 드러낸다 —
+    **조용히 넘어가지 않는다.**
+    """
+    from ..config import get_config
+    from .deps import get_engine
+
+    cfg = get_config()
+    engine = get_engine()  # EngineUnavailable 이면 여기서 크게 실패한다 (의도)
+
+    if engine.name == "stub":
+        log.info("워밍업 생략 — StubEngine 은 벡터 검색을 하지 않는다")
+    elif not cfg.serve.warmup:
+        log.warning("워밍업 꺼짐 (serve.warmup=false) — 첫 질의가 모델 로딩을 맞는다")
+    else:
+        try:
+            from ..retrieval.embedder import warm_up
+
+            took = warm_up(cfg.retrieval.embedding_model)
+            if took is None:
+                log.info(
+                    "워밍업 불필요 — 로드가 필요 없는 임베더다 (%s)",
+                    cfg.retrieval.embedding_model,
+                )
+            else:
+                log.info("임베딩 워밍업 완료 — %.1fs", took)
+        except Exception as e:  # noqa: BLE001 — 기동을 막지 않는다
+            log.warning(
+                "임베딩 워밍업 실패 (%s) — 첫 질의가 로딩을 맞는다. "
+                "/api/health 의 model_loaded 를 볼 것",
+                type(e).__name__,
+            )
+    yield
+
+
 def create_app() -> FastAPI:
-    app = FastAPI(title="PetTriage API", version=__version__, description=DESCRIPTION)
+    app = FastAPI(
+        title="PetTriage API",
+        version=__version__,
+        description=DESCRIPTION,
+        lifespan=_lifespan,
+    )
 
     origins = allowed_origins()
     if origins:

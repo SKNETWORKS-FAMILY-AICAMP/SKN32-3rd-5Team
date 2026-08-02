@@ -12,7 +12,16 @@
     문장화 충실도     원문에 없는 내용이 포함된 비율        목표 0
     역추적 가능성     source_id + 원문 위치 보유 비율       목표 100%
 
-실행:  make verify   ·   pettriage-verify   ·   python -m pettriage.tools.verify_corpus
+실행 — **세 방법이 같지 않다.**
+
+    make verify                            저장소의 src/ 를 쓴다  ← 권장
+      (= python scripts/verify_corpus.py, 래퍼가 sys.path 앞에 넣는다)
+    pettriage-verify                       설치된 패키지를 쓴다
+    python -m pettriage.tools.verify_corpus  설치된 패키지를 쓴다
+
+`pip install -e` 가 다른 경로를 가리키고 있으면 아래 둘은 **엉뚱한 루트를 잡아**,
+자료를 제대로 풀었는데도 "자료 파일이 로컬에 없다" 가 나온다.
+`paths.py` 덕분에 거짓 통과는 아니지만 **검사가 조용히 축소된다** (04 §8).
 """
 
 from __future__ import annotations
@@ -55,7 +64,7 @@ def check_manifest_vs_disk() -> list[Finding]:
     if not path.exists():
         return [Finding("ERROR", "manifest", "SNAPSHOT_MANIFEST.csv 가 없다")]
 
-    rows = list(csv.DictReader(path.open(encoding="utf-8")))
+    rows = list(csv.DictReader(path.open(encoding="utf-8-sig")))
     on_disk = (
         {str(p.relative_to(ROOT / "data")) for p in SNAPSHOTS.rglob("*.md")}
         if SNAPSHOTS.exists()
@@ -88,12 +97,12 @@ def check_deleted_not_present() -> list[Finding]:
     path = MANIFESTS / "DELETION_LOG.csv"
     if not path.exists():
         return out
-    deleted = {r["source_id"] for r in csv.DictReader(path.open(encoding="utf-8"))}
+    deleted = {r["source_id"] for r in csv.DictReader(path.open(encoding="utf-8-sig"))}
     for csv_name in ("SNAPSHOT_MANIFEST.csv", "MANIFEST.csv"):
         p = MANIFESTS / csv_name
         if not p.exists():
             continue
-        live = {r["source_id"] for r in csv.DictReader(p.open(encoding="utf-8"))}
+        live = {r["source_id"] for r in csv.DictReader(p.open(encoding="utf-8-sig"))}
         for sid in sorted(deleted & live):
             out.append(Finding("ERROR", "deletion", f"{sid} 는 삭제 판정인데 {csv_name} 에 있다"))
     if not out:
@@ -124,7 +133,7 @@ def check_traceability() -> list[Finding]:
     path = MANIFESTS / "SNAPSHOT_MANIFEST.csv"
     if not path.exists():
         return out
-    rows = list(csv.DictReader(path.open(encoding="utf-8")))
+    rows = list(csv.DictReader(path.open(encoding="utf-8-sig")))
     missing = [r for r in rows if not r.get("source_id") or not r.get("url")]
     ratio = (len(rows) - len(missing)) / len(rows) * 100 if rows else 0
     level = "INFO" if not missing else "ERROR"
@@ -140,7 +149,7 @@ def check_quality_grades() -> list[Finding]:
     path = MANIFESTS / "SNAPSHOT_MANIFEST.csv"
     if not path.exists():
         return out
-    rows = list(csv.DictReader(path.open(encoding="utf-8")))
+    rows = list(csv.DictReader(path.open(encoding="utf-8-sig")))
     from collections import Counter
 
     counts = Counter(r.get("quality", "?") for r in rows)

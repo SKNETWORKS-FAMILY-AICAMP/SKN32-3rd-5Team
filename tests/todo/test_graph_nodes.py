@@ -87,6 +87,48 @@ class TestSlots:
         )
         assert out["slots"].get("species") is None
 
+    def test_substance_must_come_from_the_closed_list(self):
+        """② 가 뽑은 물질은 **폐쇄 목록 안**이어야 한다 (D-59 ①).
+
+        `graph.state.set_substance` 가 그 문이다. 노드가 그것을 안 쓰고
+        `slots["substance"] = llm_output` 으로 직접 써도 파이썬은 안 막지만,
+        **여기서 걸린다** — 코퍼스에 없는 이름이 슬롯에 들어오면 실패한다.
+
+        마지막 방어선은 응답 계약(`contracts.SubstanceName`)이다. 그런데 거기서
+        터지면 원인이 ②였다는 것을 알기 어렵다. **원인이 있는 자리에서 실패하게** 둔다.
+        """
+        from pettriage.compute.vocabulary import is_known
+        from pettriage.graph.nodes import extract_slots
+
+        out = extract_slots(
+            initial_state("앵무새 앞에서 프라이팬을 태웠어요", "s1", intent="intoxication")
+        )
+        got = out["slots"].get("substance")
+        assert got is None or is_known(got), f"{got!r} 는 폐쇄 목록 밖이다 — 생성이 아니라 선택이다"
+
+    def test_assumed_substance_is_carried_to_the_response(self):
+        """**추정으로 답하면 그 가정이 응답에 실려야 한다** (D-59 ⑤ · D-62).
+
+        `프라이팬 → PTFE` 는 도약이다. ②가 `substance_is_assumed` 를 세우면
+        그것을 `AskResponse.assumed_substance` 까지 **옮기는 것이 노드의 일**이다.
+        옮기지 않으면 계약(`_assumption_must_be_stated`)이 **발동하지 않는다** —
+        필드가 비어 있으면 검사할 것이 없기 때문이다.
+
+        여기가 그 연결을 확인하는 유일한 자리다. 계약은 스스로 이 구멍을 못 막는다.
+        """
+        from pettriage.graph.nodes import extract_slots
+
+        out = extract_slots(
+            initial_state(
+                "앵무새 앞에서 프라이팬을 태웠어요", "s1", intent="intoxication", species="bird"
+            )
+        )
+        slots = out["slots"]
+        if slots.get("substance") == "PTFE":
+            assert (
+                slots.get("substance_is_assumed") is True
+            ), "추정 별칭을 탔는데 표시가 없다 — 도약이 확정처럼 나간다"
+
     def test_clarify_stops_at_configured_limit(self):
         """되묻기 상한은 설정값이다. 넘으면 거절로 간다 (02 §9)."""
         from pettriage.graph.nodes import ask_clarify
