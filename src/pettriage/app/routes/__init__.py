@@ -29,9 +29,15 @@ from __future__ import annotations
 import logging
 import os
 
+from dotenv import load_dotenv
+
 from .ask import router as ask_router
 from .meta import router as meta_router
 from .records import router as records_router
+
+# .env → os.environ. 쉘 변수가 있으면 덮지 않는다.
+# 아래 os.getenv("DATABASE_URL") 체크가 .env 만 있는 구성에서도 참이 되도록.
+load_dotenv()
 
 log = logging.getLogger(__name__)
 
@@ -49,15 +55,16 @@ if os.getenv("DATABASE_URL"):
     try:
         from .auth import router as auth_router
         from .pets import router as pets_router
+        from .users import router as users_router
     except ImportError as e:  # pragma: no cover - 의존성 미설치 경로
         raise DBRoutersUnavailableError(
             f"DATABASE_URL 이 설정됐는데 DB 라우터를 못 올렸다: {e}\n"
             "  → pip install -e '.[api,db]' -c constraints.txt\n"
             "  DB 없이 띄우려면 DATABASE_URL 을 지운다."
         ) from e
-    _routers.extend([auth_router, pets_router])
+    _routers.extend([auth_router, pets_router, users_router])
 else:
-    log.info("DATABASE_URL 미설정 — auth/pets 라우터 비활성화 (의도된 구성)")
+    log.info("DATABASE_URL 미설정 — auth/pets/users 라우터 비활성화 (의도된 구성)")
 
 ALL_ROUTERS = tuple(_routers)
 
