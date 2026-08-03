@@ -520,7 +520,7 @@ function renderAnswered(data){
 }
 
 /* clarify 상태 렌더링 — 되묻기는 정상 대화 흐름, 절대 에러처럼 보이면 안 됨 */
-const missingKorean = { species:'종', weight_kg:'체중', amount_g:'먹은 양', pet_id:'반려동물 정보' };
+const missingKorean = { species:'종', substance:'물질', weight_kg:'체중', amount_g:'먹은 양', pet_id:'반려동물 정보', substance_detail:'물질 종류' };
 function renderClarify(data){
   activeClarify = data.clarify;
   const missingList = (data.clarify.missing || []).map(m => missingKorean[m] || m).join(', ');
