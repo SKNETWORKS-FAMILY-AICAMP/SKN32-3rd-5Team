@@ -65,6 +65,18 @@ _PATTERNS: dict[str, str] = {
         "종과 체중(kg)은 있지만 물질·섭취량은 없는 **영양/급여량 질문**. "
         "예: '4kg 고양이 사료를 하루에 얼마나 줘야 하나요'"
     ),
+    # 2026-08-03 D-89(한빈) — SLOT 출력 스키마에 elapsed_hours가 명시됐는데
+    # (D-86) 이 축의 학습 데이터가 단 한 건도 없었다(이서은 팀원 발견).
+    # 종·물질은 있고 **경과 시간이 자연어로 섞여 들어가는** 문장을 추가한다.
+    "elapsed_hours_mentioned": (
+        "종과 물질명이 있고, **먹은 뒤 지난 시간을 자연스럽게 언급한다.** "
+        "'3시간 전에', '어제 저녁에', '한 30분 됐어요', '방금' 처럼 다양한 "
+        "표현으로 시간을 담되, 문장에는 **숫자로 환산 가능한 단서**가 있어야 한다 "
+        "(예: '어제 저녁 8시쯤' 은 지금이 언제인지 몰라 숫자화가 안 되니 피하고, "
+        "'12시간 전' · '한 시간쯤 됐어요' 처럼 경과 시간 자체를 말하게 한다). "
+        "체중·섭취량은 언급해도 되고 안 해도 된다. "
+        "예: '강아지가 3시간 전에 초콜릿을 먹었어요', '고양이가 한 30분 전에 백합을 씹었어요'"
+    ),
 }
 
 _GEN_SYSTEM = (
@@ -74,7 +86,10 @@ _GEN_SYSTEM = (
     "문장에 없는 값은 정답도 null이어야 한다(지어내지 않는다).\n"
     "출력은 JSON 배열만. 각 원소:\n"
     '  {"question": str, "species": "dog"|"cat"|"bird"|null, '
-    '"weight_kg": 숫자|null, "amount_g": 숫자|null, "substance": str|null}\n'
+    '"weight_kg": 숫자|null, "amount_g": 숫자|null, "substance": str|null, '
+    '"elapsed_hours": 숫자|null}\n'
+    "`elapsed_hours` 는 먹은 뒤 지난 시간을 **시간 단위 숫자**로 환산한 값이다 "
+    "(예: '30분 전' → 0.5, '어제 저녁' 처럼 숫자화 안 되면 null).\n"
     "설명·코드블록 없이 배열만 출력한다."
 )
 
@@ -109,6 +124,7 @@ def _parse_json_array(raw: str) -> list[dict]:
                     "substance": (
                         str(item["substance"]).strip() if item.get("substance") else None
                     ),
+                    "elapsed_hours": _num(item.get("elapsed_hours")),
                 }
             )
     return out
@@ -177,22 +193,43 @@ def label_with_teacher(question: str) -> dict | None:
 def _slots_equal(a: dict, b: dict | None) -> bool:
     if b is None:
         return False
-    keys = ("species", "weight_kg", "amount_g", "substance")
+    keys = ("species", "weight_kg", "amount_g", "substance", "elapsed_hours")
     return all(a.get(k) == b.get(k) for k in keys)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="② 슬롯 추출 distillation — LLM 생성판")
-    ap.add_argument("--target", type=int, default=100, help="패턴(7종)당 목표 건수")
+    ap.add_argument("--target", type=int, default=100, help="패턴당 목표 건수")
     ap.add_argument("--batch-size", type=int, default=15)
     ap.add_argument("--out", type=Path, default=ROOT / "data" / "train" / "slot_batch.jsonl")
+    ap.add_argument(
+        "--patterns",
+        type=str,
+        default=None,
+        help="쉼표로 구분한 패턴 이름만 생성(예: elapsed_hours_mentioned). "
+        "지정하면 --out에 이어쓴다(append) — 기존 건 안 건드림. 안 주면 전체 패턴을 새로 쓴다(overwrite).",
+    )
     args = ap.parse_args()
+
+    patterns = list(_PATTERNS)
+    append = False
+    if args.patterns:
+        wanted = [p.strip() for p in args.patterns.split(",") if p.strip()]
+        unknown = [p for p in wanted if p not in _PATTERNS]
+        if unknown:
+            raise SystemExit(f"모르는 패턴: {unknown} — 가능한 값: {list(_PATTERNS)}")
+        patterns = wanted
+        append = True
 
     golden_questions = _load_goldenset_questions()
     seen: set[str] = set(golden_questions)
+    if append and args.out.exists():
+        for line in args.out.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                seen.add(json.loads(line)["question"])
 
     all_candidates: list[dict] = []
-    for pattern in _PATTERNS:
+    for pattern in patterns:
         print(f"=== {pattern} 생성 시작 (목표 {args.target}) ===")
         got = generate_for_pattern(pattern, args.target, args.batch_size, seen)
         all_candidates.extend(got)
@@ -206,7 +243,9 @@ def main() -> int:
     teacher = client_name()
     for i, c in enumerate(all_candidates, start=1):
         teacher_slots = label_with_teacher(c["question"])
-        gen_slots = {k: c[k] for k in ("species", "weight_kg", "amount_g", "substance")}
+        gen_slots = {
+            k: c[k] for k in ("species", "weight_kg", "amount_g", "substance", "elapsed_hours")
+        }
         agree = _slots_equal(gen_slots, teacher_slots)
         if not agree:
             mismatches += 1
@@ -224,7 +263,7 @@ def main() -> int:
             print(f"  교차검증 {i}/{len(all_candidates)}")
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    with args.out.open("w", encoding="utf-8") as f:
+    with args.out.open("a" if append else "w", encoding="utf-8") as f:
         for r in rows_out:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
