@@ -730,6 +730,29 @@ class LoginResponse(BaseModel):
     nickname: str
 
 
+class UserMeResponse(BaseModel):
+    """현재 로그인 사용자 정보.
+
+    최소 필드만 노출한다 (개인정보 최소 수집 · D-36).
+    확장 시 유의: 민감 필드(is_active·last_login_at·created_at 등)는 별도 결정 후 추가.
+    """
+
+    user_id: str
+    email: EmailStr
+    nickname: str
+
+
+class LogoutResponse(BaseModel):
+    """로그아웃 응답.
+
+    ⚠️ JWT 는 stateless 라 서버가 토큰을 무효화하지 않는다.
+    클라이언트가 저장된 토큰을 삭제하는 것이 실질적 로그아웃이다.
+    이 응답은 **인증이 유효했다는 확인**과 클라이언트 처리 신호 역할이다.
+    """
+
+    message: str = "로그아웃되었습니다."
+
+
 class PetCreate(BaseModel):
     """반려동물 등록.
 

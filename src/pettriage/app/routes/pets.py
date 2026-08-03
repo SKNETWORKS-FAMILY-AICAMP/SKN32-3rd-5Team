@@ -123,5 +123,14 @@ def delete_pet(
     if not pet:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "반려동물을 찾을 수 없습니다.")
 
+    # 마지막 한 마리는 지울 수 없다.
+    # 프론트에서도 버튼을 막지만 API 를 직접 부르는 경로가 있으니 여기서도 확인한다.
+    remaining = db.query(Pet).filter(Pet.user_id == user_id).count()
+    if remaining <= 1:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "마지막 반려동물은 삭제할 수 없습니다. 새 반려동물을 먼저 등록해 주세요.",
+        )
+
     db.delete(pet)
     db.commit()

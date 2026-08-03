@@ -24,11 +24,12 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import uuid4
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -83,7 +84,9 @@ class ChatSession(Base):
     __tablename__ = "chat_sessions"
 
     session_id: Mapped[str] = mapped_column(String(32), primary_key=True)
-    pet_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("pets.pet_id"), nullable=True)
+    pet_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("pets.pet_id", ondelete="CASCADE"), nullable=True
+    )
     # ⚠ clarify_turns · weight_kg · amount_g 를 **의도적으로 두지 않는다.**
     #   되묻기 슬롯은 휘발이 의도다 (D-36 최소 수집 · 05 §3). session.py 가 메모리에 들고 있다.
     #   여기 되살리려면 D-36 을 뒤집는 결정이므로 06 에 기록부터 해야 한다 (D-22).
@@ -92,6 +95,44 @@ class ChatSession(Base):
 
     pet: Mapped[Pet | None] = relationship("Pet", back_populates="chat_sessions")
     messages: Mapped[list[ChatMessage]] = relationship("ChatMessage", back_populates="session")
+
+
+class DiaryEntry(Base):
+    """일일 다이어리 기록.
+
+    설계 근거: docs/02 §5 · §12 · docs/00 §3.3 (킬러 기능 - 기간 리포트)
+
+    **일반 웹 앱 기능이다** (00 §3.3) — 벡터DB 적재는 별도 (WS1 담당).
+    여기는 화면 조회·기간 리포트용 원본이다.
+
+    소유자 확인: `(user_id, pet_id)` 조건이 모든 조회에 붙어야 한다 —
+    `pet_id` 만으로 찾으면 남의 기록을 읽는다 (D-52 원칙).
+
+    `weight_kg` 는 nullable — 매일 재지 않는다. NULL 을 그대로 둔다 (D-52).
+    """
+
+    __tablename__ = "diary_entries"
+
+    entry_id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
+    pet_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("pets.pet_id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.user_id"), nullable=False)
+    recorded_date: Mapped[date] = mapped_column(Date, nullable=False)  # 캘린더용 (날짜만)
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    weight_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    meals: Mapped[str | None] = mapped_column(Text, nullable=True)      # JSON array
+    symptoms: Mapped[str | None] = mapped_column(Text, nullable=True)   # JSON array
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    droppings: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 조류 전용
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
 
 
 class ChatMessage(Base):
@@ -103,7 +144,7 @@ class ChatMessage(Base):
         String(36), primary_key=True, default=lambda: str(uuid4())
     )
     session_id: Mapped[str] = mapped_column(
-        String(32), ForeignKey("chat_sessions.session_id"), nullable=False
+        String(32), ForeignKey("chat_sessions.session_id", ondelete="CASCADE"), nullable=False
     )
     seq: Mapped[int] = mapped_column(Integer, nullable=False)
     role: Mapped[str] = mapped_column(String(10), nullable=False)  # user / assistant
