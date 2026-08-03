@@ -1,5 +1,3 @@
-# 0802 권소라 내용 추가 : def update_pet, def delete_pet 내용 추가 / import PetUpdate, import Response 추가
-
 """반려동물 프로필 라우터.
 
     POST /api/pets            등록
@@ -20,7 +18,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from ..contracts import PetCreate, PetResponse, PetUpdate

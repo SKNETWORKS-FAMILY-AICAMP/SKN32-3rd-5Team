@@ -1,6 +1,3 @@
-# 0801 권소라 내용추가 : RecordCreate 클래스에 weight 내용추가
-# 0802 권소라 내용추가 : 반려동물 수정내용을 위해 class PetUpdate(BaseModel) 추가
-
 """API 계약 — 프론트(WS5)와 파이프라인(WS2)의 인터페이스.
 
 설계 근거: docs/02_시스템-아키텍처.md §9 · §12 · docs/00 §9.3
