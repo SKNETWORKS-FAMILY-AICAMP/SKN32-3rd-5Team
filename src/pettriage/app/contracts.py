@@ -36,6 +36,7 @@ from pydantic import (
 from ..compute.vocabulary import SPECIES as _SPECIES
 from ..compute.vocabulary import check_substance
 from ..safety import has_contact
+from ..triage.basis import Basis, stated_in
 from ..triage.levels import TriageLevel
 
 #: **폐쇄 목록 안의 물질명만** 담을 수 있는 문자열 (D-59 ① · D-40).
@@ -166,6 +167,57 @@ class Citation(_Strict):
         return self
 
 
+class ComputedMetrics(_Strict):
+    """**코드가 계산한 수치** (D-16 · 02 §7.1).
+
+    LLM 이 아니라 `compute/` 가 낸 값만 들어온다. 그래서 재현되고, 감사할 수 있다 —
+    04 §8 이 요구하는 *"같은 입력에 같은 숫자"* 는 이 경로에서만 보장된다.
+
+    ⚠️ 2026-08-02 까지 이 값은 **응답에 실리지 않았다.** `compute_metrics` 가
+        `GraphState["computed"]` 를 채웠지만 읽는 곳이 하나도 없었고, 같은 노드가
+        함께 내는 `rule_level` 만 살아남았다. 등급은 나가는데 **그 등급을 만든
+        수치는 안 나갔다** — 산출물 ④에서 *"코드가 계산했다"* 를 보일 물증이 없었다.
+
+    ⚠️ **비어 있어도 실패가 아니다.** 체중이나 섭취량을 모르면 계산할 것이 없고,
+        그때는 이 필드가 통째로 `None` 이다. 없는 값을 0으로 채우지 않는다 (D-10).
+
+    종에 따라 채워지는 칸이 다르다 (D-09) —
+      · 개·고양이 → `dose_per_kg` (g/kg). 독성 역치 판정에 쓴다
+      · 앵무새    → `daily_energy_kcal` (BER = K × Wkg^0.75). 정량 독성 판정은 안 한다
+    """
+
+    dose_per_kg: float | None = None
+    daily_energy_kcal: float | None = None
+    #: 값의 단위. **수치와 떨어뜨려 두지 않는다** — 단위 없는 숫자는 근거가 아니다.
+    unit: str | None = None
+    formula: str | None = None
+    k_value: float | None = None
+
+
+class GroundingReport(_Strict):
+    """④ 근거 검증 결과 (02 §2 · 04 ④ 지표).
+
+    ⚠️ **이것은 "탐지율"이지 "재현율"이 아니다.** 04 는 ④의 지표를
+    *"근거없음 탐지 재현율 — 놓치면 환각이 나간다"* 로 정했는데, 재현율을 재려면
+    *"실제로 근거 없는 문장"* 의 정답 라벨이 있어야 한다. 우리에게는 없다.
+    여기 있는 것은 **검증기가 몇 문장을 봤고 몇 개를 걸렀나**뿐이다.
+    없는 것을 있는 것처럼 부르지 않는다 (04 §8).
+
+    🔴 **검증기는 LLM 이 아니다.** `Task.VERIFY` 프롬프트와 라벨이 있는데
+    `verify_grounding` 은 그것을 부르지 않고 **2-gram 문자 일치율**로 판정한다
+    (2026-08-03 확인). 05 §4 는 ④를 LLM 태스크로 적어 두었으므로 문서와 코드가
+    어긋나 있다. 그래서 `unsupported` 가 0 이어도 *"환각이 없었다"* 로 읽지 않는다 —
+    **검증기가 약해서 못 잡은 것과 구별되지 않는다.**
+    """
+
+    #: 검사한 문장 수. 0이면 검증이 돌지 않았다는 뜻이다 (거절·되묻기 경로).
+    checked: int = Field(default=0, ge=0)
+    unsupported: int = Field(default=0, ge=0)
+    contradicted: int = Field(default=0, ge=0)
+    #: 검증 실패로 **재검색을 탔는가** (02 §2 · 1회 상한).
+    retried: bool = False
+
+
 class TriageResult(_Strict):
     """트리아지 배지 + 감사 정보 (02 §7.2 · D-09 · D-39).
 
@@ -193,6 +245,24 @@ class TriageResult(_Strict):
     rule_level: int | None = None
     llm_level: int | None = None
     overridden: bool = False
+
+    #: **이 등급이 어디서 나왔는가** (D-81). `level` 과 같은 급의 정보다.
+    #:
+    #: 🔴 `지금 전화` 배지는 50 mg/kg 을 계산해서 나온 3 과, 양을 몰라 바닥으로 깔아 둔
+    #: 3 을 **똑같이 보여준다.** 등급이라는 형식 자체가 확신을 표현하는데 그 확신의
+    #: 출처가 응답 어디에도 없었다. 골든셋 `answered` 39건 중 **26건(67%)이 결손
+    #: 상태에서 등급을 낸다** — 답변 셋 중 둘이다.
+    #:
+    #: 값이 있으면 `_basis_must_be_stated` 가 **문장에도 실렸는지 확인한다.**
+    #: 기본값이 `None` 인 것은 기존 경로를 깨지 않기 위해서다 — 새 값을 넣는 쪽만
+    #: 검사를 받는다.
+    basis: Basis | None = None
+
+    #: LLM 이 **올리려** 한 것을 게이트가 막았는가 (D-80).
+    #: 규칙 등급이 **정량 계산**에서 나왔을 때만 참이다 — 출처 달린 역치와 계산된
+    #: 용량이 있는데 그 위로 올리는 것은 근거 없는 상승이기 때문이다 (D-16).
+    #: 참이면 `level` 이 `llm_level` 보다 **낮을 수 있다.** 그 경우에만 낮을 수 있다.
+    llm_capped: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -227,13 +297,34 @@ class TriageResult(_Strict):
         가 성립했다. D-09 를 우회하는 길은 *게이트를 안 부르는 것*이 아니라
         **부른 뒤 결과를 덮는 것**이었고, 계약이 그 문을 열어 두고 있었다.
         """
-        floor = max(self.rule_level or 0, self.llm_level or 0)
+        # **바닥은 규칙이다.** LLM 은 못 잰 자리에서만 그 위로 올릴 수 있다 (D-80).
+        # `llm_capped` 가 참이면 LLM 의 상승분은 바닥에 넣지 않는다 — 넣으면
+        # *올리지 않기로 한 결정*을 계약이 다시 강제하게 된다.
+        floor = self.rule_level or 0
+        if not self.llm_capped:
+            floor = max(floor, self.llm_level or 0)
         if self.level < floor:
             raise ValueError(
                 f"level={self.level} 이 게이트 바닥 {floor} 보다 낮다 — "
                 f"하향 금지 게이트의 결과를 덮을 수 없다 (D-09). "
-                f"rule_level={self.rule_level} llm_level={self.llm_level}"
+                f"rule_level={self.rule_level} llm_level={self.llm_level} "
+                f"llm_capped={self.llm_capped}"
             )
+        # 🔴 **막았다고 적었으면 실제로 막혀 있어야 한다.** 참인데 등급이 LLM 을
+        #    따라가 있으면 감사 정보가 거짓이 된다 (산출물 ④가 이 값을 근거로 쓴다).
+        if self.llm_capped:
+            if self.rule_level is None or self.llm_level is None:
+                raise ValueError("llm_capped 는 rule·llm 이 둘 다 있을 때만 참이 될 수 있다.")
+            if self.llm_level <= self.rule_level:
+                raise ValueError(
+                    f"llm_capped 인데 llm_level={self.llm_level} 이 "
+                    f"rule_level={self.rule_level} 을 넘지 않는다 — 막을 것이 없었다."
+                )
+            if self.level != self.rule_level:
+                raise ValueError(
+                    f"llm_capped 인데 level={self.level} 이 rule_level={self.rule_level} "
+                    "과 다르다 — 막았다면 규칙 등급이 그대로 나가야 한다 (D-80)."
+                )
         lv = TriageLevel(int(self.level))
         if self.name != lv.name or self.badge != lv.badge:
             raise ValueError(
@@ -318,6 +409,31 @@ class AskResponse(_Strict):
     #:
     #: **못 하는 것을 한다고 적지 않는다** (D-58).
     identified_substance: SubstanceName | None = None
+
+    #: **코드가 계산한 수치.** 계산할 슬롯이 없으면 `None` (D-16 · D-10).
+    computed: ComputedMetrics | None = None
+
+    #: 이 응답을 만들며 **LLM 대신 폴백으로 처리된 태스크** 이름 (05 §6 · 04 §3).
+    #:
+    #: 비어 있으면 다섯 태스크가 전부 모델을 탔다는 뜻이다. `(raw)` 는 5태스크 밖의
+    #: 호출(초안·트리아지 판정)이다.
+    #:
+    #: 🔴 **이것이 없으면 비교군 측정을 해석할 수 없다.** 성적이 나쁠 때
+    #:    *모델이 못한 것*인지 *모델이 안 불린 것*인지 구분이 안 된다 — 이서은 팀원이
+    #:    잡은 D-73(라벨 누락으로 LLM 이 키워드 폴백보다 나빴다)이 오래 안 보인 이유가
+    #:    그 구분이 없었기 때문이다. 하네스가 이 값을 집계해 리포트에 싣는다.
+    llm_fallbacks: list[str] = Field(default_factory=list)
+
+    #: D-47 로 **뺀 문장의 개수.** 0이면 아무것도 안 뺐다.
+    #:
+    #: 🔴 **뺀 문장 자체는 싣지 않는다.** 그 안에 방금 지운 번호가 그대로 들어 있어,
+    #:    목록으로 돌려주면 필드만 바꿔 다시 내보내는 꼴이 된다. 개수만으로도
+    #:    *"필터가 돌긴 했나"* 라는 질문에는 답할 수 있고, 무엇을 뺐는지는 로그에 남는다
+    #:    (`safety_engine.scrub_response` 의 경고).
+    removed_contact_count: int = Field(default=0, ge=0)
+
+    #: ④ 근거 검증이 무엇을 봤나. **검증이 돌지 않았으면 `None`** — 0건과 다르다.
+    grounding: GroundingReport | None = None
 
     #: 02 §9 — 상태와 무관하게 항상 나간다.
     disclaimer: str = DISCLAIMER
@@ -410,6 +526,33 @@ class AskResponse(_Strict):
             raise ValueError(
                 f"추정 물질 {self.assumed_substance!r} 로 답하면서 그 가정을 문장에 밝히지 않았다 "
                 "(D-59). 밝히지 않은 추정은 환각이다."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _basis_must_be_stated(self) -> AskResponse:
+        """**등급의 근거를 숨길 수 없다** (D-81).
+
+        `_assumption_must_be_stated` 와 같은 자리, 같은 이유다. 거기서는 *물질*의
+        가정을 밝혔고 여기서는 *등급*의 출처를 밝힌다.
+
+        왜 필드만으로는 부족한가 — `basis` 를 JSON 에 넣어도 **화면은 배지를 보여준다.**
+        `지금 전화` 라는 배지는 계산해서 나온 3 과 양을 몰라 깔아 둔 3 을 똑같이
+        보여주고, 사람은 배지를 읽는다. 그래서 **문장에도 있어야** 밝힌 것이 된다.
+
+        붙이기로 *약속*하면 언젠가 빠진다. 여기서 막으면 못 빠뜨린다
+        (D-40 — *"지키기로 한 것이 아니라 못 어기는 것"*).
+
+        ⚠️ 태그 문자열을 여기 적지 않는다. `triage.basis.stated_in` 이 판정하고,
+        만드는 쪽(`GraphEngine._basis_notice`)도 같은 모듈을 본다 (D-22).
+        """
+        if self.triage is None or self.triage.basis is None:
+            return self
+        if not stated_in(self.triage.basis, self.full_text):
+            raise ValueError(
+                f"판정 근거 {self.triage.basis!r} 로 등급을 내면서 그 사실을 문장에 "
+                "밝히지 않았다 (D-81). 배지만으로는 계산한 3 과 몰라서 깔아 둔 3 이 "
+                "구별되지 않는다."
             )
         return self
 

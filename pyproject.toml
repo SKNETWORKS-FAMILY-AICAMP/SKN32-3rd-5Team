@@ -44,6 +44,15 @@ api = [
 ]
 rag = [
   # langgraph·langchain-core 는 **핵심 의존성으로 올라갔다** (위 dependencies 참조).
+  # LLM 연동을 LangChain 으로 한다 (D-71 · 필수 산출물).
+  # 벡터DB는 chromadb 직접 — 이유는 `client.py::LangChainClient` 머리말.
+  # ⚠️ **상한이 아니라 하한이 문제였다.** 처음에 `>=0.3.35` 로 적었다가
+  #    설치가 `ResolutionImpossible` 로 죽었다 (2026-08-02) —
+  #      0.3.35 → langchain-core>=0.3.78 · openai>=1.104.2
+  #    핀은 core 0.3.63 · openai 1.59.6 이라 **연쇄로 넷을 다 올려야** 했다.
+  #    0.3.8 은 기존 핀 전부와 그대로 맞는다. 마감 이틀 전에 의존성 넷을 올리는 것보다
+  #    한 칸 낮은 버전을 쓰는 쪽이 싸다 — 우리가 쓰는 것은 `ChatOpenAI` 하나다.
+  "langchain-openai>=0.3.8,<0.4",
   "langchain-community>=0.3.24,<0.4",
   "sentence-transformers>=3.3,<4",
   "chromadb>=0.6.3,<0.7",
@@ -66,6 +75,19 @@ db = [
   # **9바이트 비밀번호에서도 ValueError 가 난다.** bcrypt 를 직접 쓴다 (app/auth.py).
   "bcrypt>=4.2,<5",
   "PyJWT>=2.10,<3",
+]
+# Qwen 을 **로컬에서 서빙**할 때만 (04 비교군 C·D · D-65).
+#
+# ⚠ `[train]` 과 나누는 이유 — 학습에는 trl·datasets 등이 더 필요하고,
+#   추론만 하는 팀원에게 그것까지 깔게 하면 설치가 무거워 **아무도 안 깐다.**
+#   그러면 비교군 C·D 는 영원히 미측정으로 남는다.
+#   `bitsandbytes` 는 4bit 가중치(unsloth/…-bnb-4bit)를 읽는 데 필수다.
+qwen = [
+  "torch>=2.5,<3",
+  "transformers>=4.51,<5",
+  "accelerate>=1.2,<2",
+  "bitsandbytes>=0.45,<0.46",
+  "peft>=0.14,<0.15",
 ]
 ingest = [
   "pypdf>=5.1,<6",

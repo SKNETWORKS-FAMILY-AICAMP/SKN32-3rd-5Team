@@ -120,6 +120,9 @@ def test_dotenv_example_only_advertises_working_overrides():
         pytest.skip(".env.example 없음 — 소스 트리에서만 검사한다")
     keys = set(re.findall(r"PETTRIAGE__([A-Z0-9_]+)", example.read_text(encoding="utf-8")))
     keys.discard("PROFILE")  # 프로파일은 오버라이드가 아니다
+    # **접두사를 가리키는 산문은 키가 아니다.** `PETTRIAGE__MODEL__*` 처럼 설명에서
+    # 쓰는 표기가 `MODEL__` 로 잡혀 거짓 실패를 냈다. 실제 키는 `__` 로 끝나지 않는다.
+    keys = {k for k in keys if not k.endswith("__")}
     known = {
         f"{sec}__{name}".upper()
         for sec, m in (
@@ -157,3 +160,74 @@ def test_revision_pin_is_paired_with_base_id():
     # 비우면 통과한다 — 재현이 깨지는 것은 04 §8 에 적을 일이지 막을 일이 아니다.
     free = C.ModelConfig(base_id="unsloth/Qwen3-4B-unsloth-bnb-4bit", revision=None)
     assert free.revision is None
+
+
+class TestArms:
+    """04 §3 비교군 넷이 **이름 하나로 갈아 끼워지는가** (D-65 · arms.py).
+
+    가중치를 받지 않고 검사한다 — 배선이 맞는지는 설정만 보면 안다.
+    """
+
+    def _cfg(self, arm: str):
+        from pettriage.models.serving.arms import apply_arm
+
+        apply_arm(arm)
+        return C.load_config("default").model
+
+    def test_all_four_arms_are_distinct(self, monkeypatch: pytest.MonkeyPatch):
+        """넷이 서로 다른 구성을 만든다. 같으면 비교표가 같은 값을 네 번 적는다."""
+        monkeypatch.setattr("os.environ", dict(__import__("os").environ))
+        seen = {}
+        for arm in ("none", "A", "D", "C"):
+            m = self._cfg(arm)
+            seen[arm] = (m.provider, m.api_model, m.base_id, m.adapter_path)
+        assert len(set(seen.values())) == 4, seen
+
+    def test_D_has_no_adapter_and_C_has_one(self, monkeypatch: pytest.MonkeyPatch):
+        """**D 와 C 를 가르는 것은 어댑터뿐이다.**
+
+        손으로 환경변수를 맞추면 `adapter_path` 가 남아 **D 를 잰다고 생각하며
+        C 를 잰다.** `arms.py` 가 D 에서 명시적으로 비우는 이유다.
+        """
+        monkeypatch.setattr("os.environ", dict(__import__("os").environ))
+        assert self._cfg("D").adapter_path is None
+        assert self._cfg("C").adapter_path == "artifacts/adapters/qwen3-4b-mt"
+        # 순서를 뒤집어도 같아야 한다 — C 를 먼저 돌린 뒤 D 가 오염되면 안 된다.
+        assert self._cfg("D").adapter_path is None
+
+    def test_none_arm_yields_no_client(self, monkeypatch: pytest.MonkeyPatch):
+        """기준선은 **어떤 환경에서도** 돈다 — 이것이 성립해야 비교의 바닥이 생긴다."""
+        monkeypatch.setattr("os.environ", dict(__import__("os").environ))
+        from pettriage.models.serving.arms import apply_arm
+        from pettriage.models.serving.factory import get_client
+
+        apply_arm("none")
+        assert get_client() is None
+
+    def test_every_arm_is_documented(self):
+        """`NEEDS` 가 비면 팀원이 무엇을 깔아야 하는지 알 수 없다."""
+        from pettriage.models.serving.arms import ARMS, NEEDS
+
+        assert set(ARMS) == set(NEEDS)
+        assert all(NEEDS[a].strip() for a in ARMS)
+
+    def test_arm_clears_leftovers_from_a_previous_run(self, monkeypatch: pytest.MonkeyPatch):
+        """**앞 실험이 다음 측정에 새어 들지 않는다** (2026-08-02 실측).
+
+            $env:PETTRIAGE__MODEL__BASE_ID="unsloth/…"   (Qwen 시도)
+            python … --arm A     ← PROVIDER 만 덮이고 BASE_ID 는 남는다
+            → 리포트 provenance 에 base_id=unsloth/… 가 박힌다. **거짓이다.**
+
+        `arms.py` 의 존재 이유가 *"하나 빠뜨리면 다른 조건으로 재고도 모른다"* 인데,
+        **덮어쓰기만 해서는 그 문제가 그대로 남았다.**
+        """
+        import os
+
+        monkeypatch.setattr("os.environ", dict(os.environ))
+        monkeypatch.setenv("PETTRIAGE__MODEL__BASE_ID", "unsloth/Qwen3-4B-unsloth-bnb-4bit")
+        monkeypatch.setenv("PETTRIAGE__MODEL__REVISION", "null")
+
+        m = self._cfg("A")
+        assert m.base_id == "Qwen/Qwen3-4B", "앞 실험의 base_id 가 남았다"
+        assert m.revision, "앞 실험이 revision 을 비워 둔 채로 남았다"
+        assert "PETTRIAGE__MODEL__BASE_ID" not in os.environ

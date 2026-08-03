@@ -24,13 +24,19 @@ from __future__ import annotations
 
 import logging
 
-from ...models.tasks import Task
+from ...models.tasks import SPECS, Task
+from ..fallbacks import note_fallback
 from ..state import GraphState
 
 log = logging.getLogger(__name__)
 
 #: 허용 라벨. LLM 출력이 여기 없으면 폴백한다 (05 §4).
-ALLOWED_INTENTS = ("intoxication", "symptom", "nutrition", "general")
+#:
+#: ⚠️ **프롬프트와 같은 것을 본다** (D-73 · D-22). 손으로 적어 두면
+#: *"코드는 아는데 모델은 모르는 목록"* 이 생기고, 실제로 그랬다 —
+#: 모델이 `'위험성우려'` 를 내고 코드가 전부 `unknown` 으로 걸러 거절이 됐다.
+#: 여기 `" "` 가 들어가 있던 사고(2026-08-02)도 두 곳에 적혀 있어서 안 드러났다.
+ALLOWED_INTENTS = SPECS[Task.CLASSIFY].labels
 
 
 def _mentions_substance(question: str) -> bool:
@@ -151,6 +157,7 @@ def _llm_classify(question: str) -> str | None:
 
     client = get_client()
     if client is None:
+        note_fallback(Task.CLASSIFY)
         return None
 
     try:
@@ -158,6 +165,7 @@ def _llm_classify(question: str) -> str | None:
         return raw.strip().lower()
     except Exception as e:
         log.warning("classify LLM 호출 실패 — 키워드 폴백: %s", type(e).__name__)
+        note_fallback(Task.CLASSIFY)
         return None
 
 
@@ -169,7 +177,11 @@ def classify_intent(state: GraphState) -> GraphState:
     검색해 봐야 관련 없는 청크가 0.5대로 딸려 오기 때문이다.
 
     Returns:
-        `{"intent": ..., "risk": ...}` 만. 목록 밖이면 `intent="unknown"`.
+        `{"intent": ...}` 만. 목록 밖이면 `intent="unknown"`.
+
+    ⚠️ 예전에는 `{"intent": intent, "risk": intent}` 로 **같은 값을 두 키에** 넣었다.
+        `risk` 를 읽는 곳은 어디에도 없었고, 값이 `intent` 의 사본이라 읽을 것도 없었다.
+        상태에 남은 안 읽히는 키는 *"누군가 쓰고 있겠지"* 로 보여 지우기 어려워진다.
     """
     question = state.get("question", "")
 
@@ -186,4 +198,4 @@ def classify_intent(state: GraphState) -> GraphState:
         log.warning("intent 허용목록 밖: %r → 'unknown'", intent)
         intent = "unknown"
 
-    return {"intent": intent, "risk": intent}  # type: ignore[typeddict-item]
+    return {"intent": intent}  # type: ignore[typeddict-item]

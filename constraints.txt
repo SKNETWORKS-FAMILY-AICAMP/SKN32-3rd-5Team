@@ -1,3 +1,14 @@
+# -*- coding: utf-8 -*-
+#
+# 🔴 **첫 줄을 지우지 않는다.** pip 은 BOM 도 코딩 선언도 없으면 requirements 파일을
+#    **시스템 로캘**로 디코딩한다 (`pip/_internal/utils/encoding.py::auto_decode`).
+#    한국어 윈도우는 cp949 라, 아래 한글 주석에서 이렇게 터진다 —
+#
+#      UnicodeDecodeError: 'cp949' codec can't decode byte 0xed in position 16
+#
+#    리눅스 CI 는 UTF-8 이라 **절대 안 걸린다.** 팀원 PC 에서만 설치가 실패하고,
+#    설치가 안 되면 그 사람은 아무것도 못 한다 (2026-08-03 실측 · 새 기기).
+#    `auto_decode` 는 앞 두 줄에서 이 선언을 찾으므로 **여기 있어야 한다.**
 # 버전 고정 파일 (pip constraints) — 04 §8 재현성
 #
 #   무엇을 설치할지는 pyproject.toml 의 extras 가 정하고,
@@ -24,6 +35,12 @@ langgraph==0.2.62
 # langchain-community 0.3.24 부터 numpy<2 제약이 풀린다 (py3.11 에서 필수)
 langchain-core==0.3.63
 langchain-community==0.3.24
+# LLM 연동을 LangChain 으로 한다 (D-71). **0.3.8 이 위 핀들과 맞는 가장 높은 버전이다** —
+# 0.3.35 는 core>=0.3.78 · openai>=1.104.2 를 요구해 넷을 연쇄로 올려야 한다.
+langchain-openai==0.3.8
+# langchain-community 가 umbrella 를 끌고 온다. 안 박아두면 pip 이 최신을 집어
+# core 상한과 충돌한다.
+langchain==0.3.25
 langsmith==0.2.10
 
 # ── 임베딩 · 벡터DB (D-19 · 02 §11) ───────────────────────
