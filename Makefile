@@ -50,12 +50,14 @@ vocab:           ## 사실 표 → 물질 어휘 폐쇄 목록 재생성 (D-59 �
 
 # 산출물 ④의 실행 진입점. 예전에는 Makefile 에 없어서 CI 에 배선할 자리도 없었다.
 # 게이트 기본값은 보수적으로 둔다 — 분모가 작으면 비율이 무의미하다.
+# ⚠️ `make eval --engine graph` 는 안 된다 — make 가 자기 플래그로 먹는다.
+#    엔진은 **프로파일이 정한다** (`configs/eval.yaml` 의 serve.engine: graph).
 eval:            ## 골든셋 평가 (정확도 + 지연). 게이트 포함
-	python eval/harness/run_eval.py --json eval/reports/latest.json \
+	PETTRIAGE_PROFILE=eval python eval/harness/run_eval.py --json eval/reports/latest.json \
 		--fail-under 0.05 --fail-missed 0.30 --min-graded 10
 
-index:           ## 사실 표 → 청크 (적재는 --store chroma)
-	python scripts/build_index.py
+index:           ## 사실 표 → 청크 **+ Chroma 적재** (D-44)
+	python scripts/build_index.py --store chroma
 
 train:           ## Qwen3-4B QLoRA 학습 (GPU 필요)
 	PETTRIAGE_PROFILE=train python -m pettriage.models.training.qlora \

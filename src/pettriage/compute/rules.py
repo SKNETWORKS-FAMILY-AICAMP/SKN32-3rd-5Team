@@ -424,3 +424,106 @@ def rule_level_for(substance: str, species: str, amount_mg_per_kg: float) -> Rul
         crossed=tuple(crossed),
         reason=f"'{top.threshold_type}' 역치 {top.dose}{top.unit} 초과 ({top.fact_id})",
     )
+
+
+# ─────────────────────────────────────────────────────────────
+# 정성 등급 — **양을 몰라도 나오는 바닥** (D-50 · 2026-08-02 흡수)
+# ─────────────────────────────────────────────────────────────
+QUAL_TABLE_NAME = "정성등급.csv"
+
+
+@dataclass(frozen=True)
+class QualVerdict:
+    """정성 판정 결과. `level=None` 이면 **근거가 없다** — 만들지 않는다 (D-38)."""
+
+    level: TriageLevel | None
+    conditions: tuple[str, ...] = ()
+    matched: str = ""
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class QualRule:
+    """(물질 × 종) 정성 등급 한 행. **생성물이다** (`make rules`)."""
+
+    substance: str
+    species: str
+    level: int
+    signs: tuple[str, ...]
+    fact_ids: tuple[str, ...]
+    source_ids: tuple[str, ...]
+
+
+def _qual_path() -> Path:
+    p = resources.files("pettriage.compute") / "tables" / QUAL_TABLE_NAME
+    with resources.as_file(p) as real:
+        if real.exists():
+            return real
+    raise RuleTableMissingError(
+        f"{QUAL_TABLE_NAME} 를 찾지 못했다 (compute/tables/). `make rules` 로 생성한다."
+    )
+
+
+@lru_cache(maxsize=1)
+def load_qual_rules() -> tuple[QualRule, ...]:
+    """정성 등급 표 전체. **손으로 고치지 않는다** — 고칠 곳은 `facts_*.csv` 다 (D-22)."""
+    out: list[QualRule] = []
+    with _qual_path().open(encoding="utf-8-sig", newline="") as f:
+        for r in csv.DictReader(f):
+            name = (r.get("substance") or "").strip()
+            if not name:
+                continue
+            out.append(
+                QualRule(
+                    substance=name,
+                    species=(r.get("species") or "").strip(),
+                    level=int(r.get("triage_level") or 0),
+                    signs=tuple(x for x in (r.get("signs") or "").split("|") if x),
+                    fact_ids=tuple(x for x in (r.get("fact_ids") or "").split("|") if x),
+                    source_ids=tuple(x for x in (r.get("source_ids") or "").split("|") if x),
+                )
+            )
+    if not out:
+        raise RuleTableMissingError(f"{_qual_path()} 가 비었다. `make rules` 로 다시 만든다.")
+    return tuple(out)
+
+
+def qualitative_level_for(substance: str, species: str) -> QualVerdict:
+    """양을 모를 때의 **바닥 등급**. 없으면 `level=None`.
+
+    ⚠️ **이 함수가 없어서 조류가 통째로 죽었다** (2026-08-02 흡수에서 드러남).
+
+        코퍼스 888행 중 정성 등급 보유 91행 — 그중 **조류 25행**
+        정량 역치 보유 249행 중 계산 가능 15행 — 그중 **조류 0행**
+
+    조류는 처음부터 **정성으로만** 답하게 설계돼 있었는데(D-09 개정) 그 표가 없었다.
+    `graph/engine.py` 안의 하드코딩 12줄이 그 자리를 대신하고 있었다.
+
+    같은 (물질 × 종)에 등급이 여럿이면 생성 단계에서 **높은 쪽**을 남겼다 (D-13).
+    종은 코퍼스 표기가 덮는 범위로 넓혀 본다 — `mammal` 은 개·고양이, `all` 은 전 종.
+
+    **정량이 우선이다.** 양을 알고 계산이 되면 `rule_level_for` 가 답한다.
+    이건 그것이 성립하지 않을 때의 바닥이고, `apply_gate` 가 LLM 판정과 `max` 를 취한다.
+    """
+    if not substance or not species:
+        return QualVerdict(None, reason="물질 또는 종이 없다")
+
+    from .vocabulary import covers_of
+
+    hit = [
+        q
+        for q in load_qual_rules()
+        if species in covers_of(q.species)
+        and (substance in q.substance or q.substance in substance)
+    ]
+    if not hit:
+        return QualVerdict(None, reason=f"{substance}·{species} 에 정성 등급이 없다")
+
+    top = max(hit, key=lambda q: q.level)
+    signs = tuple(dict.fromkeys(s for q in hit for s in q.signs))
+    return QualVerdict(
+        TriageLevel(top.level),
+        conditions=signs,
+        matched=top.substance,
+        reason=f"{top.substance}·{top.species} 정성 등급",
+    )

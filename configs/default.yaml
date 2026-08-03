@@ -6,11 +6,41 @@
 # 비밀·환경차이(API 키·DB 주소)는 여기 두지 않는다. .env 로 간다.
 
 model:
+  # **어느 모델로 답하는가** (D-65 · 04 §3 비교군).
+  #   none  모델 없음 — 5태스크 전부 폴백 (기준선)
+  #   api   대형 LLM 또는 OpenAI 호환 엔드포인트 (비교군 A / D-근사)
+  #   qwen  아래 base_id 를 직접 로드 (비교군 D, adapter_path 있으면 C)
+  # ⚠️ 2026-08-02 까지 이 키가 없었고 노드가 APIClient 를 직접 만들었다.
+  #    그래서 아래 base_id·revision·adapter_path 가 **서빙에 안 닿았다.**
+  provider: api
+  api_model: gpt-4o-mini
+  # Qwen3-4B 를 호스팅 API 로 부를 때 채운다 (GPU 없이 비교군 D 근사).
+  #   api_base_url: https://api.together.xyz/v1
+  #   api_model: Qwen/Qwen3-4B
+  # ⚠️ 사업자 가중치의 revision·양자화를 확인할 수 없어 아래 revision 핀이
+  #    걸리지 않는다. 리포트에 `D(근사·호스팅)` 로 적는다 (04 §8).
+  api_base_url: null
+
   # D-42 — Qwen3-4B. revision 을 비워두면 재현이 깨지므로 학습 착수 시 커밋 해시를 박는다.
   # 2026-08-01 스모크 테스트 시점 HF 캐시에서 확인한 해시 (refs/main).
+  # 04 비교군 D. **`revision` 은 `base_id` 와 짝이다** — 저장소를 바꾸면 함께 바꾼다.
+  #   설정 검증이 막는다 (`_revision_belongs_to_base_id`).
+  #
+  # 미리 4bit 양자화된 가중치를 쓰면 GPU 문턱이 크게 내려간다 —
+  #   Qwen/Qwen3-4B                      받기 ≈8GB · VRAM ≈9GB(bf16)
+  #   unsloth/Qwen3-4B-unsloth-bnb-4bit  받기 ≈3GB · VRAM ≈3.5GB
+  # 쓰려면 두 줄을 함께 바꾼다. 양자화가 성능에 영향을 주므로
+  # **04 비교표에는 `D(4bit)` 로 적고, 실제로 받은 커밋을 §8 에 기록한다.**
+  #   base_id: unsloth/Qwen3-4B-unsloth-bnb-4bit
+  #   revision: <그 저장소의 커밋 해시>
   base_id: Qwen/Qwen3-4B
   revision: 1cfa9a7208912126459214e8b04321603b3df60c
   max_seq_len: 4096
+  # 서빙에서도 읽는다 (D-69). 환경이 못 해 주면 폴백하고 **로그를 남긴다** —
+  #   GPU 없음        → float32/CPU (4B 생성은 매우 느리다)
+  #   bitsandbytes 없음 → dtype 그대로 (bf16 ≈ VRAM 9GB · 4bit ≈ 3.5GB)
+  #   accelerate 없음  → device_map='auto' 없이 단순 로드
+  # 끄지 않고 표시한다 — 4bit 로 재려던 실험이 조용히 bf16 으로 돌면 04 §8 이 무너진다.
   dtype: bfloat16
   load_in_4bit: true
   adapter_path: null
@@ -41,8 +71,12 @@ retrieval:
   # 임계값만으로는 거절을 만들 수 없다. 근거 있는 질의를 거절하지 않는 쪽으로 낮게 둔다.
   # 재현: python scripts/calibrate_threshold.py
   score_threshold: 0.50
+  # ⚠️ **미구현** — 리랭커가 없다. 켜도 아무 일도 일어나지 않는다 (04 E2 비교군 변수).
+  #    `tests/test_config_is_read.py::UNREAD_BY_DESIGN` 에 사유와 함께 등록돼 있다.
+  #    **못 하는 것을 한다고 적지 않는다** (D-58) — 구현하면 그 목록에서 뺀다.
   rerank: false
-  chunk_strategy: substance      # D-14 물질 단위
+  # ⚠️ **미구현** — 적재 전략은 `scripts/build_index.py` 가 고정한다. 이 값은 안 읽힌다.
+  chunk_strategy: substance      # D-14 물질 단위 (04 E1 비교군 변수)
   fixed_chunk_size: 500          # 비교군 전용 (04 E1)
   # D-44 — 벡터DB는 Chroma. memory 는 모델·디스크 없이 도는 테스트용이다.
   store: chroma
@@ -50,6 +84,7 @@ retrieval:
   collection: external
 
 triage:
+  # ⚠️ **미배선** — 게이트는 `llm_level` 이 있느냐로 이미 분기한다. 이 스위치는 안 읽힌다.
   llm_fallback: true
   max_clarify_turns: 2
   # 조류는 체중당 임계치가 0건이라 정량 슬롯을 요구하지 않는다 (D-09 개정).

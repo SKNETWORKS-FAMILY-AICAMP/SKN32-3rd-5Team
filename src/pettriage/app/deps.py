@@ -64,9 +64,14 @@ def _build_engine() -> QAEngine:
 
             return GraphEngine()
         except Exception as e:  # noqa: BLE001 — ImportError · EngineNotReady · 그 밖의 기동 실패
+            # ⚠️ **원인을 삼키지 않는다.** 예전에는 예외 **종류**만 실었다 —
+            #    `EngineNotReady` 만 보고는 *"노드가 안 됐나"* 인지
+            #    *"패키지가 없나"* 인지 알 수 없다. `GraphEngine` 이 재설치 명령까지
+            #    담아 던지는데 그 문장이 여기서 버려지고 있었다.
             msg = (
                 "serve.engine=graph 인데 GraphEngine 을 쓸 수 없다 "
-                f"({type(e).__name__}). 스텁으로 기동하면 평가 결과가 오염된다 (04 §8)."
+                f"({type(e).__name__}): {e}\n"
+                "스텁으로 기동하면 평가 결과가 오염된다 (04 §8)."
             )
             if os.getenv("PETTRIAGE_ALLOW_ENGINE_FALLBACK") != "1":
                 raise EngineUnavailable(msg) from e
@@ -190,6 +195,28 @@ def get_current_user_id(credentials: HTTPAuthorizationCredentials | None = _bear
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 토큰입니다."
         ) from None
+
+
+def get_optional_db():
+    """DB 세션 — **없으면 `None`.** 채팅 이력처럼 **부수 작업**이 쓴다.
+
+    `get_db` 와 나누는 이유 — `get_db` 는 DB 가 있어야 성립하는 라우터(`auth`·`pets`)용이라
+    실패하면 요청이 죽어야 한다. 이력 저장은 **실패해도 응답이 나가야 한다**
+    (`chat_logger` 머리말: *"로깅이 서비스를 죽이면 안 된다"*).
+
+    ⚠️ 이 함수는 흡수 전 `routes/ask.py` 안에 `_get_optional_db` 로 있었다.
+    라우터가 `..database` 를 직접 임포트하는 형태였고, **D-48 표의 2번 항목이
+    그대로 재발한 것**이다 — *주입 지점은 이 파일 하나다* (D-40).
+    라우터 안에 두면 `app.dependency_overrides` 로 테스트가 못 끼운다.
+    """
+    if not os.getenv("DATABASE_URL"):
+        yield None
+        return
+    try:
+        yield from get_db()
+    except Exception as e:  # noqa: BLE001 — DB 문제로 API 가 죽지 않게 한다
+        log.warning("optional DB 세션 획득 실패: %s", type(e).__name__)
+        yield None
 
 
 #: DB 없는 데모 구성의 단일 소유자.
