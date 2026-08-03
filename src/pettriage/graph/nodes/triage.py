@@ -140,11 +140,26 @@ _TOXIC_DOC_TYPES = ("toxicity_food", "toxicity_plant", "emergency")
 
 
 def _evidence_is_toxic(state: GraphState) -> bool:
-    """검색된 근거가 **독성·응급 자료**인가.
+    """**중독 질의이고** 검색된 근거가 독성·응급 자료인가 (D-84).
 
-    `Chunk.doc_type` 을 본다. 물질 이름을 코드에 적지 않는다 — 적는 순간
-    `engine.py` 안에 `_RULE_TABLE` 12줄이 있던 그 자리로 되돌아간다 (D-16 · D-38).
+    조건이 둘이다.
+
+    ① `intent == "intoxication"` — ①분류가 *"무언가를 먹었다"* 라고 판정한 질의.
+    ② 근거의 `Chunk.doc_type` 이 독성·응급.
+
+    🔴 **①을 빼먹었다가 블루베리에 "지금 전화" 를 냈다** (G-007, 2026-08-03 실측).
+       급여 질의인데 검색이 초콜릿 자료(S-034)를 딸려왔고, 판별이 *"히트 중 하나라도
+       독성이면"* 이라 그것을 근거로 읽었다. 검색은 질의와 무관한 문서도 가져온다 —
+       **무엇을 물었는지는 히트가 아니라 ①이 안다.**
+
+       D-79 주석이 G-041 에서 얻은 교훈이 바로 이것이다: *"물어볼 이유가 없는 것을
+       모른다고 등급을 올리면 되묻기가 아니라 겁주기가 된다."*
+
+    물질 이름을 코드에 적지 않는다 — 적는 순간 `engine.py` 안에 `_RULE_TABLE`
+    12줄이 있던 그 자리로 되돌아간다 (D-16 · D-38).
     """
+    if state.get("intent") != "intoxication":
+        return False
     for h in state.get("hits") or []:
         chunk = getattr(h, "chunk", None)
         doc_type = getattr(chunk, "doc_type", None) or getattr(h, "doc_type", None)

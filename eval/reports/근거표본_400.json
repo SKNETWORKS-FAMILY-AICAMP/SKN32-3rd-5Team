@@ -1,0 +1,169 @@
+[
+  {
+    "case_id": "G-001",
+    "case_type": "dose",
+    "species": "dog",
+    "question": "강아지가 다크초콜릿을 새끼손톱만큼 먹었는데 그 정도 양이면 괜찮겠죠",
+    "status": "answered",
+    "context_chars": 437,
+    "checked": 3,
+    "unsupported": 2,
+    "sentences": [
+      {
+        "verdict": "근거없음",
+        "ratio": 0.214,
+        "sentence": "강아지가 다크초콜릿을 먹은 것은 위험합니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.7,
+        "sentence": "다크초콜릿은 개에게 급여 금지로 분류되며, 초콜릿은 반려동물에게 급여 금지로 분류됩니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거없음",
+        "ratio": 0.115,
+        "sentence": "따라서, 강아지가 다크초콜릿을 먹은 경우에는 즉시 수의사와 상담하는 것이 필요합니다",
+        "redacted": false
+      }
+    ]
+  },
+  {
+    "case_id": "G-007",
+    "case_type": "dose",
+    "species": "dog",
+    "question": "강아지가 블루베리를 한 줌 집어 먹었는데 괜찮나요",
+    "status": "refused",
+    "context_chars": 574,
+    "checked": 0,
+    "unsupported": 0,
+    "sentences": []
+  },
+  {
+    "case_id": "G-028",
+    "case_type": "dose",
+    "species": "dog",
+    "question": "5kg 말티즈가 밀크초콜릿 20g 정도를 먹었어요",
+    "status": "answered",
+    "context_chars": 533,
+    "checked": 5,
+    "unsupported": 1,
+    "sentences": [
+      {
+        "verdict": "근거있음",
+        "ratio": 0.424,
+        "sentence": "5kg 말티즈가 밀크 초콜릿 20g을 섭취한 경우, 초콜릿에 포함된 테오브로민과 카페인으로 인해 중독 위험이 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.541,
+        "sentence": "밀크 초콜릿의 테오브로민 함량은 2mg/g 수준으로 보고되었으므로, 20g의 밀크 초콜릿에는 약 40mg의 테오브로민이 포함되어 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.4,
+        "sentence": "말티즈의 체중이 5kg이므로, 20mg/kg 이상의 섭취로 인해 메틸잔틴 중독이 발생할 수 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.636,
+        "sentence": "중독의 주요 증상으로는 불안, 안절부절, 구토, 설사, 흥분, 빈맥 등이 있으며, 이러한 증상은 섭취 후 2-4시간 이내에 나타날 수 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거없음",
+        "ratio": 0.0,
+        "sentence": "즉시 수의사와 상담하시기 바랍니다",
+        "redacted": false
+      }
+    ]
+  },
+  {
+    "case_id": "G-029",
+    "case_type": "dose",
+    "species": "dog",
+    "question": "5kg 말티즈가 밀크초콜릿 60g을 먹었어요",
+    "status": "answered",
+    "context_chars": 393,
+    "checked": 5,
+    "unsupported": 0,
+    "sentences": [
+      {
+        "verdict": "근거있음",
+        "ratio": 0.4,
+        "sentence": "5kg 말티즈가 밀크 초콜릿 60g을 섭취한 경우, 중증 메틸잔틴 중독의 위험이 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.458,
+        "sentence": "밀크 초콜릿에는 테오브로민이 포함되어 있으며, 개에게는 급여가 금지됩니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.474,
+        "sentence": "밀크 초콜릿의 테오브로민 함량이 2mg/g 수준으로 보고되었으므로, 60g의 밀크 초콜릿에는 약 120mg의 테오브로민이 포함되어 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.452,
+        "sentence": "이는 5kg의 체중에 대해 24mg/kg에 해당하며, 40-50mg/kg 이상 섭취 시 중증 중독이 발생할 수 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.614,
+        "sentence": "초콜릿 섭취 후 2-4시간 이내에 고혈압, 심부정맥, 심실조기수축, 근강직, 운동실조, 발작, 혼수 등의 증상이 나타날 수 있으므로, 즉시 수의사와 상담하시기 바랍니다",
+        "redacted": false
+      }
+    ]
+  },
+  {
+    "case_id": "G-030",
+    "case_type": "dose",
+    "species": "dog",
+    "question": "5kg 강아지가 다크초콜릿 50g을 먹었어요",
+    "status": "answered",
+    "context_chars": 436,
+    "checked": 5,
+    "unsupported": 1,
+    "sentences": [
+      {
+        "verdict": "근거있음",
+        "ratio": 0.423,
+        "sentence": "5kg 강아지가 다크초콜릿 50g을 섭취한 경우, 중증 메틸잔틴 중독의 위험이 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.698,
+        "sentence": "다크초콜릿은 개에게 급여 금지로 분류되며, 40-50mg/kg 이상의 테오브로민과 카페인을 섭취할 경우 중독 증상이 나타날 수 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.317,
+        "sentence": "5kg 강아지의 경우, 200-250mg의 테오브로민과 카페인을 섭취했을 가능성이 있으며, 이는 중독의 위험을 초래할 수 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.73,
+        "sentence": "주요 증상으로는 고혈압, 심부정맥, 심실조기수축, 근강직, 운동실조, 발작, 혼수가 있으며, 증상은 섭취 후 2-4시간 이내에 나타날 수 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거없음",
+        "ratio": 0.0,
+        "sentence": "즉시 수의사와 상담하시기 바랍니다",
+        "redacted": false
+      }
+    ]
+  }
+]
