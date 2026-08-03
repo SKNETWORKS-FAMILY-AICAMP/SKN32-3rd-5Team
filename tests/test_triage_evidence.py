@@ -350,3 +350,71 @@ class Test정량이면상승을막는다:
 
         with pytest.raises(ValueError, match="llm_capped"):
             TriageResult(level=4, message="지금 병원", rule_level=3, llm_level=4, llm_capped=True)
+
+
+# ── D-84 · 조건 없는 MONITOR 를 침묵으로 바꾸지 않는다 ────────────────
+class Test조건없는MONITOR:
+    """🔴 **거절은 과소평가를 침묵으로 바꿀 뿐이다** (D-84 · 2026-08-03 실측).
+
+    D-39 는 *"조건 없는 관찰은 그 자체가 과소평가"* 라고 옳게 판정했고, 그에 대한
+    조치로 출력을 막았다. 60건 측정에서 그 조치가 무엇을 만드는지가 드러났다 —
+
+        G-012 살충제 · G-018 아스피린 · G-046 고양이 초콜릿
+        셋 다 정답 CALL_NOW 인데 **사용자가 아무것도 받지 못했다.**
+
+    셋 다 사실 표에는 있는데 규칙 표에 등급도 역치도 없어(`triage_level`·
+    `threshold_type` 공란) `rule_level` 이 서지 않았고, 바닥이 없으니 LLM 의
+    MONITOR 가 그대로 최종이 됐다. **바닥이 없는 자리에서 관찰로 끝낼 수는 없다.**
+    """
+
+    @staticmethod
+    def _hit(doc_type: str):
+        class _Chunk:
+            def __init__(self, dt):
+                self.doc_type = dt
+
+        class _Hit:
+            def __init__(self, dt):
+                self.chunk = _Chunk(dt)
+
+        return _Hit(doc_type)
+
+    def test_독성_근거면_전화로_올린다(self):
+        from pettriage.graph.nodes.triage import decide_triage
+
+        st = {
+            "rule_level": None,
+            "llm_level": int(TriageLevel.MONITOR),
+            "escalation_conditions": [],
+            "hits": [self._hit("emergency")],
+        }
+        out = decide_triage(st)  # type: ignore[arg-type]
+        assert out.get("status") != "refused", "독성 근거인데 침묵으로 끝났다 (D-84)"
+        assert out["triage_level"] == int(TriageLevel.CALL_NOW)
+        assert out["rule_basis"] == "조건미비", "왜 올렸는지 밝히지 않으면 배지만 남는다 (D-81)"
+
+    def test_영양_근거면_올리지_않는다(self):
+        """블루베리(G-007)까지 올리면 되묻기가 아니라 **겁주기**다 (D-79 · G-041 교훈)."""
+        from pettriage.graph.nodes.triage import decide_triage
+
+        st = {
+            "rule_level": None,
+            "llm_level": int(TriageLevel.MONITOR),
+            "escalation_conditions": [],
+            "hits": [self._hit("nutrition")],
+        }
+        out = decide_triage(st)  # type: ignore[arg-type]
+        assert out.get("status") == "refused"
+        assert out.get("monitor_without_conditions") is True, "채점이 과소평가로 세야 한다"
+
+    def test_상승_조건이_있으면_그대로_관찰이다(self):
+        from pettriage.graph.nodes.triage import decide_triage
+
+        st = {
+            "rule_level": int(TriageLevel.MONITOR),
+            "llm_level": None,
+            "escalation_conditions": ["구토"],
+            "hits": [self._hit("emergency")],
+        }
+        out = decide_triage(st)  # type: ignore[arg-type]
+        assert out["triage_level"] == int(TriageLevel.MONITOR)

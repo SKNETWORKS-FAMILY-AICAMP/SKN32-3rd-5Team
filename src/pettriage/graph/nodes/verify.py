@@ -78,10 +78,27 @@ def verify_grounding(state: GraphState) -> GraphState:
         verdict = _judge_sentence(sentence, context)
         verdicts.append({"sentence": sentence, "verdict": verdict})
 
-    # 전부 근거없음 + 재검색 상한 도달 → 거절 (검증실패).
+    # 전부 근거없음 → **실패를 세운다. 상한 판단은 하지 않는다.**
+    #
+    # 🔴 2026-08-03 까지 이 조건에 `and retry_count >= MAX_RETRY` 가 붙어 있었고,
+    #    그래서 **재검색이 한 번도 발동할 수 없었다** —
+    #
+    #      · `verify` 가 `refused` 를 세우려면 `retry_count >= 1` 이어야 하고
+    #      · `retry_count` 를 1로 만드는 `_retry` 노드에 가려면 `refused` 여야 한다
+    #
+    #    두 조건이 상호배타라 `retry_count` 는 영원히 0이었다. 따라서
+    #    **④의 세 조치(문장 제거·재검색·거절) 중 어느 것도 일어난 적이 없고**,
+    #    05 §5 가 랭그래프를 고른 유일한 근거인 `retry → retrieve` 엣지가
+    #    죽은 코드였다. 전 문장이 근거없음이어도 그대로 답변으로 나갔다.
+    #
+    #    `build.py` 머리말이 이미 옳은 설계를 적어 두었다 —
+    #    *"상한 판단은 라우터 한 곳이고 `verify_grounding` 은 판정만 한다"*.
+    #    여기서 상한을 다시 보던 것이 그 결정을 어기고 있었다.
     all_ungrounded = bool(verdicts) and all(v["verdict"] == "근거없음" for v in verdicts)
-    if all_ungrounded and retry_count >= MAX_RETRY:
-        log.warning("verify_grounding: 전 문장 근거없음 + 재검색 상한 도달 → 거절")
+    if all_ungrounded:
+        log.warning(
+            "verify_grounding: 전 문장 근거없음 (retry_count=%d) → 재검색 또는 거절", retry_count
+        )
         return {  # type: ignore[typeddict-item]
             "status": "refused",
             "refusal_reason": "검증실패",
