@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT / "src"))
 ap = argparse.ArgumentParser()
 ap.add_argument("--in", dest="in_path", type=Path, required=True)
 ap.add_argument("--out", type=Path, required=True)
+ap.add_argument("--max-tokens", type=int, default=700)
 args = ap.parse_args()
 
 from pettriage.models.serving.factory import get_client  # noqa: E402
@@ -39,7 +40,7 @@ def _numbers_in(text: str) -> set[str]:
 
 
 for i, r in enumerate(rows, start=1):
-    target = client.run(Task.COMPRESS, r["raw_context"], max_tokens=700).strip()
+    target = client.run(Task.COMPRESS, r["raw_context"], max_tokens=args.max_tokens).strip()
     r["target"] = target
     r["hallucinated_numbers"] = bool(_numbers_in(target) - _numbers_in(r["raw_context"]))
     if i % 50 == 0:
