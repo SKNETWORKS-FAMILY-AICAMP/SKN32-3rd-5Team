@@ -1,336 +1,482 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PetTriage — 반려동물 헬스케어 다이어리 & 응급 대응</title>
-<!--
-  데모 프론트 (WS5). 빌드 도구 없이 FastAPI가 같은 출처에서 서빙한다.
-
-  설계 근거: docs/02_시스템-아키텍처.md §9 · §12
-
-  이 화면이 지켜야 하는 것 세 가지
-    ① 고지 문구는 상태와 무관하게 항상 보인다 (하단 고정)
-    ② 거절은 장애가 아니라 정상 화면이다 — 빨간 에러로 그리지 않는다
-    ③ 등급 이름·문구를 여기에 하드코딩하지 않는다
-       → /api/triage-levels 에서 받아온다 (단일 출처, 00 §9.4)
--->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PetTriage — 로그인</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#0f1113; --surface:#16191c; --surface-2:#1c2024; --line:#2a2f35;
-    --ink:#e9edf1; --ink-2:#a8b2bd; --ink-3:#6b7681;
-    --accent:#6aa9ff;
-    --l4:#ff5d5d; --l3:#ff9f43; --l2:#ffd166; --l1:#7dd3a0;
+    --bg: #FAF6EF;
+    --surface: #FFFFFF;
+    --ink: #2C2A26;
+    --ink-soft: #6B6558;
+    --ink-faint: #A39C8C;
+    --moss: #4F6B4A;
+    --moss-dark: #3A4F37;
+    --moss-soft: #E4EBE1;
+    --honey: #D89B3D;
+    --clay: #B3542F;
+    --amber: #C98A1E;
+    --line: #E5DFD2;
+    --danger-soft: #F6E4DB;
+    --radius: 20px;
   }
-  *{box-sizing:border-box}
-  body{margin:0;padding:0 0 64px;background:var(--bg);color:var(--ink);
-    font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}
-  header{border-bottom:1px solid var(--line);padding:16px 20px;display:flex;
-    align-items:baseline;gap:12px;flex-wrap:wrap}
-  header h1{font-size:16px;margin:0;letter-spacing:-.01em}
-  header .sub{color:var(--ink-3);font-size:12px}
-  header .env{margin-left:auto;color:var(--ink-3);font-size:11px;font-variant-numeric:tabular-nums}
-  nav{display:flex;gap:2px;padding:10px 20px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
-  nav button{background:none;border:none;border-bottom:2px solid transparent;color:var(--ink-3);
-    padding:8px 12px;font:inherit;font-size:13px;cursor:pointer}
-  nav button.on{color:var(--ink);border-bottom-color:var(--accent)}
-  main{max-width:860px;margin:0 auto;padding:22px 20px}
-  section{display:none} section.on{display:block}
-  h2{font-size:13px;color:var(--ink-2);margin:0 0 10px;letter-spacing:.04em;text-transform:uppercase}
-  .card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin-bottom:14px}
-  label{display:block;color:var(--ink-2);font-size:12px;margin-bottom:4px}
-  input,select,textarea{width:100%;background:var(--surface-2);border:1px solid var(--line);
-    border-radius:6px;color:var(--ink);padding:8px 10px;font:inherit}
-  textarea{min-height:76px;resize:vertical}
-  .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:10px}
-  button.go{background:var(--accent);color:#08111f;border:none;border-radius:6px;
-    padding:9px 18px;font:inherit;font-weight:700;cursor:pointer}
-  button.go:disabled{opacity:.45;cursor:default}
-  .badge{display:inline-flex;align-items:center;gap:6px;border:1px solid currentColor;
-    border-radius:999px;padding:3px 12px;font-weight:700;font-size:13px}
-  .lv4{color:var(--l4)} .lv3{color:var(--l3)} .lv2{color:var(--l2)} .lv1{color:var(--l1)}
-  .answer{font-size:15px;line-height:1.75;margin:12px 0}
-  .cond{background:var(--surface-2);border-left:2px solid var(--l3);border-radius:0 6px 6px 0;
-    padding:8px 12px;margin:10px 0;color:var(--ink-2);font-size:13px}
-  .cite{border-top:1px solid var(--line);padding-top:9px;margin-top:6px;font-size:12.5px;color:var(--ink-2)}
-  .cite b{color:var(--ink)}
-  .cite .noquote{color:var(--ink-3);font-size:11.5px}
-  .refused{border-left:3px solid var(--ink-3)}
-  .clarify{border-left:3px solid var(--accent)}
-  .turn{color:var(--ink-3);font-size:11.5px}
-  .audit{margin-top:10px;font-size:11.5px;color:var(--ink-3);font-variant-numeric:tabular-nums}
-  .audit .over{color:var(--l3)}
-  table{width:100%;border-collapse:collapse;font-size:13px}
-  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
-  th{color:var(--ink-3);font-size:11.5px;font-weight:600}
-  .ev{color:var(--ink-3);font-size:11.5px;font-style:italic}
-  footer{position:fixed;left:0;right:0;bottom:0;background:var(--surface);
-    border-top:1px solid var(--line);padding:9px 20px;color:var(--ink-2);font-size:12px;text-align:center}
-  .hint{color:var(--ink-3);font-size:11.5px;margin-top:6px}
-  pre{background:var(--surface-2);border-radius:6px;padding:10px;overflow:auto;font-size:11.5px;color:var(--ink-2)}
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; min-height:100vh;
+    background: var(--surface);
+    color: var(--ink);
+    font-family:'Noto Sans KR', sans-serif;
+  }
+  .stage{
+    width:100%; min-height:100vh;
+    display:grid; grid-template-columns: 1fr 1fr;
+    background: var(--surface);
+  }
+
+  /* -------- 왼쪽 브랜드 패널 -------- */
+  .side{
+    background: var(--moss-dark);
+    color:#fff;
+    padding: 40px 36px;
+    display:flex; flex-direction:column; justify-content:space-between;
+    position:relative;
+    overflow-x:hidden; overflow-y:auto; height:100vh;
+  }
+  .side::before{
+    content:"";
+    position:absolute; right:-60px; bottom:-60px;
+    width:220px; height:220px; border-radius:50%;
+    background: rgba(255,255,255,0.06);
+  }
+  .side::after{
+    content:"";
+    position:absolute; left:-40px; top:-40px;
+    width:140px; height:140px; border-radius:50%;
+    background: rgba(255,255,255,0.05);
+  }
+  .side-top{ position:relative; z-index:1; }
+  .logo{ display:flex; align-items:center; gap:9px; margin-bottom:50px; }
+  .logo-mark{ width:34px; height:34px; border-radius:10px; background: rgba(255,255,255,0.14); display:flex; align-items:center; justify-content:center; }
+  .logo-mark svg{ width:18px; height:18px; }
+  .logo-text{ font-family:'Noto Serif KR', serif; font-weight:700; font-size:17px; }
+
+  .side h2{
+    font-family:'Noto Serif KR', serif; font-size:25px; line-height:1.4; font-weight:700;
+    margin:0 0 14px;
+  }
+  .side p{ font-size:13.5px; line-height:1.7; color: rgba(255,255,255,0.75); max-width:280px; }
+
+  .side-quote{
+    position:relative; z-index:1;
+    background: rgba(255,255,255,0.08);
+    border-radius:16px; padding:16px;
+    font-size:12.5px; line-height:1.6; color: rgba(255,255,255,0.85);
+  }
+  .side-quote .tag{
+    display:inline-flex; font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:999px;
+    background: var(--honey); color:#3a2a0e; margin-bottom:8px;
+  }
+
+  /* -------- 오른쪽 폼 패널 -------- */
+  .form-side{
+    padding: 60px 40px;
+    overflow-y:auto; height:100vh;
+  }
+  .form-inner{ width:100%; max-width:420px; margin:0 auto; }
+  .form-head{ margin-bottom: 26px; }
+  .form-head .eyebrow{
+    font-size:11.5px; font-weight:700; color: var(--moss-dark);
+    background: var(--moss-soft); display:inline-block; padding:4px 10px; border-radius:999px; margin-bottom:12px;
+  }
+  .form-head h1{
+    font-family:'Noto Serif KR', serif; font-size:22px; font-weight:700; margin:0 0 6px;
+  }
+  .form-head p{ font-size:13px; color: var(--ink-soft); margin:0; }
+
+  .field{ margin-bottom:14px; }
+  .field label{ display:block; font-size:12.5px; font-weight:600; color: var(--ink-soft); margin-bottom:6px; }
+  .input-row{ display:flex; gap:8px; }
+  .field input{
+    width:100%; border:1px solid var(--line); border-radius:12px; padding:11px 13px;
+    font-size:13.5px; font-family:inherit; background: var(--bg); color: var(--ink); outline:none;
+  }
+  .field input:focus{ border-color: var(--moss); background:#fff; }
+  .field .hint{ font-size:11.5px; color: var(--ink-faint); margin-top:5px; }
+  .field .hint.ok{ color: var(--moss-dark); }
+  .field .hint.err{ color: var(--clay); }
+
+  .btn-check{
+    flex-shrink:0; padding:0 14px; border-radius:12px; border:1px solid var(--line);
+    background: var(--surface); color: var(--ink-soft); font-size:12px; font-weight:700; cursor:pointer; font-family:inherit;
+    white-space:nowrap;
+  }
+  .btn-check:hover{ border-color: var(--moss); color: var(--moss-dark); }
+
+  .btn-primary{
+    width:100%; background: var(--moss); color:#fff; border:none; border-radius:999px;
+    padding:13px 20px; font-size:14px; font-weight:700; cursor:pointer; font-family:inherit;
+    margin-top: 6px;
+  }
+  .btn-primary:hover{ background: var(--moss-dark); }
+  .btn-primary:disabled{ background:#c9c3b4; cursor:not-allowed; }
+
+  .form-foot{
+    margin-top:18px; text-align:center; font-size:12.5px; color: var(--ink-soft);
+  }
+  .form-foot button{
+    background:none; border:none; color: var(--moss-dark); font-weight:700; cursor:pointer;
+    font-family:inherit; font-size:12.5px; padding:0; text-decoration:underline; text-underline-offset:2px;
+  }
+
+  .error-box{
+    display:none;
+    background: var(--danger-soft); color:#7a3216; border:1px solid #e5c2ac;
+    font-size:12.5px; padding:10px 12px; border-radius:10px; margin-bottom:14px;
+  }
+  .error-box.show{ display:block; }
+
+  #signupPanel{ display:none; }
+  #signupPanel.show{ display:block; }
+  #loginPanel.hide{ display:none; }
+
+  /* -------- 프로필 선택 팝업 -------- */
+  .profile-picker-overlay{
+    display:none; position:fixed; inset:0; background: rgba(44,42,38,0.45);
+    align-items:center; justify-content:center; z-index:100; padding:20px;
+  }
+  .profile-picker-overlay.open{ display:flex; }
+  .profile-picker{
+    background:#fff; border-radius:22px; padding:28px 26px;
+    width:100%; max-width:640px; box-shadow: 0 30px 60px -20px rgba(0,0,0,0.3);
+  }
+  .profile-picker h3{ font-family:'Noto Serif KR', serif; font-size:18px; margin:0 0 4px; }
+  .profile-picker .sub{ font-size:12.5px; color: var(--ink-soft); margin:0 0 20px; }
+  .picker-row{ display:flex; gap:14px; overflow-x:auto; padding-bottom:4px; }
+  .picker-card{
+    flex:1; min-width:140px; border:1.5px solid var(--line); border-radius:16px;
+    padding:18px 12px; text-align:center; cursor:pointer; background: var(--bg);
+    transition: .15s;
+  }
+  .picker-card:hover{ border-color: var(--moss); background: var(--moss-soft); }
+  .picker-card .pav{
+    width:60px; height:60px; border-radius:50%; background: var(--honey);
+    display:flex; align-items:center; justify-content:center; font-size:28px;
+    margin:0 auto 12px;
+  }
+  .picker-card .pname{ font-family:'Noto Serif KR', serif; font-weight:700; font-size:14px; margin-bottom:4px; }
+  .picker-card .pmeta{ font-size:11px; color: var(--ink-soft); }
+  .picker-card.add-new{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    border-style:dashed; color: var(--ink-faint);
+  }
+  .picker-card.add-new .plus{ font-size:22px; margin-bottom:6px; }
+
+  @media (max-width: 720px){
+    .stage{ grid-template-columns:1fr; }
+    .side{ display:none; }
+    .form-side{ padding: 34px 26px; }
+    .picker-row{ flex-wrap:wrap; }
+    .picker-card{ min-width: calc(50% - 7px); flex: none; }
+  }
 </style>
 </head>
 <body>
 
-<header>
-  <h1>PetTriage</h1>
-  <span class="sub">반려동물 헬스케어 다이어리 &amp; 응급 대응 — 데모</span>
-  <span class="sub" style="opacity:.6">· 팀 save the pet</span>
-  <span class="env" id="env">연결 확인 중…</span>
-</header>
+<div class="stage">
 
-<nav>
-  <button class="on" data-t="ask">질의응답</button>
-  <button data-t="record">기록 입력</button>
-  <button data-t="report">기간 리포트</button>
-  <button data-t="levels">등급 기준</button>
-</nav>
-
-<main>
-  <!-- ── 질의응답 ─────────────────────────────────────── -->
-  <section id="ask" class="on">
-    <div class="card">
-      <div class="row">
-        <div>
-          <label>종 <span class="hint">(비워두면 시스템이 되묻습니다)</span></label>
-          <select id="species">
-            <option value="">— 선택 안 함 —</option>
-            <option value="dog">개</option>
-            <option value="cat">고양이</option>
-            <option value="bird">앵무새</option>
-          </select>
-        </div>
-        <div><label>체중 (kg)</label><input id="weight" type="number" step="0.1" min="0" placeholder="예: 5.2"></div>
-        <div><label>먹은 양 (g)</label><input id="amount" type="number" step="1" min="0" placeholder="예: 30"></div>
+  <!-- 왼쪽 브랜드 영역 -->
+  <div class="side">
+    <div class="side-top">
+      <div class="logo">
+        <span class="logo-mark">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 14c-3.5 0-6.5 2.2-6.5 5.2 0 1 .8 1.8 1.8 1.8h9.4c1 0 1.8-.8 1.8-1.8 0-3-3-5.2-6.5-5.2Z" fill="#fff"/><circle cx="6" cy="8" r="2.3" fill="#fff"/><circle cx="18" cy="8" r="2.3" fill="#fff"/><circle cx="9.3" cy="4.6" r="2" fill="#fff"/><circle cx="14.7" cy="4.6" r="2" fill="#fff"/></svg>
+        </span>
+        <span class="logo-text">PetTriage</span>
       </div>
-      <label>질문</label>
-      <textarea id="q" placeholder="예) 강아지가 초콜릿을 먹었어요"></textarea>
-      <div style="display:flex;gap:10px;align-items:center;margin-top:10px">
-        <button class="go" id="send">질문하기</button>
-        <button class="go" id="reset" style="background:var(--surface-2);color:var(--ink-2)">세션 초기화</button>
-        <span class="turn" id="sess"></span>
+      <h2>"이거 먹어도 돼?"를<br>더는 헷갈리지 않게</h2>
+      <p>우리 아이의 첫 안전 매뉴얼. 로그인하고 함께 나눠 먹은 순간을 기록해보세요.</p>
+    </div>
+    <div class="side-quote">
+      <span class="tag">위험</span><br>
+      “포도는 절대 나눠주지 마세요. 소량으로도 급성 신부전을 일으킬 수 있어요.”
+    </div>
+  </div>
+
+  <!-- 오른쪽 폼 영역 -->
+  <div class="form-side">
+    <div class="form-inner">
+
+    <!-- 로그인 패널 -->
+    <div id="loginPanel">
+      <div class="form-head">
+        <span class="eyebrow">WELCOME BACK</span>
+        <h1>로그인</h1>
+        <p>아이디와 비밀번호를 입력해주세요.</p>
+      </div>
+
+      <div class="error-box" id="loginError">이메일 또는 비밀번호가 올바르지 않아요.</div>
+
+      <div class="field">
+        <label for="loginId">이메일</label>
+        <input type="email" id="loginId" placeholder="이메일 입력">
+      </div>
+      <div class="field">
+        <label for="loginPw">비밀번호</label>
+        <input type="password" id="loginPw" placeholder="비밀번호 입력">
+      </div>
+
+      <button class="btn-primary" id="loginBtn">로그인</button>
+
+      <div class="form-foot">
+        아직 계정이 없으신가요? <button id="goSignup">회원가입</button>
       </div>
     </div>
-    <div id="out"></div>
-  </section>
 
-  <!-- ── 기록 입력 ─────────────────────────────────────── -->
-  <section id="record">
-    <div class="card">
-      <div class="row">
-        <div><label>반려동물 ID <span class="hint">(가명 식별자)</span></label><input id="r_pet" value="pet-001"></div>
-        <div>
-          <label>종</label>
-          <select id="r_species"><option value="dog">개</option><option value="cat">고양이</option><option value="bird">앵무새</option></select>
-        </div>
-        <div><label>일시</label><input id="r_at" type="datetime-local"></div>
+    <!-- 회원가입 패널 -->
+    <div id="signupPanel">
+      <div class="form-head">
+        <span class="eyebrow">GET STARTED</span>
+        <h1>회원가입</h1>
+        <p>아이디와 비밀번호를 만들어주세요.</p>
       </div>
-      <div class="row">
-        <div><label>급여 (쉼표 구분)</label><input id="r_meals" placeholder="사료 80g, 닭가슴살"></div>
-        <div><label>증상 (쉼표 구분)</label><input id="r_symptoms" placeholder="구토 1회"></div>
-      </div>
-      <div id="dropwrap" style="display:none">
-        <label>배설물 상태 <span class="hint">— 조류 전용 필드 (02 §12)</span></label>
-        <input id="r_drop" placeholder="색·형태·양">
-      </div>
-      <label style="margin-top:10px">메모</label>
-      <textarea id="r_note"></textarea>
-      <div style="margin-top:10px"><button class="go" id="r_send">기록 저장</button></div>
-      <div id="r_out" class="hint"></div>
-    </div>
-    <div class="card">
-      <h2>설계 메모</h2>
-      <p style="color:var(--ink-2);margin:0;font-size:13px">
-        이 기록은 <b>장기 기억이 아니라 검색 대상 문서</b>다 (05 §3).
-        되묻기 슬롯(체중·섭취량)은 세션에만 남고 저장되지 않는다 (D-36 최소 수집).
-      </p>
-    </div>
-  </section>
 
-  <!-- ── 리포트 ───────────────────────────────────────── -->
-  <section id="report">
-    <div class="card">
-      <div class="row">
-        <div><label>반려동물 ID</label><input id="p_pet" value="pet-001"></div>
-        <div><label>시작</label><input id="p_from" type="date"></div>
-        <div><label>종료</label><input id="p_to" type="date"></div>
+      <div class="field">
+        <label for="suNickname">닉네임</label>
+        <input type="text" id="suNickname" placeholder="화면에 표시될 이름">
       </div>
-      <button class="go" id="p_send">리포트 조회</button>
-    </div>
-    <div id="p_out"></div>
-  </section>
 
-  <!-- ── 등급 기준 ────────────────────────────────────── -->
-  <section id="levels">
-    <div class="card">
-      <h2>트리아지 등급 — 코퍼스에서 도출 (D-39)</h2>
-      <table id="lv_table"><tbody></tbody></table>
-      <p class="hint">
-        등급 이름을 발명하지 않았다. 자료 42건의 <b>행동 지시어</b>를 모아 4단계로 갈랐다.
-        숫자가 클수록 위험하며, 그래야 하향 금지 게이트가 <code>max()</code> 로 성립한다.
-      </p>
-    </div>
-    <div class="card">
-      <h2>급여 가부 — 별도 축</h2>
-      <table id="fl_table"><tbody></tbody></table>
-      <p class="hint" id="bird_note"></p>
-    </div>
-  </section>
-</main>
+      <div class="field">
+        <label for="suId">이메일</label>
+        <input type="email" id="suId" placeholder="이메일 입력">
+        <div class="hint" id="idHint"></div>
+      </div>
 
-<footer id="disclaimer">본 안내는 참고용이며 수의학적 진단이 아닙니다. 이상이 의심되면 수의사와 상담하세요.</footer>
+      <div class="field">
+        <label for="suPw">비밀번호</label>
+        <input type="password" id="suPw" placeholder="8자 이상">
+      </div>
+      <div class="field">
+        <label for="suPw2">비밀번호 확인</label>
+        <input type="password" id="suPw2" placeholder="비밀번호 다시 입력">
+        <div class="hint" id="pwHint"></div>
+      </div>
+
+      <button class="btn-primary" id="signupBtn" disabled>회원가입</button>
+
+      <div class="form-foot">
+        이미 계정이 있으신가요? <button id="goLogin">로그인</button>
+      </div>
+    </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- 프로필 선택 팝업 (등록된 반려동물이 2마리 이상일 때) -->
+<div class="profile-picker-overlay" id="profilePickerOverlay">
+  <div class="profile-picker">
+    <h3>어떤 아이로 시작할까요?</h3>
+    <p class="sub">등록된 프로필 중 하나를 선택해주세요.</p>
+    <div class="picker-row" id="pickerRow"></div>
+  </div>
+</div>
 
 <script>
-'use strict';
-const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
-  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let sessionId = null;
+const loginPanel = document.getElementById('loginPanel');
+const signupPanel = document.getElementById('signupPanel');
 
-// 탭
-document.querySelectorAll('nav button').forEach((b) => b.onclick = () => {
-  document.querySelectorAll('nav button').forEach((x) => x.classList.toggle('on', x === b));
-  document.querySelectorAll('main section').forEach((s) => s.classList.toggle('on', s.id === b.dataset.t));
+document.getElementById('goSignup').addEventListener('click', ()=>{
+  loginPanel.classList.add('hide');
+  signupPanel.classList.add('show');
+});
+document.getElementById('goLogin').addEventListener('click', ()=>{
+  signupPanel.classList.remove('show');
+  loginPanel.classList.remove('hide');
 });
 
-async function api(path, opts) {
+/* ---- API 헬퍼 ---- */
+async function api(path, opts){
   const r = await fetch(path, opts);
-  if (!r.ok) {
-    // 422(입력 검증)와 5xx(장애)를 구분한다. 뭉뚱그리면 사용자가 자기 입력을 못 고친다.
-    const kind = r.status === 422 ? '입력값을 확인해 주세요' : '서버 오류';
-    throw new Error(`${kind} (${r.status})`);
+  if(!r.ok){
+    let detail = '';
+    try{ detail = (await r.json()).detail || ''; } catch(e){}
+    throw new Error(detail || `요청 실패 (${r.status})`);
   }
   return r.json();
 }
+function authHeader(){
+  return { 'Authorization': 'Bearer ' + sessionStorage.getItem('ptt_token') };
+}
 
-// ── 헬스 + 등급표: 등급 표현을 화면에 하드코딩하지 않는다 ──
-(async () => {
-  try {
-    const h = await api('/api/health');
-    $('env').textContent = `engine: ${h.engine} · ${h.profile} · v${h.version}`;
-    if (h.engine !== h.engine_configured) {
-      // 설정이 요구한 엔진과 다르면 폴백이 일어난 것이다.
-      // 이 상태로 산출한 평가 지표는 오염이므로 즉시 보이게 한다 (04 §8).
-      $('env').style.color = 'var(--l4)';
-      $('env').textContent += ` ⚠ ${h.engine_configured} 요청됨 — 폴백 상태`;
+/* ---- 화면 표시용 매핑 (백엔드엔 species/breed/weight_kg만 있음, size·age 없음) ---- */
+const speciesEmojiMap = { dog:'🐶', cat:'🐱', bird:'🦜' };
+const speciesKorean = { dog:'강아지', cat:'고양이', bird:'앵무새' };
+
+function goToChat(pet){
+  const params = new URLSearchParams({
+    pet_id: pet.pet_id,
+    name: pet.name,
+    species: pet.species,
+    breed: pet.breed || '',
+    weight: pet.weight_kg || '',
+  });
+  window.location.href = '/static/chat.html?' + params.toString();
+}
+
+/* ---- 프로필 선택 팝업 ---- */
+const profilePickerOverlay = document.getElementById('profilePickerOverlay');
+const pickerRow = document.getElementById('pickerRow');
+
+function openProfilePicker(pets){
+  pickerRow.innerHTML = '';
+  pets.forEach(pet=>{
+    const card = document.createElement('div');
+    card.className = 'picker-card';
+    card.innerHTML = `
+      <div class="pav">${speciesEmojiMap[pet.species] || '🐾'}</div>
+      <div class="pname">${pet.name}</div>
+      <div class="pmeta">${speciesKorean[pet.species] || ''}${pet.breed ? ' · ' + pet.breed : ''}</div>
+    `;
+    card.addEventListener('click', ()=> goToChat(pet));
+    pickerRow.appendChild(card);
+  });
+
+  const addCard = document.createElement('div');
+  addCard.className = 'picker-card add-new';
+  addCard.innerHTML = `<div class="plus">+</div><div class="pname">새로 만들기</div>`;
+  addCard.addEventListener('click', ()=>{ window.location.href = '/static/profile.html'; });
+  pickerRow.appendChild(addCard);
+
+  profilePickerOverlay.classList.add('open');
+}
+
+/* ---- 로그인 성공 이후 공통 처리: 프로필 목록 보고 다음 화면 결정 ---- */
+async function afterLogin(){
+  try{
+    const pets = await api('/api/pets', { headers: authHeader() });
+    if(pets.length >= 2){
+      openProfilePicker(pets);
+    } else if(pets.length === 1){
+      goToChat(pets[0]);
+    } else {
+      window.location.href = '/static/profile.html';
     }
-  } catch { $('env').textContent = '서버 연결 실패'; }
+  } catch(e){
+    loginError.textContent = '프로필을 불러오지 못했어요 — ' + e.message;
+    loginError.classList.add('show');
+  }
+}
 
-  try {
-    const d = await api('/api/triage-levels');
-    $('disclaimer').textContent = d.disclaimer;
-    $('lv_table').querySelector('tbody').innerHTML =
-      '<tr><th>등급</th><th>행동 지시</th><th>도출 근거 (원문)</th></tr>' +
-      d.levels.map((l) => `<tr>
-        <td><span class="badge lv${l.level}">${esc(l.badge)}</span> <span class="turn">${l.level}</span></td>
-        <td>${esc(l.message)}</td>
-        <td class="ev">“${esc(l.evidence.quote)}” <span class="turn">— ${esc(l.evidence.source_id)}</span></td>
-      </tr>`).join('');
-    const birdOK = new Set(d.bird_feeding_levels);
-    $('fl_table').querySelector('tbody').innerHTML =
-      '<tr><th>등급</th><th>표기</th><th>조류 적용</th></tr>' +
-      d.feeding_levels.map((f) => `<tr>
-        <td>${esc(f.name)}</td><td>${esc(f.label)}</td>
-        <td>${birdOK.has(f.level) ? '적용' : '<span class="turn">미노출</span>'}</td>
-      </tr>`).join('');
-    $('bird_note').textContent =
-      '조류는 SAFE를 노출하지 않는다 — 출처 두 곳이 동일 항목을 서로 다른 티어에 배정해, '
-      + '3단계를 보여주면 출처에 없는 정밀도를 주장하게 된다 (D-39).';
-  } catch (e) { console.error(e); }
+/* ---- 로그인 ---- */
+const loginBtn = document.getElementById('loginBtn');
+const loginError = document.getElementById('loginError');
+loginBtn.addEventListener('click', async ()=>{
+  const email = document.getElementById('loginId').value.trim();
+  const pw = document.getElementById('loginPw').value;
+  if(!email || !pw) return;
+
+  loginBtn.disabled = true;
+  const originalText = loginBtn.textContent;
+  loginBtn.textContent = '로그인 중…';
+  loginError.classList.remove('show');
+
+  try{
+    const res = await api('/api/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ email, password: pw }),
+    });
+    sessionStorage.setItem('ptt_token', res.access_token);
+    sessionStorage.setItem('ptt_nickname', res.nickname);
+    loginBtn.textContent = '로그인 완료 ✓';
+    loginBtn.style.background = 'var(--moss-dark)';
+    await afterLogin();
+  } catch(e){
+    loginError.textContent = '이메일 또는 비밀번호가 올바르지 않아요.';
+    loginError.classList.add('show');
+    loginBtn.disabled = false;
+    loginBtn.textContent = originalText;
+  }
+});
+
+/* ---- 비밀번호 확인 (클라이언트 형식 체크만, 서버가 최종 검증) ---- */
+const suPw = document.getElementById('suPw');
+const suPw2 = document.getElementById('suPw2');
+const pwHint = document.getElementById('pwHint');
+const idHint = document.getElementById('idHint');
+const suNickname = document.getElementById('suNickname');
+const suId = document.getElementById('suId');
+
+function checkPwMatch(){
+  if(suPw2.value.length === 0){ pwHint.textContent=''; return false; }
+  if(suPw.value.length < 8){
+    pwHint.textContent = '비밀번호는 8자 이상이어야 해요.';
+    pwHint.className = 'hint err';
+    return false;
+  }
+  if(suPw.value === suPw2.value){
+    pwHint.textContent = '비밀번호가 일치해요.';
+    pwHint.className = 'hint ok';
+    return true;
+  } else {
+    pwHint.textContent = '비밀번호가 일치하지 않아요.';
+    pwHint.className = 'hint err';
+    return false;
+  }
+}
+suPw.addEventListener('input', ()=>{ checkPwMatch(); validateSignup(); });
+suPw2.addEventListener('input', ()=>{ checkPwMatch(); validateSignup(); });
+suId.addEventListener('input', validateSignup);
+suNickname.addEventListener('input', validateSignup);
+
+const signupBtn = document.getElementById('signupBtn');
+function validateSignup(){
+  const ok = suNickname.value.trim() && suId.value.trim() && checkPwMatch();
+  signupBtn.disabled = !ok;
+}
+
+signupBtn.addEventListener('click', async ()=>{
+  if(signupBtn.disabled) return;
+  signupBtn.disabled = true;
+  const originalText = signupBtn.textContent;
+  signupBtn.textContent = '가입 중…';
+  idHint.textContent = ''; idHint.className = 'hint';
+
+  try{
+    await api('/api/auth/signup', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        email: suId.value.trim(),
+        password: suPw.value,
+        nickname: suNickname.value.trim(),
+      }),
+    });
+    signupBtn.textContent = '가입 완료 ✓ 로그인 해주세요';
+    setTimeout(()=>{
+      signupPanel.classList.remove('show');
+      loginPanel.classList.remove('hide');
+      document.getElementById('loginId').value = suId.value.trim();
+      signupBtn.textContent = originalText;
+      signupBtn.disabled = false;
+    }, 900);
+  } catch(e){
+    idHint.textContent = e.message.includes('409') || e.message.includes('사용') ? '이미 가입된 이메일이에요.' : e.message;
+    idHint.className = 'hint err';
+    signupBtn.textContent = originalText;
+    signupBtn.disabled = false;
+  }
+});
+
+/* ---- 이미 로그인된 상태로 이 페이지에 다시 오면 바로 다음 화면으로 ---- */
+(async function autoResume(){
+  if(sessionStorage.getItem('ptt_token')){
+    await afterLogin();
+  }
 })();
-
-// ── 질의응답 ──
-function num(el) { const v = parseFloat($(el).value); return Number.isFinite(v) ? v : null; }
-
-function renderAnswer(d) {
-  const t = d.triage;
-  const conds = t.escalation_conditions.length
-    ? `<div class="cond"><b>상승 조건</b> — ${t.escalation_conditions.map(esc).join(' · ')}</div>` : '';
-  const cites = d.citations.map((c) => `
-    <div class="cite">
-      <b>${esc(c.publisher)}</b> · ${esc(c.source_id)}${c.title ? ' — ' + esc(c.title) : ''}
-      ${c.locator ? ' <span class="turn">(' + esc(c.locator) + ')</span>' : ''}
-      ${c.quote
-        ? '<div style="margin-top:4px">“' + esc(c.quote) + '”</div>'
-        : (c.route === '사실추출'
-            ? '<div class="noquote">경로 ②(사실 추출) 자료 — 원문을 적재하지 않아 인용문이 없다. 출처·위치로 역추적한다.</div>'
-            : '<div class="noquote">원문 적재 자료이나 인용문이 비어 있다 — 색인 확인 필요.</div>')}
-    </div>`).join('');
-  const lv = (v) => v ?? '미호출';
-  const audit = `<div class="audit">규칙 ${lv(t.rule_level)} · LLM ${lv(t.llm_level)} → 최종 ${t.level}
-    ${t.overridden ? '<span class="over"> · 게이트가 LLM의 하향을 차단했다</span>' : ''}</div>`;
-  return `<div class="card">
-    <span class="badge lv${t.level}">${esc(t.badge)}</span>
-    <div class="answer">${esc(d.answer)}</div>${conds}${cites}${audit}
-  </div>`;
-}
-
-function render(d) {
-  sessionId = d.session_id;
-  $('sess').textContent = 'session ' + d.session_id.slice(0, 8);
-  if (d.status === 'answered') return renderAnswer(d);
-  if (d.status === 'clarify') return `<div class="card clarify">
-      <div class="answer">${esc(d.clarify.question)}</div>
-      <div class="turn">되묻기 ${d.clarify.turn}/${d.clarify.max_turns} · 부족한 정보: ${d.clarify.missing.map(esc).join(', ')}</div>
-    </div>`;
-  return `<div class="card refused">
-      <div class="answer">${esc(d.refusal.message)}</div>
-      <div class="turn">사유: ${esc(d.refusal.reason)} — ${esc(d.refusal.advice)}</div>
-    </div>`;
-}
-
-$('send').onclick = async () => {
-  const btn = $('send'); btn.disabled = true;
-  try {
-    const d = await api('/api/ask', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        question: $('q').value.trim(),
-        species: $('species').value || null,
-        weight_kg: num('weight'), amount_g: num('amount'),
-        session_id: sessionId,
-      }),
-    });
-    $('out').innerHTML = render(d) + $('out').innerHTML;
-  } catch (e) {
-    $('out').innerHTML = `<div class="card refused"><div class="answer">요청을 처리하지 못했습니다.</div>
-      <div class="turn">${esc(e.message)}</div></div>` + $('out').innerHTML;
-  } finally { btn.disabled = false; }
-};
-
-$('reset').onclick = () => { sessionId = null; $('sess').textContent = ''; $('out').innerHTML = ''; };
-
-// ── 기록 ──
-$('r_species').onchange = () => {
-  $('dropwrap').style.display = $('r_species').value === 'bird' ? 'block' : 'none';
-};
-const split = (id) => $(id).value.split(',').map((s) => s.trim()).filter(Boolean);
-
-$('r_send').onclick = async () => {
-  try {
-    const d = await api('/api/records', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        pet_id: $('r_pet').value, species: $('r_species').value,
-        recorded_at: $('r_at').value || new Date().toISOString(),
-        note: $('r_note').value, meals: split('r_meals'), symptoms: split('r_symptoms'),
-        droppings: $('r_species').value === 'bird' ? ($('r_drop').value || null) : null,
-      }),
-    });
-    $('r_out').textContent = `저장됨 · ${d.record_id} · 벡터DB 적재: ${d.indexed ? '완료' : '대기 (WS1 연결 전)'}`;
-  } catch (e) { $('r_out').textContent = '저장 실패 — ' + e.message; }
-};
-
-// ── 리포트 ──
-$('p_send').onclick = async () => {
-  try {
-    const q = new URLSearchParams({pet_id: $('p_pet').value, period_from: $('p_from').value, period_to: $('p_to').value});
-    const d = await api('/api/report?' + q);
-    $('p_out').innerHTML = `<div class="card"><h2>${esc(d.pet_id)}</h2>
-      <p style="color:var(--ink-2)">${esc(d.summary)}</p>
-      <pre>${esc(JSON.stringify(d.timeline, null, 2))}</pre></div>`;
-  } catch (e) { $('p_out').innerHTML = `<div class="card refused">조회 실패 — ${esc(e.message)}</div>`; }
-};
 </script>
 </body>
 </html>
