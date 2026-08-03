@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PetTriage — 프로필 생성</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #FAF6EF;
+    --surface: #FFFFFF;
+    --ink: #2C2A26;
+    --ink-soft: #6B6558;
+    --ink-faint: #A39C8C;
+    --moss: #4F6B4A;
+    --moss-dark: #3A4F37;
+    --moss-soft: #E4EBE1;
+    --honey: #D89B3D;
+    --honey-soft: #FBEEDA;
+    --clay: #B3542F;
+    --amber: #C98A1E;
+    --line: #E5DFD2;
+    --radius: 20px;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; min-height:100vh;
+    background: var(--surface);
+    color: var(--ink);
+    font-family:'Noto Sans KR', sans-serif;
+  }
+  .stage{
+    width:100%; min-height:100vh;
+    display:grid; grid-template-columns: 0.85fr 1.15fr;
+    background: var(--surface);
+  }
+
+  /* -------- 왼쪽 진행상태 패널 -------- */
+  .side{
+    background: var(--moss-dark);
+    color:#fff;
+    padding: 40px 34px;
+    display:flex; flex-direction:column; justify-content:space-between;
+    position:relative; overflow-x:hidden; overflow-y:auto; height:100vh;
+  }
+  .side::before{ content:""; position:absolute; right:-60px; bottom:-60px; width:220px; height:220px; border-radius:50%; background: rgba(255,255,255,0.06); }
+  .side-top{ position:relative; z-index:1; }
+  .logo{ display:flex; align-items:center; gap:9px; margin-bottom:44px; }
+  .logo-mark{ width:34px; height:34px; border-radius:10px; background: rgba(255,255,255,0.14); display:flex; align-items:center; justify-content:center; }
+  .logo-mark svg{ width:18px; height:18px; }
+  .logo-text{ font-family:'Noto Serif KR', serif; font-weight:700; font-size:16px; }
+
+  .side h2{ font-family:'Noto Serif KR', serif; font-size:22px; line-height:1.4; font-weight:700; margin:0 0 10px; }
+  .side p{ font-size:13px; line-height:1.7; color: rgba(255,255,255,0.7); max-width:260px; }
+
+  .steps{ position:relative; z-index:1; display:flex; flex-direction:column; gap:16px; margin-top: 30px; }
+  .step{ display:flex; align-items:center; gap:10px; font-size:12.5px; color: rgba(255,255,255,0.55); }
+  .step-dot{ width:22px; height:22px; border-radius:50%; background: rgba(255,255,255,0.12); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0; }
+  .step.done{ color: rgba(255,255,255,0.9); }
+  .step.done .step-dot{ background: var(--honey); color:#3a2a0e; }
+  .step.active{ color:#fff; font-weight:700; }
+  .step.active .step-dot{ background:#fff; color: var(--moss-dark); }
+
+  /* -------- 오른쪽 폼 -------- */
+  .form-side{ padding: 48px 44px; overflow-y:auto; height:100vh; }
+  .form-inner{ width:100%; max-width:520px; margin:0 auto; }
+  .form-head{ margin-bottom:22px; }
+  .form-head .eyebrow{
+    font-size:11.5px; font-weight:700; color: var(--moss-dark);
+    background: var(--moss-soft); display:inline-block; padding:4px 10px; border-radius:999px; margin-bottom:10px;
+  }
+  .form-head h1{ font-family:'Noto Serif KR', serif; font-size:21px; font-weight:700; margin:0 0 6px; }
+  .form-head p{ font-size:13px; color: var(--ink-soft); margin:0; }
+
+  /* 사진 업로드 */
+  .photo-row{ display:flex; align-items:center; gap:16px; margin-bottom:22px; }
+  .photo-circle{
+    width:78px; height:78px; border-radius:50%; background: var(--moss-soft);
+    display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0;
+    border: 2px dashed #c9d6c6; position:relative; cursor:pointer;
+  }
+  .photo-circle img{ width:100%; height:100%; object-fit:cover; display:none; }
+  .photo-circle svg{ width:26px; height:26px; opacity:.55; }
+  .photo-meta{ font-size:12.5px; color: var(--ink-soft); line-height:1.6; }
+  .photo-meta b{ color: var(--ink); }
+  .photo-btn{
+    display:inline-block; margin-top:4px; font-size:12px; font-weight:700; color: var(--moss-dark);
+    background: var(--moss-soft); padding:5px 11px; border-radius:999px; cursor:pointer;
+  }
+  #photoInput{ display:none; }
+
+  .field{ margin-bottom:16px; }
+  .field label{ display:block; font-size:12.5px; font-weight:600; color: var(--ink-soft); margin-bottom:7px; }
+  .field input, .field textarea{
+    width:100%; border:1px solid var(--line); border-radius:12px; padding:11px 13px;
+    font-size:13.5px; font-family:inherit; background: var(--bg); color: var(--ink); outline:none;
+  }
+  .field input:focus, .field textarea:focus{ border-color: var(--moss); background:#fff; }
+  .row2{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+
+  /* 품종 선택 카드 */
+  .option-grid{ display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; }
+  .option-card{
+    border:1.5px solid var(--line); border-radius:14px; padding:12px 8px;
+    text-align:center; cursor:pointer; background: var(--bg);
+    transition: .15s;
+  }
+  .option-card .emoji{ font-size:22px; display:block; margin-bottom:6px; }
+  .option-card .label{ font-size:12.5px; font-weight:600; color: var(--ink-soft); }
+  .option-card.selected{ border-color: var(--moss); background: var(--moss-soft); }
+  .option-card.selected .label{ color: var(--moss-dark); }
+
+  /* 크기 선택 pill */
+  .size-row{ display:flex; gap:8px; }
+  .size-pill{
+    flex:1; text-align:center; border:1.5px solid var(--line); border-radius:12px; padding:10px 6px;
+    cursor:pointer; background: var(--bg); font-size:12.5px; font-weight:600; color: var(--ink-soft);
+  }
+  .size-pill small{ display:block; font-weight:400; color: var(--ink-faint); font-size:10.5px; margin-top:2px; }
+  .size-pill.selected{ border-color: var(--honey); background: var(--honey-soft); color:#7a4d10; }
+
+  .btn-primary{
+    width:100%; background: var(--moss); color:#fff; border:none; border-radius:999px;
+    padding:13px 20px; font-size:14px; font-weight:700; cursor:pointer; font-family:inherit;
+    margin-top: 8px;
+  }
+  .btn-primary:hover{ background: var(--moss-dark); }
+  .btn-primary:disabled{ background:#c9c3b4; cursor:not-allowed; }
+
+  .skip{
+    text-align:center; margin-top:12px; font-size:12px; color: var(--ink-faint);
+    text-decoration:underline; cursor:pointer;
+  }
+
+  .btn-secondary-profile{
+    width:100%; background: var(--surface); color: var(--moss-dark); border:1.5px solid var(--moss);
+    border-radius:999px; padding:11px 20px; font-size:13.5px; font-weight:700; cursor:pointer;
+    font-family:inherit; margin-top:9px;
+  }
+  .btn-secondary-profile:hover{ background: var(--moss-soft); }
+  .btn-secondary-profile:disabled{ border-color:#d8d3c4; color:#b3ac9a; cursor:not-allowed; background:var(--surface); }
+
+  .added-pets{ margin-top:18px; }
+  .added-pets:empty{ display:none; }
+  .added-pets .added-label{ font-size:11.5px; font-weight:700; color: var(--ink-soft); margin-bottom:8px; }
+  .added-pet-chip{
+    display:flex; align-items:center; gap:9px; background: var(--moss-soft); border-radius:12px;
+    padding:8px 10px; margin-bottom:7px;
+  }
+  .added-pet-chip .thumb{
+    width:30px; height:30px; border-radius:50%; background:#fff; display:flex; align-items:center; justify-content:center;
+    font-size:15px; overflow:hidden; flex-shrink:0;
+  }
+  .added-pet-chip .thumb img{ width:100%; height:100%; object-fit:cover; }
+  .added-pet-chip .info{ flex:1; font-size:12.5px; color: var(--moss-dark); font-weight:600; }
+  .added-pet-chip .info small{ display:block; font-weight:400; color: var(--ink-soft); font-size:11px; }
+
+  @media (max-width: 760px){
+    .stage{ grid-template-columns:1fr; }
+    .side{ display:none; }
+    .form-side{ padding: 30px 24px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="stage">
+
+  <div class="side">
+    <div class="side-top">
+      <div class="logo">
+        <span class="logo-mark">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 14c-3.5 0-6.5 2.2-6.5 5.2 0 1 .8 1.8 1.8 1.8h9.4c1 0 1.8-.8 1.8-1.8 0-3-3-5.2-6.5-5.2Z" fill="#fff"/><circle cx="6" cy="8" r="2.3" fill="#fff"/><circle cx="18" cy="8" r="2.3" fill="#fff"/><circle cx="9.3" cy="4.6" r="2" fill="#fff"/><circle cx="14.7" cy="4.6" r="2" fill="#fff"/></svg>
+        </span>
+        <span class="logo-text">PetTriage</span>
+      </div>
+      <h2>이제부터 같이<br>나눠 먹을 준비</h2>
+      <p>프로필을 만들면 우리 아이 기준으로 어떤 음식을 한입 나눠줘도 되는지 알려드려요.</p>
+
+      <div class="steps">
+        <div class="step done"><span class="step-dot">✓</span>회원가입</div>
+        <div class="step active"><span class="step-dot">2</span>프로필 생성</div>
+        <div class="step"><span class="step-dot">3</span>한입 나누기 시작</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="form-side">
+    <div class="form-inner">
+    <div class="form-head">
+      <span class="eyebrow">STEP 2 · PET PROFILE</span>
+      <h1>반려동물 프로필</h1>
+      <p>사진, 이름, 품종, 크기를 알려주시면 우리 아이가 나눠 먹어도 되는 음식을 정확히 안내해드려요.</p>
+    </div>
+
+    <!-- 사진 업로드 -->
+    <div class="photo-row">
+      <label class="photo-circle" id="photoCircle">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 8a2 2 0 0 1 2-2h1.5l1-1.5h7l1 1.5H18a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8Z" stroke="#4F6B4A" stroke-width="1.6"/><circle cx="12" cy="13" r="3.4" stroke="#4F6B4A" stroke-width="1.6"/></svg>
+        <img id="photoPreview" alt="">
+      </label>
+      <div class="photo-meta">
+        <div><b>프로필 사진</b>을 등록해주세요.</div>
+        <span class="photo-btn" id="photoBtnLabel">사진 선택</span>
+      </div>
+      <input type="file" id="photoInput" accept="image/*">
+    </div>
+
+    <div class="field">
+      <label for="petName">이름</label>
+      <input type="text" id="petName" placeholder="예: 콩이">
+    </div>
+
+    <div class="row2">
+      <div class="field">
+        <label for="petAge">나이</label>
+        <input type="text" id="petAge" placeholder="예: 2살">
+      </div>
+      <div class="field">
+        <label for="petGender">성별</label>
+        <input type="text" id="petGender" placeholder="예: 수컷 / 암컷">
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="petWeight">체중</label>
+      <div class="input-row" style="display:flex; align-items:center; gap:8px;">
+        <input type="number" step="0.1" id="petWeight" placeholder="예: 4.2" style="max-width:140px;">
+        <span style="font-size:12.5px; color: var(--ink-soft);">kg</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="petIntro">한 줄 소개</label>
+      <textarea id="petIntro" rows="2" placeholder="우리 아이를 소개해주세요"></textarea>
+    </div>
+
+    <div class="field">
+      <label for="petNotes">특이사항 <span style="font-weight:400; color: var(--ink-faint);">(알러지, 질환이 있는 경우 작성)</span></label>
+      <textarea id="petNotes" rows="2" placeholder="예: 닭고기 알러지, 슬개골 탈구 이력 있음"></textarea>
+    </div>
+
+    <div class="field">
+      <label>품종</label>
+      <div class="option-grid" id="speciesGrid">
+        <div class="option-card" data-value="dog"><span class="emoji">🐶</span><span class="label">개</span></div>
+        <div class="option-card" data-value="cat"><span class="emoji">🐱</span><span class="label">고양이</span></div>
+        <div class="option-card" data-value="bird"><span class="emoji">🦜</span><span class="label">앵무새</span></div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="petBreed">세부 품종 <span style="font-weight:400; color: var(--ink-faint);">(선택)</span></label>
+      <input type="text" id="petBreed" placeholder="예: 말티즈, 코리안숏헤어">
+    </div>
+
+    <div class="field">
+      <label>크기 <span style="font-weight:400; color: var(--ink-faint);">(화면 표시용, 서버엔 저장되지 않아요)</span></label>
+      <div class="size-row" id="sizeRow">
+        <div class="size-pill" data-value="small">소형<small>~5kg</small></div>
+        <div class="size-pill" data-value="medium">중형<small>5~15kg</small></div>
+        <div class="size-pill" data-value="large">대형<small>15kg~</small></div>
+      </div>
+    </div>
+
+    <button class="btn-primary" id="saveProfileBtn" disabled>프로필 저장하고 한입 나누러 가기</button>
+    <button class="btn-secondary-profile" id="addAnotherBtn" disabled>저장하고 추가 프로필 만들기</button>
+
+    <div class="added-pets" id="addedPets"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* ---- 로그인 여부 확인 — 토큰 없으면 로그인 화면으로 되돌림 ---- */
+const authToken = sessionStorage.getItem('ptt_token');
+if(!authToken){
+  window.location.href = '/';
+}
+function authHeader(){
+  return { 'Authorization': 'Bearer ' + authToken };
+}
+
+/* ---- API 헬퍼 ---- */
+async function api(path, opts){
+  const r = await fetch(path, opts);
+  if(r.status === 401){
+    sessionStorage.removeItem('ptt_token');
+    window.location.href = '/';
+    throw new Error('로그인이 만료됐어요.');
+  }
+  if(!r.ok){
+    let detail = '';
+    try{ detail = (await r.json()).detail || ''; } catch(e){}
+    const kind = r.status === 422 ? '입력값을 확인해 주세요' : (detail || '서버 오류');
+    throw new Error(`${kind} (${r.status})`);
+  }
+  return r.json();
+}
+
+/* 사진 업로드 미리보기 (참고: 지금 백엔드 /api/pets 에는 사진 필드가 없어서
+   화면 미리보기 용도로만 쓰고, 저장 요청에는 포함하지 않음) */
+const photoInput = document.getElementById('photoInput');
+const photoCircle = document.getElementById('photoCircle');
+const photoPreview = document.getElementById('photoPreview');
+const photoIcon = photoCircle.querySelector('svg');
+const photoBtnLabel = document.getElementById('photoBtnLabel');
+
+photoCircle.addEventListener('click', ()=> photoInput.click());
+photoBtnLabel.addEventListener('click', (e)=>{ e.stopPropagation(); photoInput.click(); });
+
+photoInput.addEventListener('change', ()=>{
+  const file = photoInput.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    photoPreview.src = e.target.result;
+    photoPreview.style.display = 'block';
+    photoIcon.style.display = 'none';
+    photoBtnLabel.textContent = '사진 변경';
+  };
+  reader.readAsDataURL(file);
+});
+
+/* 품종 선택 */
+let selectedSpecies = null;
+document.querySelectorAll('#speciesGrid .option-card').forEach(card=>{
+  card.addEventListener('click', ()=>{
+    document.querySelectorAll('#speciesGrid .option-card').forEach(c=>c.classList.remove('selected'));
+    card.classList.add('selected');
+    selectedSpecies = card.dataset.value;
+    validateForm();
+  });
+});
+
+/* 크기 선택 */
+let selectedSize = null;
+document.querySelectorAll('#sizeRow .size-pill').forEach(pill=>{
+  pill.addEventListener('click', ()=>{
+    document.querySelectorAll('#sizeRow .size-pill').forEach(p=>p.classList.remove('selected'));
+    pill.classList.add('selected');
+    selectedSize = pill.dataset.value;
+    validateForm();
+  });
+});
+
+/* 유효성 검사 — 이름 + 품종 + 크기 필수 */
+const petName = document.getElementById('petName');
+const saveBtn = document.getElementById('saveProfileBtn');
+const addAnotherBtn = document.getElementById('addAnotherBtn');
+function validateForm(){
+  const ok = petName.value.trim().length > 0 && selectedSpecies && selectedSize;
+  saveBtn.disabled = !ok;
+  addAnotherBtn.disabled = !ok;
+}
+petName.addEventListener('input', validateForm);
+
+const speciesEmoji = { dog:'🐶', cat:'🐱', bird:'🦜' };
+const addedPetsBox = document.getElementById('addedPets');
+let savedPets = [];
+
+/* 서버로 보낼 payload — 백엔드가 받는 필드는 name/species/breed/weight_kg 뿐.
+   size·age·gender·notes·사진은 화면 표시용으로만 로컬에 남기고 서버엔 안 보냄
+   (백엔드에 해당 필드가 없음 — lgj 브랜치 Pet 모델 기준, 나중에 추가되면 여기 확장) */
+function buildPayload(){
+  const weight = parseFloat(document.getElementById('petWeight').value);
+  return {
+    name: petName.value.trim(),
+    species: selectedSpecies,
+    breed: document.getElementById('petBreed').value.trim() || null,
+    weight_kg: Number.isFinite(weight) ? weight : null,
+  };
+}
+
+/* 화면 표시·다음 화면 이동용 — 서버 응답(pet_id 포함) + 로컬 전용 필드(사진·크기·나이 등) 합침 */
+function toDisplayPet(serverPet){
+  return {
+    ...serverPet,
+    weight: serverPet.weight_kg || '',
+    size: selectedSize,
+    age: document.getElementById('petAge').value.trim(),
+    gender: document.getElementById('petGender').value.trim(),
+    notes: document.getElementById('petNotes').value.trim(),
+    photo: photoPreview.style.display === 'block' ? photoPreview.src : null,
+  };
+}
+
+function renderAddedPets(){
+  if(savedPets.length === 0){ addedPetsBox.innerHTML = ''; return; }
+  const sizeLabel = { small:'소형', medium:'중형', large:'대형' };
+  addedPetsBox.innerHTML = `<div class="added-label">등록된 프로필 (${savedPets.length})</div>` +
+    savedPets.map(p => `
+      <div class="added-pet-chip">
+        <div class="thumb">${p.photo ? `<img src="${p.photo}">` : speciesEmoji[p.species] || '🐾'}</div>
+        <div class="info">${p.name}<small>${sizeLabel[p.size] || ''}${p.age ? ' · ' + p.age : ''}</small></div>
+      </div>
+    `).join('');
+}
+
+function resetFormForNextPet(){
+  petName.value = '';
+  document.getElementById('petAge').value = '';
+  document.getElementById('petGender').value = '';
+  document.getElementById('petWeight').value = '';
+  document.getElementById('petIntro').value = '';
+  document.getElementById('petNotes').value = '';
+  photoPreview.src = '';
+  photoPreview.style.display = 'none';
+  photoIcon.style.display = 'block';
+  photoBtnLabel.textContent = '사진 선택';
+  document.querySelectorAll('#speciesGrid .option-card').forEach(c=>c.classList.remove('selected'));
+  document.querySelectorAll('#sizeRow .size-pill').forEach(p=>p.classList.remove('selected'));
+  selectedSpecies = null;
+  selectedSize = null;
+  validateForm();
+  petName.focus();
+}
+
+addAnotherBtn.addEventListener('click', async ()=>{
+  if(addAnotherBtn.disabled) return;
+  addAnotherBtn.disabled = true;
+  const originalText = addAnotherBtn.textContent;
+  addAnotherBtn.textContent = '저장 중…';
+  try{
+    const serverPet = await api('/api/pets', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', ...authHeader()},
+      body: JSON.stringify(buildPayload()),
+    });
+    savedPets.push(toDisplayPet(serverPet));
+    renderAddedPets();
+    resetFormForNextPet();
+  } catch(e){
+    alert('저장 실패 — ' + e.message);
+  } finally {
+    addAnotherBtn.textContent = originalText;
+    validateForm();
+  }
+});
+
+saveBtn.addEventListener('click', async ()=>{
+  if(saveBtn.disabled) return;
+  saveBtn.disabled = true;
+  const originalText = saveBtn.textContent;
+  saveBtn.textContent = '저장 중…';
+  try{
+    const serverPet = await api('/api/pets', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', ...authHeader()},
+      body: JSON.stringify(buildPayload()),
+    });
+    const finalPet = toDisplayPet(serverPet);
+    savedPets.push(finalPet);
+    renderAddedPets();
+    saveBtn.textContent = '저장 완료 ✓ 한입 나누기로 이동';
+    saveBtn.style.background = 'var(--moss-dark)';
+    addAnotherBtn.disabled = true;
+
+    const params = new URLSearchParams({
+      pet_id: finalPet.pet_id,
+      name: finalPet.name,
+      species: finalPet.species,
+      breed: finalPet.breed || '',
+      size: finalPet.size || '',
+      age: finalPet.age || '',
+      gender: finalPet.gender || '',
+      weight: finalPet.weight || '',
+      notes: finalPet.notes || '',
+    });
+    setTimeout(()=>{
+      window.location.href = '/static/chat.html?' + params.toString();
+    }, 700);
+  } catch(e){
+    alert('저장 실패 — ' + e.message);
+    saveBtn.disabled = false;
+    saveBtn.textContent = originalText;
+  }
+});
+
+</script>
+</body>
+</html>

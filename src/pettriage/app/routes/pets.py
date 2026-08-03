@@ -1,3 +1,5 @@
+# 0802 권소라 내용 추가 : def update_pet, def delete_pet 내용 추가 / import PetUpdate, import Response 추가
+
 """반려동물 프로필 라우터.
 
     POST /api/pets            등록
@@ -18,10 +20,10 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.orm import Session
 
-from ..contracts import PetCreate, PetResponse
+from ..contracts import PetCreate, PetResponse, PetUpdate
 from ..deps import get_current_user_id, get_db
 from ..models import Pet
 
@@ -71,3 +73,57 @@ def get_pet(pet_id: str, user_id: str = _user_dep, db: Session = _db_dep) -> Pet
     if not pet:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "반려동물을 찾을 수 없습니다.")
     return pet
+
+
+@router.patch("/{pet_id}", response_model=PetResponse)
+def update_pet(
+    pet_id: str,
+    req: PetUpdate,
+    user_id: str = _user_dep,
+    db: Session = _db_dep,
+) -> Pet:
+    """부분 수정. **보낸 필드만 바꾼다** — 안 보낸 필드는 그대로 둔다.
+
+    `exclude_unset` 이 핵심이다. 이게 없으면 클라이언트가 생략한 필드가
+    전부 None 으로 덮여서, 체중만 고치려던 요청이 이름을 지운다.
+
+    조회 조건·404 정책은 get_pet 과 동일 — 남의 것은 404.
+    """
+    pet = db.query(Pet).filter(Pet.pet_id == pet_id, Pet.user_id == user_id).first()
+    if not pet:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "반려동물을 찾을 수 없습니다.")
+
+    changes = req.model_dump(exclude_unset=True)
+
+    # name·species 는 null 로 지울 수 없다 (등록 시 필수였던 것은 계속 필수)
+    if "name" in changes and changes["name"] is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "이름은 비울 수 없습니다.")
+    if "species" in changes and changes["species"] is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "종은 비울 수 없습니다.")
+
+    for field, value in changes.items():
+        setattr(pet, field, value)
+
+    db.commit()
+    db.refresh(pet)
+    return pet
+
+
+@router.delete("/{pet_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+def delete_pet(
+    pet_id: str,
+    user_id: str = _user_dep,
+    db: Session = _db_dep,
+):
+    """삭제. 조회 조건·404 정책은 get_pet 과 동일.
+
+    ⚠️ 이 아이의 기록(records)은 여기서 지우지 않는다 — 고아 데이터로 남는다.
+    함께 지울지는 records 저장 방식 확인 후 팀에서 결정할 것.
+    벡터DB 에 적재된 기록은 별도 삭제 파이프라인이 필요하다.
+    """
+    pet = db.query(Pet).filter(Pet.pet_id == pet_id, Pet.user_id == user_id).first()
+    if not pet:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "반려동물을 찾을 수 없습니다.")
+
+    db.delete(pet)
+    db.commit()

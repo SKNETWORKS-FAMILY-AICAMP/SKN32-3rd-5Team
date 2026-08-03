@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PetTriage — 기록장</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #FAF6EF;
+    --surface: #FFFFFF;
+    --ink: #2C2A26;
+    --ink-soft: #6B6558;
+    --ink-faint: #A39C8C;
+    --moss: #4F6B4A;
+    --moss-dark: #3A4F37;
+    --moss-soft: #E4EBE1;
+    --honey: #D89B3D;
+    --honey-soft: #FBEEDA;
+    --clay: #B3542F;
+    --clay-soft: #F6E4DB;
+    --amber: #C98A1E;
+    --line: #E5DFD2;
+    --sidebar-w: 268px;
+  }
+  *{ box-sizing:border-box; }
+  html, body{ height:100%; }
+  body{ margin:0; background: var(--bg); color: var(--ink); font-family:'Noto Sans KR', sans-serif; display:flex; }
+
+  /* ============ 사이드바 (채팅 화면과 동일) ============ */
+  .sidebar{ width: var(--sidebar-w); flex-shrink:0; background: var(--moss-dark); color:#fff; display:flex; flex-direction:column; height:100vh; position:sticky; top:0; }
+  .sidebar-top{ padding: 22px 18px 16px; border-bottom:1px solid rgba(255,255,255,0.14); }
+  .logo{ display:flex; align-items:center; gap:9px; margin-bottom:20px; }
+  .logo-mark{ width:32px; height:32px; border-radius:9px; background: rgba(255,255,255,0.14); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .logo-mark svg{ width:17px; height:17px; }
+  .logo-text{ font-family:'Noto Serif KR', serif; font-weight:700; font-size:16px; }
+  .sidebar-profile{ display:flex; align-items:flex-start; gap:11px; }
+  .sidebar-profile .av{ width:44px; height:44px; border-radius:50%; background: var(--honey); display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0; }
+  .sidebar-profile .nm{ font-weight:700; font-size:14px; }
+  .sidebar-profile .meta{ font-size:11px; color: rgba(255,255,255,0.65); margin-top:3px; line-height:1.55; }
+  .sidebar-notes{
+    display:none; margin-top:12px; background: rgba(216,155,61,0.18); border:1px solid rgba(216,155,61,0.4);
+    border-radius:10px; padding:8px 10px; font-size:10.5px; line-height:1.5; color: rgba(255,255,255,0.92);
+  }
+  .sidebar-notes.show{ display:block; }
+  .sidebar-list{ padding: 12px 10px; display:flex; flex-direction:column; gap:2px; flex:1; overflow-y:auto; }
+  .sidebar-item{ display:flex; align-items:center; gap:12px; padding: 10px 12px; border-radius:12px; font-size:13px; color: rgba(255,255,255,0.82); cursor:pointer; background:none; border:none; font-family:inherit; text-align:left; width:100%; }
+  .sidebar-item:hover{ background: rgba(255,255,255,0.08); }
+  .sidebar-item.active{ background: rgba(255,255,255,0.14); color:#fff; font-weight:700; }
+  .sidebar-item .ic{ width:17px; text-align:center; opacity:.9; font-size:14px; }
+  .sidebar-section-label{ font-size:10.5px; color: rgba(255,255,255,0.42); font-weight:700; padding: 14px 12px 4px; letter-spacing:.4px; }
+  .sidebar-foot{ padding: 14px 18px 18px; border-top:1px solid rgba(255,255,255,0.14); }
+  .sidebar-foot button{ width:100%; background: rgba(255,255,255,0.1); color:#fff; border:none; border-radius:999px; padding:9px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit; }
+  .sidebar-foot button:hover{ background: rgba(255,255,255,0.18); }
+  .overlay{ display:none; }
+
+  /* ============ 메인 ============ */
+  .main{ flex:1; min-width:0; display:flex; flex-direction:column; height:100vh; }
+  .topbar{ display:flex; align-items:center; padding: 18px 30px; border-bottom:1px solid var(--line); flex-shrink:0; background: var(--surface); }
+  .menu-btn{ display:none; }
+  .topbar-copy .eyebrow{ font-size:11px; font-weight:700; color: var(--moss-dark); background: var(--moss-soft); display:inline-block; padding:4px 10px; border-radius:999px; margin-bottom:8px; }
+  .topbar-copy h1{ font-family:'Noto Serif KR', serif; font-size:20px; font-weight:700; margin:0 0 4px; }
+  .topbar-copy p{ font-size:12.5px; color: var(--ink-soft); margin:0; }
+
+  /* ============ 좌/우 스플릿 ============ */
+  .split{ flex:1; display:grid; grid-template-columns: 340px 1fr; overflow:hidden; }
+
+  /* -------- 왼쪽: 고정 -------- */
+  .left-pane{ border-right:1px solid var(--line); padding:22px; overflow-y:auto; background: var(--surface); }
+  .panel-card{ background:#fff; border:1px solid var(--line); border-radius:16px; padding:16px; margin-bottom:16px; }
+  .panel-card h3{ font-family:'Noto Serif KR', serif; font-size:13.5px; font-weight:700; margin:0 0 12px; display:flex; align-items:center; gap:6px; }
+
+  .chart-meta{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; }
+  .chart-meta .cur{ font-family:'Noto Serif KR', serif; font-size:20px; font-weight:700; color: var(--moss-dark); }
+  .chart-meta .cur small{ font-size:11px; font-weight:400; color: var(--ink-faint); }
+  .chart-meta .delta{ font-size:11.5px; color: var(--moss-dark); font-weight:700; background: var(--moss-soft); padding:3px 8px; border-radius:999px; }
+  .chart-meta .delta.down{ color:#8a5c10; background: var(--honey-soft); }
+
+  .weight-status{ display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+  .weight-status.show{ display:block; }
+  .weight-status .ws-badge{
+    display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:700;
+    padding:4px 10px; border-radius:999px; margin-bottom:6px;
+  }
+  .weight-status .ws-badge.low{ background: var(--honey-soft); color:#8a5c10; }
+  .weight-status .ws-badge.ok{ background: var(--moss-soft); color: var(--moss-dark); }
+  .weight-status .ws-badge.high{ background: var(--clay-soft); color: var(--clay); }
+  .weight-status .ws-desc{ font-size:11px; color: var(--ink-soft); line-height:1.6; }
+
+  .download-btn{
+    width:100%; display:flex; align-items:center; justify-content:center; gap:7px;
+    background: var(--ink); color:#fff; border:none; border-radius:999px;
+    padding:10px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit; margin-bottom:16px;
+  }
+  .download-btn:hover{ background: var(--moss-dark); }
+
+  /* 캘린더 */
+  .cal-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .cal-head .month-label{ font-family:'Noto Serif KR', serif; font-weight:700; font-size:13.5px; }
+  .cal-nav{ display:flex; gap:4px; }
+  .cal-nav button{ width:24px; height:24px; border-radius:7px; border:1px solid var(--line); background:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+  .cal-grid{ display:grid; grid-template-columns: repeat(7, 1fr); gap:3px; text-align:center; }
+  .cal-dow{ font-size:10.5px; color: var(--ink-faint); font-weight:700; padding-bottom:4px; }
+  .cal-day{
+    position:relative; aspect-ratio:1; display:flex; align-items:center; justify-content:center;
+    font-size:12px; color: var(--ink); cursor:pointer; border-radius:50%;
+  }
+  .cal-day.other{ color: #d8d2c2; cursor:default; }
+  .cal-day.has-entry{ background: var(--moss); color:#fff; font-weight:700; }
+  .cal-day.today{ box-shadow: inset 0 0 0 1.5px var(--honey); }
+  .cal-day.selected{ box-shadow: inset 0 0 0 2px var(--ink); }
+  .cal-day.has-entry.selected{ box-shadow: inset 0 0 0 2px var(--ink); }
+  .cal-day:hover:not(.other){ background: var(--moss-soft); }
+  .cal-day.has-entry:hover{ background: var(--moss-dark); }
+
+  .cal-legend{ display:flex; align-items:center; gap:6px; font-size:10.5px; color: var(--ink-soft); margin-top:12px; }
+  .cal-legend .dot{ width:9px; height:9px; border-radius:50%; background: var(--moss); }
+
+  /* -------- 오른쪽: 조회/편집 -------- */
+  .right-pane{ overflow-y:auto; display:flex; justify-content:center; }
+  .right-inner{ width:100%; max-width:640px; padding: 26px 30px 40px; }
+
+  .entry-date-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
+  .entry-date-head h2{ font-family:'Noto Serif KR', serif; font-size:19px; font-weight:700; margin:0; }
+  .entry-date-head .sub{ font-size:12px; color: var(--ink-soft); margin-top:3px; }
+  .edit-btn{
+    display:flex; align-items:center; gap:6px; background: var(--surface); border:1px solid var(--line);
+    color: var(--ink-soft); border-radius:999px; padding:8px 15px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit;
+  }
+  .edit-btn:hover{ border-color: var(--moss); color: var(--moss-dark); }
+
+  /* 조회 모드 */
+  .view-card{ background:#fff; border:1px solid var(--line); border-radius:16px; padding:18px; margin-bottom:14px; }
+  .view-row{ display:flex; align-items:flex-start; gap:12px; padding: 10px 0; border-bottom:1px solid var(--line); }
+  .view-row:last-child{ border-bottom:none; }
+  .view-row .ic{ width:30px; height:30px; border-radius:9px; background: var(--moss-soft); display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0; }
+  .view-row .label{ font-size:11.5px; color: var(--ink-faint); font-weight:600; margin-bottom:3px; }
+  .view-row .val{ font-size:13.5px; color: var(--ink); line-height:1.6; }
+  .meal-grid{ display:grid; grid-template-columns: repeat(2,1fr); gap:8px; width:100%; }
+  .meal-chip{ background: var(--bg); border-radius:10px; padding:8px 10px; }
+  .meal-chip .mlabel{ font-size:10.5px; color: var(--ink-faint); font-weight:700; margin-bottom:2px; }
+  .meal-chip .mval{ font-size:12.5px; color: var(--ink); }
+  .diary-photo{ max-width:220px; border-radius:12px; border:1px solid var(--line); }
+
+  .empty-state{ text-align:center; padding: 60px 20px; color: var(--ink-soft); background:#fff; border:1px dashed var(--line); border-radius:16px; font-size:13px; }
+
+  /* 편집/입력 폼 */
+  .form-card{ background:#fff; border:1px solid var(--line); border-radius:16px; padding:20px; }
+  .field{ margin-bottom:16px; }
+  .field label{ display:block; font-size:12.5px; font-weight:600; color: var(--ink-soft); margin-bottom:7px; }
+  .field input, .field textarea{ width:100%; border:1px solid var(--line); border-radius:12px; padding:10px 13px; font-size:13.5px; font-family:inherit; background: var(--bg); color: var(--ink); outline:none; resize:vertical; }
+  .field input:focus, .field textarea:focus{ border-color: var(--moss); background:#fff; }
+  .weight-input{ display:flex; align-items:center; gap:8px; }
+  .weight-input input{ max-width:120px; }
+  .weight-input span{ font-size:12.5px; color: var(--ink-soft); }
+
+  .photo-upload{ display:flex; align-items:center; gap:14px; }
+  .photo-box{
+    width:76px; height:76px; border-radius:14px; background: var(--moss-soft); border:1.5px dashed #c9d6c6;
+    display:flex; align-items:center; justify-content:center; cursor:pointer; overflow:hidden; flex-shrink:0;
+  }
+  .photo-box img{ width:100%; height:100%; object-fit:cover; display:none; }
+  .photo-box svg{ width:22px; height:22px; opacity:.55; }
+  .photo-upload-txt{ font-size:12px; color: var(--ink-soft); }
+  .photo-upload-txt .btnlike{ display:inline-block; margin-top:5px; font-size:11.5px; font-weight:700; color: var(--moss-dark); background: var(--moss-soft); padding:5px 11px; border-radius:999px; cursor:pointer; }
+
+  .meal-fields{ display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
+
+  .form-actions{ display:flex; gap:8px; justify-content:flex-end; margin-top:6px; }
+  .btn-cancel{ background:transparent; color: var(--ink-soft); border:1px solid var(--line); border-radius:999px; padding:10px 18px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit; }
+  .btn-save{ background: var(--moss); color:#fff; border:none; border-radius:999px; padding:10px 20px; font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit; }
+  .btn-save:hover{ background: var(--moss-dark); }
+
+  /* ============ 다운로드 모달 ============ */
+  .modal-overlay{ position:fixed; inset:0; background: rgba(44,42,38,0.4); display:none; align-items:center; justify-content:center; z-index:50; }
+  .modal-overlay.open{ display:flex; }
+  .modal{ background:#fff; border-radius:20px; width:100%; max-width:400px; padding:24px; box-shadow: 0 30px 60px -20px rgba(0,0,0,0.3); }
+  .modal h3{ font-family:'Noto Serif KR', serif; font-size:16px; margin:0 0 4px; }
+  .modal p.sub{ font-size:12px; color: var(--ink-soft); margin:0 0 18px; }
+  .range-options{ display:flex; gap:7px; flex-wrap:wrap; margin-bottom:14px; }
+  .range-chip{ flex:1; text-align:center; border:1.5px solid var(--line); border-radius:999px; padding:9px 6px; font-size:12px; font-weight:600; color: var(--ink-soft); cursor:pointer; background:#fff; }
+  .range-chip.selected{ border-color: var(--moss); background: var(--moss-soft); color: var(--moss-dark); }
+  .custom-range{ display:none; gap:8px; margin-bottom:16px; }
+  .custom-range.show{ display:flex; }
+  .custom-range .field{ flex:1; margin-bottom:0; }
+  .custom-range .field input{ padding:8px 10px; font-size:12.5px; }
+  .modal-actions{ display:flex; gap:8px; justify-content:flex-end; margin-top:6px; }
+
+  @media (max-width: 980px){
+    .split{ grid-template-columns:1fr; overflow:auto; }
+    .left-pane{ border-right:none; border-bottom:1px solid var(--line); }
+  }
+  @media (max-width: 900px){
+    .sidebar{ position:fixed; left:0; top:0; bottom:0; z-index:30; transform: translateX(-100%); transition: transform .26s ease; box-shadow: 20px 0 40px rgba(0,0,0,0.18); }
+    .sidebar.open{ transform: translateX(0); }
+    .overlay{ display:block; position:fixed; inset:0; background: rgba(44,42,38,0.35); opacity:0; pointer-events:none; transition:.22s ease; z-index:29; }
+    .overlay.open{ opacity:1; pointer-events:auto; }
+    .menu-btn{ display:flex; width:38px; height:38px; border-radius:12px; border:1px solid var(--line); background: var(--surface); align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; margin-right:12px; }
+    .menu-btn svg{ width:18px; height:18px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="overlay" id="overlay"></div>
+
+<!-- ============ 사이드바 ============ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-top">
+    <div class="logo">
+      <span class="logo-mark">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 14c-3.5 0-6.5 2.2-6.5 5.2 0 1 .8 1.8 1.8 1.8h9.4c1 0 1.8-.8 1.8-1.8 0-3-3-5.2-6.5-5.2Z" fill="#fff"/><circle cx="6" cy="8" r="2.3" fill="#fff"/><circle cx="18" cy="8" r="2.3" fill="#fff"/><circle cx="9.3" cy="4.6" r="2" fill="#fff"/><circle cx="14.7" cy="4.6" r="2" fill="#fff"/></svg>
+      </span>
+      <span class="logo-text">PetTriage</span>
+    </div>
+    <div class="sidebar-profile">
+      <div class="av" id="sbAvatar">🐶</div>
+      <div>
+        <div class="nm" id="sbName">콩이</div>
+        <div class="meta" id="sbMeta">소형견 · 2살</div>
+      </div>
+    </div>
+    <div class="sidebar-notes" id="sbNotes"></div>
+  </div>
+  <div class="sidebar-list">
+    <div class="sidebar-section-label">메뉴</div>
+    <button class="sidebar-item" id="navChat"><span class="ic">🔍</span>위험 체크</button>
+    <button class="sidebar-item active"><span class="ic">📖</span>기록장</button>
+    <div class="sidebar-section-label" id="sbManageLabel">콩이 관리</div>
+    <button class="sidebar-item" id="navSettings"><span class="ic">⚙️</span>프로필 설정</button>
+    <button class="sidebar-item" id="navPets"><span class="ic">🐾</span>반려동물 전환 / 추가</button>
+  </div>
+  <div class="sidebar-foot"><button id="logoutBtn">로그아웃</button></div>
+</aside>
+
+<!-- ============ 메인 ============ -->
+<div class="main">
+  <div class="topbar">
+    <button class="menu-btn" id="menuBtn" aria-label="메뉴 열기">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M4 7H20M4 12H20M4 17H20" stroke="#2C2A26" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+    <div class="topbar-copy">
+      <span class="eyebrow">DIARY</span>
+      <h1>기록장</h1>
+      <p id="topP">콩이와 함께한 하루하루를 남겨보세요.</p>
+    </div>
+  </div>
+
+  <div class="split">
+
+    <!-- ===== 왼쪽: 체중그래프 + 캘린더 (고정) ===== -->
+    <div class="left-pane">
+
+      <div class="panel-card">
+        <h3>📈 체중 변화</h3>
+        <div class="chart-meta">
+          <div class="cur" id="curWeight">- <small>kg</small></div>
+          <div class="delta" id="weightDelta">-</div>
+        </div>
+        <svg id="weightChart" viewBox="0 0 300 110" style="width:100%; height:auto; display:block;"></svg>
+        <div class="weight-status" id="weightStatus"></div>
+      </div>
+
+      <button class="download-btn" id="openDownloadModal">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none"><path d="M12 3V15M12 15L7 10M12 15L17 10M4 18V19C4 20.1 4.9 21 6 21H18C19.1 21 20 20.1 20 19V18" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        기록 리포트 다운로드
+      </button>
+
+      <div class="panel-card">
+        <div class="cal-head">
+          <div class="cal-nav"><button id="prevMonth">‹</button></div>
+          <div class="month-label" id="monthLabel"></div>
+          <div class="cal-nav"><button id="nextMonth">›</button></div>
+        </div>
+        <div class="cal-grid" id="calGrid"></div>
+        <div class="cal-legend"><span class="dot"></span>기록이 있는 날</div>
+      </div>
+
+      <div class="panel-card" style="background: var(--moss-soft); border-color:#d8e3d5;">
+        <h3>🌱 기록이 곧 데이터가 돼요</h3>
+        <p style="font-size:11.5px; color: var(--moss-dark); line-height:1.7; margin:0;">
+          여기 남긴 하루하루의 기록은 <b>검색 가능한 내부 문서</b>로 쌓여요.
+          나중에 위험 체크에서 질문하면, 공적 자료와 함께 우리 아이의 기록도
+          근거로 활용돼 더 정확한 안내를 받을 수 있어요.
+        </p>
+      </div>
+
+    </div>
+
+    <!-- ===== 오른쪽: 조회 / 편집 ===== -->
+    <div class="right-pane">
+      <div class="right-inner" id="rightInner"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ============ 다운로드 모달 ============ -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h3>기록 리포트 다운로드</h3>
+    <p class="sub">선택한 기간의 기록을 파일로 내려받아요.</p>
+
+    <div class="range-options" id="rangeOptions">
+      <div class="range-chip selected" data-range="1m">최근 1개월</div>
+      <div class="range-chip" data-range="3m">최근 3개월</div>
+      <div class="range-chip" data-range="custom">직접입력</div>
+    </div>
+
+    <div class="custom-range" id="customRange">
+      <div class="field"><label>시작일</label><input type="date" id="rangeStart"></div>
+      <div class="field"><label>종료일</label><input type="date" id="rangeEnd"></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-cancel" id="cancelModal">취소</button>
+      <button class="btn-save" id="confirmDownload">다운로드</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---- 로그인 여부 확인 ---- */
+const authToken = sessionStorage.getItem('ptt_token');
+if(!authToken){
+  window.location.href = '/';
+}
+function authHeader(){
+  return { 'Authorization': 'Bearer ' + authToken };
+}
+async function api(path, opts){
+  const r = await fetch(path, opts);
+  if(r.status === 401){
+    sessionStorage.removeItem('ptt_token');
+    window.location.href = '/';
+    throw new Error('로그인이 만료됐어요.');
+  }
+  if(!r.ok){
+    let detail = '';
+    try{ detail = (await r.json()).detail || ''; } catch(e){}
+    throw new Error(detail || `요청 실패 (${r.status})`);
+  }
+  return r.json();
+}
+
+/* ---------------- 사이드바 토글 (좁은 화면) ---------------- */
+const sidebar = document.getElementById('sidebar');
+const overlay = document.getElementById('overlay');
+document.getElementById('menuBtn').addEventListener('click', ()=>{ sidebar.classList.add('open'); overlay.classList.add('open'); });
+overlay.addEventListener('click', ()=>{ sidebar.classList.remove('open'); overlay.classList.remove('open'); });
+document.getElementById('logoutBtn').addEventListener('click', ()=>{
+  sessionStorage.removeItem('ptt_token');
+  window.location.href = '/';
+});
+
+/* ---------------- 화면 간 연동: URL 파라미터로 프로필 정보 전달받기 ---------------- */
+const urlParams = new URLSearchParams(window.location.search);
+const speciesEmojiMap = { dog:'🐶', cat:'🐱', bird:'🦜' };
+const sizeKorean = { small:'소형', medium:'중형', large:'대형' };
+const speciesKorean = { dog:'견', cat:'묘', bird:'앵무새' };
+
+function buildSizeLabel(species, size){
+  if(species === 'bird') return '앵무새';
+  return (sizeKorean[size] || '') + (speciesKorean[species] || '');
+}
+
+const currentPet = {
+  petId: urlParams.get('pet_id') || '',
+  name: urlParams.get('name') || '콩이',
+  species: urlParams.get('species') || 'dog',
+  breed: urlParams.get('breed') || '',
+  size: urlParams.get('size') || '',
+  age: urlParams.get('age') || '',
+  gender: urlParams.get('gender') || '',
+  weight: urlParams.get('weight') || '',
+  notes: urlParams.get('notes') || '',
+};
+currentPet.emoji = speciesEmojiMap[currentPet.species] || '🐾';
+currentPet.sizeLabel = currentPet.breed || buildSizeLabel(currentPet.species, currentPet.size);
+
+document.getElementById('sbAvatar').textContent = currentPet.emoji;
+document.getElementById('sbName').textContent = currentPet.name;
+const metaParts = [currentPet.sizeLabel, currentPet.age, currentPet.gender, currentPet.weight ? `${currentPet.weight}kg` : ''].filter(Boolean);
+document.getElementById('sbMeta').textContent = metaParts.join(' · ');
+document.getElementById('sbManageLabel').textContent = `${currentPet.name} 관리`;
+document.getElementById('topP').textContent = `${currentPet.name}와 함께한 하루하루를 남겨보세요.`;
+
+const sbNotes = document.getElementById('sbNotes');
+if(currentPet.notes){
+  sbNotes.textContent = `⚠️ 특이사항: ${currentPet.notes}`;
+  sbNotes.classList.add('show');
+}
+
+document.getElementById('navChat').addEventListener('click', ()=>{
+  window.location.href = '/static/chat.html?' + urlParams.toString();
+});
+document.getElementById('navSettings').addEventListener('click', ()=>{
+  window.location.href = '/static/pet-settings.html?' + urlParams.toString();
+});
+document.getElementById('navPets').addEventListener('click', ()=>{
+  window.location.href = '/static/pets.html?' + urlParams.toString();
+});
+
+/* ---------------- 날짜 유틸 ---------------- */
+function fmt(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function pretty(dateStr){
+  const d = new Date(dateStr + 'T00:00:00');
+  const dow = ['일','월','화','수','목','금','토'][d.getDay()];
+  return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${dow})`;
+}
+
+/* ---------------- 기록 데이터 ----------------
+   서버(/api/report)의 timeline을 날짜별로 정리해서 화면에 씀.
+   같은 날 여러 건이면 가장 최근 것을 보여줌 (백엔드에 수정 API가 없어
+   "수정"은 새 기록 추가로 처리되고, 조회 시 최신 건이 보인다).
+
+   ⚠️ 이 기록은 단순 저장이 아니라 **검색 대상 내부 문서**로 쌓인다 (05 §3).
+   벡터DB에 적재되면(WS1 연결 후) 위험 체크 질의 시 함께 검색된다. */
+let entriesByDate = {};   // { 'YYYY-MM-DD': record }
+let photosByDate = {};    // 사진은 백엔드 필드가 없어 화면 세션 안에서만 유지 (DB 붙으면 교체)
+
+const today = new Date();
+const todayStr = fmt(today);
+let viewYear = today.getFullYear(), viewMonth = today.getMonth();
+let selectedDate = todayStr;
+let editMode = false;
+
+async function loadRecords(){
+  if(!currentPet.petId) return;
+  try{
+    /* 전체 기간 조회 — period 비우면 전체 (records_store.timeline 동작 기준) */
+    const q = new URLSearchParams({ pet_id: currentPet.petId, period_from: '', period_to: '' });
+    const data = await api('/api/report?' + q, { headers: authHeader() });
+    entriesByDate = {};
+    (data.timeline || []).forEach(row=>{
+      const dateStr = (row.recorded_at || '').slice(0,10);
+      if(!dateStr) return;
+      /* 같은 날짜 여러 건 → 나중 것이 덮어씀 (timeline이 저장 순서라고 가정) */
+      entriesByDate[dateStr] = row;
+    });
+  } catch(e){
+    console.error('기록을 불러오지 못했어요', e);
+  }
+}
+
+/* ---------------- 적정 체중 범위 (품종·크기 기준 참고용) ---------------- */
+const idealWeightRanges = {
+  dog:  { small:[2, 7], medium:[10, 25], large:[25, 45] },
+  cat:  { small:[2.5, 4], medium:[4, 5.5], large:[5.5, 7] },
+};
+
+function isJuvenile(ageStr){
+  if(!ageStr) return false;
+  if(ageStr.includes('개월')) return true;
+  const num = parseFloat(ageStr);
+  return !isNaN(num) && num < 1;
+}
+
+function renderWeightStatus(weight){
+  const box = document.getElementById('weightStatus');
+  const range = idealWeightRanges[currentPet.species] && idealWeightRanges[currentPet.species][currentPet.size];
+
+  if(!weight || !range){
+    box.classList.remove('show');
+    return;
+  }
+
+  if(isJuvenile(currentPet.age)){
+    box.innerHTML = `
+      <span class="ws-badge ok">🌱 성장기</span>
+      <div class="ws-desc">아직 성장기라 체중이 표준 범위 밖이어도 정상일 수 있어요. 정확한 평가는 수의사와 상담해주세요.</div>`;
+    box.classList.add('show');
+    return;
+  }
+
+  const [min, max] = range;
+  let badge, desc;
+  if(weight < min){
+    badge = `<span class="ws-badge low">🔻 저체중 가능성</span>`;
+    desc = `${currentPet.sizeLabel} 기준 정상 체중은 약 ${min}~${max}kg이에요. 계속 미달이라면 급여량을 점검해보세요.`;
+  } else if(weight > max){
+    badge = `<span class="ws-badge high">🔺 과체중 가능성</span>`;
+    desc = `${currentPet.sizeLabel} 기준 정상 체중은 약 ${min}~${max}kg이에요. 간식량과 운동량을 조금씩 조정해보는 게 좋아요.`;
+  } else {
+    badge = `<span class="ws-badge ok">✅ 정상 체중 범위</span>`;
+    desc = `${currentPet.sizeLabel} 기준 정상 체중(약 ${min}~${max}kg) 안에 있어요.`;
+  }
+  box.innerHTML = `${badge}<div class="ws-desc">${desc} 참고용 수치이니 정확한 진단은 수의사와 상담해주세요.</div>`;
+  box.classList.add('show');
+}
+
+/* ---------------- 체중 그래프 ---------------- */
+function renderWeightChart(){
+  const points = Object.keys(entriesByDate)
+    .filter(k => entriesByDate[k].weight_kg)
+    .sort()
+    .map(k => ({ date:k, w: entriesByDate[k].weight_kg }));
+
+  const svg = document.getElementById('weightChart');
+  const curEl = document.getElementById('curWeight');
+  const deltaEl = document.getElementById('weightDelta');
+
+  if(points.length === 0){
+    svg.innerHTML = '';
+    curEl.innerHTML = '- <small>kg</small>';
+    deltaEl.textContent = '-';
+    renderWeightStatus(null);
+    return;
+  }
+
+  const last = points[points.length-1];
+  curEl.innerHTML = `${last.w.toFixed(2)} <small>kg</small>`;
+  if(points.length > 1){
+    const diff = (last.w - points[0].w).toFixed(2);
+    deltaEl.textContent = (diff <= 0 ? diff : '+'+diff) + 'kg';
+    deltaEl.className = 'delta' + (diff < 0 ? ' down' : '');
+  } else {
+    deltaEl.textContent = '첫 기록';
+  }
+  renderWeightStatus(last.w);
+
+  const ws = points.map(p=>p.w);
+  const minW = Math.min(...ws) - 0.1, maxW = Math.max(...ws) + 0.1;
+  const padX = 14, padY = 12, W = 300 - padX*2, H = 110 - padY*2;
+
+  const coords = points.map((p,i)=>{
+    const x = padX + (points.length === 1 ? W/2 : (i/(points.length-1))*W);
+    const y = padY + H - ((p.w - minW)/(maxW-minW))*H;
+    return [x,y];
+  });
+
+  const path = coords.map((c,i)=> (i===0?'M':'L') + c[0].toFixed(1) + ',' + c[1].toFixed(1)).join(' ');
+  const dots = coords.map(c => `<circle cx="${c[0].toFixed(1)}" cy="${c[1].toFixed(1)}" r="3.2" fill="#D89B3D" stroke="#fff" stroke-width="1.2"/>`).join('');
+
+  svg.innerHTML = `
+    <line x1="${padX}" y1="${padY+H}" x2="${padX+W}" y2="${padY+H}" stroke="#E5DFD2" stroke-width="1"/>
+    <path d="${path}" fill="none" stroke="#4F6B4A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    ${dots}
+  `;
+}
+
+/* ---------------- 캘린더 ---------------- */
+const monthLabel = document.getElementById('monthLabel');
+const calGrid = document.getElementById('calGrid');
+
+function renderCalendar(){
+  monthLabel.textContent = `${viewYear}년 ${viewMonth+1}월`;
+  calGrid.innerHTML = '';
+  ['일','월','화','수','목','금','토'].forEach(d=>{
+    const el = document.createElement('div');
+    el.className = 'cal-dow';
+    el.textContent = d;
+    calGrid.appendChild(el);
+  });
+
+  const firstDay = new Date(viewYear, viewMonth, 1);
+  const startWeekday = firstDay.getDay();
+  const daysInMonth = new Date(viewYear, viewMonth+1, 0).getDate();
+  const daysInPrevMonth = new Date(viewYear, viewMonth, 0).getDate();
+
+  const cells = [];
+  for(let i=startWeekday-1; i>=0; i--){
+    cells.push({ day: daysInPrevMonth - i, other:true });
+  }
+  for(let d=1; d<=daysInMonth; d++){
+    cells.push({ day:d, other:false });
+  }
+  while(cells.length % 7 !== 0){
+    cells.push({ day: cells.length - (startWeekday+daysInMonth) + 1, other:true });
+  }
+
+  cells.forEach(c=>{
+    const el = document.createElement('div');
+    el.className = 'cal-day' + (c.other ? ' other' : '');
+    el.textContent = c.day;
+    if(!c.other){
+      const dateStr = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(c.day).padStart(2,'0')}`;
+      if(entriesByDate[dateStr]) el.classList.add('has-entry');
+      if(dateStr === todayStr) el.classList.add('today');
+      if(dateStr === selectedDate) el.classList.add('selected');
+      el.addEventListener('click', ()=>{
+        selectedDate = dateStr;
+        editMode = false;
+        renderCalendar();
+        renderRight();
+      });
+    }
+    calGrid.appendChild(el);
+  });
+}
+
+document.getElementById('prevMonth').addEventListener('click', ()=>{
+  viewMonth--; if(viewMonth < 0){ viewMonth = 11; viewYear--; }
+  renderCalendar();
+});
+document.getElementById('nextMonth').addEventListener('click', ()=>{
+  viewMonth++; if(viewMonth > 11){ viewMonth = 0; viewYear++; }
+  renderCalendar();
+});
+
+/* ---------------- 식사기록 변환 ----------------
+   백엔드 meals 는 단순 문자열 배열(list[str])이라 끼니 구분이 없다.
+   화면은 소라 목업의 아침/점심/저녁/간식 4칸을 유지하고,
+   저장할 때 "아침: xxx" 접두사 문자열로 변환해 넣는다.
+   (검색 문서로 적재될 때도 접두사가 함께 남아 어느 끼니인지 읽을 수 있다) */
+const MEAL_PREFIX = { breakfast:'아침', lunch:'점심', dinner:'저녁', snack:'간식' };
+
+function parseMeals(meals){
+  const map = { breakfast:'', lunch:'', dinner:'', snack:'', other:[] };
+  (meals || []).forEach(m=>{
+    const idx = m.indexOf(':');
+    if(idx > 0){
+      const label = m.slice(0, idx).trim();
+      const value = m.slice(idx+1).trim();
+      const key = Object.keys(MEAL_PREFIX).find(k => MEAL_PREFIX[k] === label);
+      if(key){ map[key] = value; return; }
+    }
+    map.other.push(m); /* 접두사 없는 옛 형식/자유 입력도 잃지 않고 표시 */
+  });
+  return map;
+}
+
+function buildMeals(){
+  const out = [];
+  const get = (id)=> (document.getElementById(id) ? document.getElementById(id).value.trim() : '');
+  if(get('mBreakfast')) out.push(`아침: ${get('mBreakfast')}`);
+  if(get('mLunch'))     out.push(`점심: ${get('mLunch')}`);
+  if(get('mDinner'))    out.push(`저녁: ${get('mDinner')}`);
+  if(get('mSnack'))     out.push(`간식: ${get('mSnack')}`);
+  return out;
+}
+
+/* ---------------- 오른쪽 패널 ---------------- */
+const rightInner = document.getElementById('rightInner');
+
+function renderRight(){
+  const entry = entriesByDate[selectedDate];
+
+  if(entry && !editMode){
+    renderViewMode(entry);
+  } else {
+    renderFormMode(entry || null);
+  }
+}
+
+function renderViewMode(entry){
+  const photo = photosByDate[selectedDate];
+  const meals = entry.meals || [];
+  const symptoms = entry.symptoms || [];
+  const mealMap = parseMeals(meals);
+  const mealIcons = { breakfast:'🌅', lunch:'☀️', dinner:'🌙', snack:'🍪' };
+  const mealLabels = { breakfast:'아침', lunch:'점심', dinner:'저녁', snack:'간식' };
+
+  rightInner.innerHTML = `
+    <div class="entry-date-head">
+      <div>
+        <h2>${pretty(selectedDate)}</h2>
+        <div class="sub">${currentPet.name}의 하루 기록</div>
+      </div>
+      <button class="edit-btn" id="editBtn">✏️ 수정</button>
+    </div>
+
+    <div class="view-card">
+      <div class="view-row">
+        <div class="ic">⚖️</div>
+        <div><div class="label">체중</div><div class="val">${entry.weight_kg ? Number(entry.weight_kg).toFixed(2) + ' kg' : '입력 안 함'}</div></div>
+      </div>
+      ${photo ? `
+      <div class="view-row">
+        <div class="ic">📷</div>
+        <div><div class="label">사진</div><img class="diary-photo" src="${photo}"></div>
+      </div>` : ``}
+      <div class="view-row">
+        <div class="ic">🍽️</div>
+        <div style="flex:1">
+          <div class="label">식사기록</div>
+          <div class="meal-grid">
+            ${['breakfast','lunch','dinner','snack'].map(k=>`
+              <div class="meal-chip"><div class="mlabel">${mealIcons[k]} ${mealLabels[k]}</div><div class="mval">${mealMap[k] || '-'}</div></div>
+            `).join('')}
+          </div>
+          ${mealMap.other.length ? `<div class="val" style="margin-top:8px; font-size:12px;">기타: ${mealMap.other.join(' · ')}</div>` : ``}
+        </div>
+      </div>
+      <div class="view-row">
+        <div class="ic">🩺</div>
+        <div style="flex:1">
+          <div class="label">증상</div>
+          <div class="val">${symptoms.length ? symptoms.join(' · ') : '특이 증상 없음'}</div>
+        </div>
+      </div>
+      ${entry.droppings ? `
+      <div class="view-row">
+        <div class="ic">🦜</div>
+        <div><div class="label">배설물 상태</div><div class="val">${entry.droppings}</div></div>
+      </div>` : ``}
+      ${entry.note ? `
+      <div class="view-row">
+        <div class="ic">📝</div>
+        <div><div class="label">추가내용</div><div class="val">${entry.note}</div></div>
+      </div>` : ``}
+    </div>
+  `;
+
+  document.getElementById('editBtn').addEventListener('click', ()=>{
+    editMode = true;
+    renderRight();
+  });
+}
+
+function renderFormMode(entry){
+  const isNew = !entry;
+  const isBird = currentPet.species === 'bird';
+  const photo = photosByDate[selectedDate];
+  const mealMap = parseMeals(entry && entry.meals ? entry.meals : []);
+  const symptomsStr = entry && entry.symptoms ? entry.symptoms.join(', ') : '';
+
+  rightInner.innerHTML = `
+    <div class="entry-date-head">
+      <div>
+        <h2>${pretty(selectedDate)}</h2>
+        <div class="sub">${isNew ? '아직 기록이 없어요. 오늘을 남겨볼까요?' : '기록을 수정하고 있어요 (새 기록으로 저장돼요)'}</div>
+      </div>
+    </div>
+
+    <div class="form-card">
+      <div class="field">
+        <label>체중</label>
+        <div class="weight-input">
+          <input type="number" step="0.01" id="fWeight" placeholder="4.20" value="${entry && entry.weight_kg ? entry.weight_kg : ''}">
+          <span>kg</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>사진 <span style="font-weight:400; color: var(--ink-faint);">(화면 표시용 — 서버 저장은 준비 중이에요)</span></label>
+        <div class="photo-upload">
+          <label class="photo-box" id="photoBox">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4 8a2 2 0 0 1 2-2h1.5l1-1.5h7l1 1.5H18a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8Z" stroke="#4F6B4A" stroke-width="1.6"/><circle cx="12" cy="13" r="3.4" stroke="#4F6B4A" stroke-width="1.6"/></svg>
+            <img id="photoPreview" src="${photo || ''}" style="${photo ? 'display:block;' : ''}">
+          </label>
+          <div class="photo-upload-txt">오늘의 순간을 사진으로 남겨보세요.<br><span class="btnlike" id="photoBtnLabel">사진 선택</span></div>
+          <input type="file" id="photoInput" accept="image/*" style="display:none;">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>식사기록</label>
+        <div class="meal-fields">
+          <input type="text" id="mBreakfast" placeholder="🌅 아침" value="${mealMap.breakfast || ''}">
+          <input type="text" id="mLunch" placeholder="☀️ 점심" value="${mealMap.lunch || ''}">
+          <input type="text" id="mDinner" placeholder="🌙 저녁" value="${mealMap.dinner || ''}">
+          <input type="text" id="mSnack" placeholder="🍪 간식" value="${mealMap.snack || ''}">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>증상 <span style="font-weight:400; color: var(--ink-faint);">(쉼표로 구분, 없으면 비워두세요)</span></label>
+        <input type="text" id="fSymptoms" placeholder="예: 구토 1회, 무른 변" value="${symptomsStr}">
+      </div>
+
+      ${isBird ? `
+      <div class="field">
+        <label>배설물 상태 <span style="font-weight:400; color: var(--ink-faint);">(앵무새 전용 항목)</span></label>
+        <input type="text" id="fDroppings" placeholder="색 · 형태 · 양" value="${entry && entry.droppings ? entry.droppings : ''}">
+      </div>` : ``}
+
+      <div class="field">
+        <label>추가내용</label>
+        <textarea id="fNotes" rows="3" placeholder="오늘 있었던 일을 자유롭게 적어보세요">${entry ? entry.note || '' : ''}</textarea>
+      </div>
+
+      <div class="form-actions">
+        ${!isNew ? `<button class="btn-cancel" id="cancelEdit">취소</button>` : ``}
+        <button class="btn-save" id="saveEntryBtn">저장하기</button>
+      </div>
+      <div class="hint" id="saveHint" style="text-align:right; margin-top:8px; font-size:11px; color:var(--ink-faint);"></div>
+    </div>
+  `;
+
+  const photoBox = document.getElementById('photoBox');
+  const photoInput = document.getElementById('photoInput');
+  const photoPreview = document.getElementById('photoPreview');
+  const photoIcon = photoBox.querySelector('svg');
+  const photoBtnLabel = document.getElementById('photoBtnLabel');
+  if(photo){ photoIcon.style.display = 'none'; }
+
+  photoBox.addEventListener('click', ()=> photoInput.click());
+  photoBtnLabel.addEventListener('click', (e)=>{ e.stopPropagation(); photoInput.click(); });
+  photoInput.addEventListener('change', ()=>{
+    const file = photoInput.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = (e)=>{
+      photoPreview.src = e.target.result;
+      photoPreview.style.display = 'block';
+      photoIcon.style.display = 'none';
+    };
+    reader.readAsDataURL(file);
+  });
+
+  if(!isNew){
+    document.getElementById('cancelEdit').addEventListener('click', ()=>{
+      editMode = false;
+      renderRight();
+    });
+  }
+
+  document.getElementById('saveEntryBtn').addEventListener('click', async ()=>{
+    const btn = document.getElementById('saveEntryBtn');
+    const hint = document.getElementById('saveHint');
+    btn.disabled = true;
+    btn.textContent = '저장 중…';
+
+    const split = (v) => v.split(',').map(s=>s.trim()).filter(Boolean);
+    const weightVal = parseFloat(document.getElementById('fWeight').value);
+    const droppingsEl = document.getElementById('fDroppings');
+
+    try{
+      const res = await api('/api/records', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', ...authHeader()},
+        body: JSON.stringify({
+          pet_id: currentPet.petId,
+          species: currentPet.species,
+          recorded_at: selectedDate + 'T12:00:00',
+          note: document.getElementById('fNotes').value.trim(),
+          meals: buildMeals(),
+          symptoms: split(document.getElementById('fSymptoms').value),
+          weight_kg: Number.isFinite(weightVal) ? weightVal : null,
+          droppings: isBird && droppingsEl ? (droppingsEl.value.trim() || null) : null,
+        }),
+      });
+
+      /* 사진은 화면 세션 안에서만 유지 (백엔드 필드 없음 — DB 붙으면 업로드로 교체) */
+      if(photoPreview.src && photoPreview.style.display === 'block'){
+        photosByDate[selectedDate] = photoPreview.src;
+      }
+
+      /* indexed — 이 기록이 벡터DB(검색 대상 내부 문서)에 적재됐는지.
+         WS1 연결 전엔 false로 오고, 연결되면 true가 된다. */
+      hint.textContent = res.indexed
+        ? `저장됨 · ${res.record_id} · 내부 문서로 적재 완료 — 위험 체크에서 함께 검색돼요`
+        : `저장됨 · ${res.record_id} · 내부 문서 적재 대기 중 (인덱싱 연결 전)`;
+
+      await loadRecords();
+      editMode = false;
+      renderCalendar();
+      renderWeightChart();
+      renderRight();
+    } catch(e){
+      hint.textContent = '저장 실패 — ' + e.message;
+      btn.disabled = false;
+      btn.textContent = '저장하기';
+    }
+  });
+}
+
+/* ---------------- 다운로드 모달 ---------------- */
+const modalOverlay = document.getElementById('modalOverlay');
+const rangeOptions = document.getElementById('rangeOptions');
+const customRange = document.getElementById('customRange');
+let selectedRange = '1m';
+
+document.getElementById('openDownloadModal').addEventListener('click', ()=>{
+  modalOverlay.classList.add('open');
+  const start = new Date(today); start.setMonth(start.getMonth()-1);
+  document.getElementById('rangeStart').value = fmt(start);
+  document.getElementById('rangeEnd').value = fmt(today);
+});
+document.getElementById('cancelModal').addEventListener('click', ()=> modalOverlay.classList.remove('open'));
+
+rangeOptions.querySelectorAll('.range-chip').forEach(chip=>{
+  chip.addEventListener('click', ()=>{
+    rangeOptions.querySelectorAll('.range-chip').forEach(c=>c.classList.remove('selected'));
+    chip.classList.add('selected');
+    selectedRange = chip.dataset.range;
+    customRange.classList.toggle('show', selectedRange === 'custom');
+  });
+});
+
+document.getElementById('confirmDownload').addEventListener('click', async ()=>{
+  let start, end = new Date(today);
+
+  if(selectedRange === '1m'){ start = new Date(today); start.setMonth(start.getMonth()-1); }
+  else if(selectedRange === '3m'){ start = new Date(today); start.setMonth(start.getMonth()-3); }
+  else {
+    start = new Date(document.getElementById('rangeStart').value);
+    end = new Date(document.getElementById('rangeEnd').value);
+  }
+
+  try{
+    const q = new URLSearchParams({
+      pet_id: currentPet.petId,
+      period_from: fmt(start),
+      period_to: fmt(end),
+    });
+    const data = await api('/api/report?' + q, { headers: authHeader() });
+
+    const rows = (data.timeline || []).map(row=>{
+      const d = (row.recorded_at || '').slice(0,10);
+      return `${d}\n  체중: ${row.weight_kg ? row.weight_kg + 'kg' : '-'}\n  급여: ${(row.meals || []).join(', ') || '-'}\n  증상: ${(row.symptoms || []).join(', ') || '-'}${row.droppings ? '\n  배설물: ' + row.droppings : ''}\n  메모: ${row.note || '-'}\n`;
+    });
+
+    const content = `PetTriage — ${currentPet.name} 기록 리포트\n기간: ${fmt(start)} ~ ${fmt(end)}\n\n${data.summary ? '요약: ' + data.summary + '\n\n' : ''}${rows.length ? rows.join('\n') : '해당 기간에 기록이 없어요.'}\n\n${data.disclaimer || ''}`;
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${currentPet.name}_기록리포트_${fmt(start)}_${fmt(end)}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch(e){
+    alert('리포트를 불러오지 못했어요 — ' + e.message);
+  }
+
+  modalOverlay.classList.remove('open');
+});
+
+/* ---------------- 초기 렌더 ---------------- */
+(async function init(){
+  await loadRecords();
+  renderWeightChart();
+  renderCalendar();
+  renderRight();
+})();
+</script>
+</body>
+</html>
