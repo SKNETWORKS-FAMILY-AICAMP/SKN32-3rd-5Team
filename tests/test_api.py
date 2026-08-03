@@ -179,68 +179,32 @@ def test_triage_levels_expose_evidence(client: TestClient):
     assert d["bird_feeding_levels"] == [2, 3]  # 조류는 SAFE 미노출 (D-39)
 
 
-def test_bird_only_field_dropped_for_mammals(client: TestClient):
-    """조류 전용 필드는 종이 맞을 때만 보관한다 (최소 수집 · D-36)."""
-    client.post(
-        "/api/records",
-        json={
-            "pet_id": "p1",
-            "species": "dog",
-            "recorded_at": "2026-07-31T09:00:00",
-            "droppings": "노란색",
-        },
-    )
-    rows = client.get("/api/report", params={"pet_id": "p1"}).json()["timeline"]
-    assert rows and "droppings" not in rows[0]
-
-
-def test_bird_field_kept_for_birds(client: TestClient):
-    client.post(
-        "/api/records",
-        json={
-            "pet_id": "b1",
-            "species": "bird",
-            "recorded_at": "2026-07-31T09:00:00",
-            "droppings": "녹색",
-        },
-    )
-    rows = client.get("/api/report", params={"pet_id": "b1"}).json()["timeline"]
-    assert rows[0]["droppings"] == "녹색"
-
-
-def test_report_applies_period_filter(client: TestClient):
-    """받기만 하고 안 쓰면 화면의 기간 선택이 거짓말이 된다."""
-    for day in ("2026-07-01", "2026-07-15", "2026-07-30"):
-        client.post(
-            "/api/records",
-            json={"pet_id": "p2", "species": "dog", "recorded_at": f"{day}T09:00:00"},
-        )
-    rows = client.get(
-        "/api/report",
-        params={"pet_id": "p2", "period_from": "2026-07-10", "period_to": "2026-07-20"},
-    ).json()["timeline"]
-    assert [r["recorded_at"][:10] for r in rows] == ["2026-07-15"]
-
-
-def test_records_do_not_leak_across_app_instances(client: TestClient):
-    """저장소가 모듈 전역이면 앱을 새로 만들어도 남의 기록이 보인다."""
-    from pettriage.app.main import create_app
-
-    client.post(
-        "/api/records",
-        json={"pet_id": "secret", "species": "dog", "recorded_at": "2026-07-31T09:00:00"},
-    )
-    from pettriage.app import deps
-
-    deps.reset_state()
-    other = TestClient(create_app())
-    assert other.get("/api/report", params={"pet_id": "secret"}).json()["timeline"] == []
+# ─────────────────────────────────────────────────────────────
+# 다이어리 기록 테스트는 **`tests/test_records_api.py` 로 옮겼다** (2026-08-03).
+#
+# `/api/records`·`/api/report` 가 인메모리 `RecordStore` 에서 DB 로 옮겨 가면서
+# **인증이 필수**가 됐다 (D-52 2단계 소유자 확인). 이 파일의 `client` 픽스처는
+# `create_app()` 을 그대로 쓰므로 DB 오버라이드도 토큰도 없다 — 넷 다 401 로 끝나
+# `KeyError: "timeline"` 을 냈다. **응답 계약이 깨진 게 아니라 하네스가 안 맞는다.**
+#
+# 지키던 성질(조류 필드 드롭·기간 필터·소유자 격리)은 코드에 그대로 있고,
+# `test_records_api.py` 가 인증 하네스 위에서 다시 고정한다. 삭제가 아니라 이사다.
+# ─────────────────────────────────────────────────────────────
 
 
 def test_frontend_is_served(client: TestClient):
+    """정적 프론트가 실제로 붙어 있는가 — **스모크다.**
+
+    ⚠️ 예전에는 `"PetTriage" in r.text` 였다. 2026-08-03 에 첫 화면이 로그인으로
+       바뀌면서 그 문자열이 사라져 실패했다. **문구는 화면 개편마다 바뀐다** —
+       문구가 아니라 *"HTML 문서가 서빙된다"* 를 고정한다.
+    """
     r = client.get("/")
     assert r.status_code == 200
-    assert "PetTriage" in r.text
+    assert r.headers["content-type"].startswith("text/html")
+    assert "<!DOCTYPE html>" in r.text
+    assert "<title>" in r.text
+
 
 
 def test_full_text_carries_escalation_conditions(client: TestClient):
