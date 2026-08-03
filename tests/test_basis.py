@@ -197,3 +197,81 @@ class Test금지문구를안밟는다:
             "정량계산이 가능한 종의 케이스가 수치 공시의 낱말을 금지한다 — "
             f"공시를 넣으면 이 건들이 실패로 돌아선다: {offenders}"
         )
+
+
+class Test행동문장:
+    """D-89 — **등급이 시킨 일을 문장에도 싣는다.**
+
+    D-81 은 근거에 대해 *"배지를 읽고 문장은 흘린다"* 고 했다. 행동은 방향이
+    반대였다 — **배지만 있고 문장이 없었다.** 2026-08-03 실측: 등급
+    `CALL_NOW` 이상 36건 중 **19건(53%)** 이 `전화`·`병원` 을 본문에 안 썼다.
+    """
+
+    @staticmethod
+    def _rows():
+        rows = []
+        for path in sorted(glob.glob("eval/goldenset/golden_*.csv")):
+            with open(path, encoding="utf-8-sig", newline="") as f:
+                rows += list(csv.DictReader(f))
+        return rows
+
+    def test_등급마다_행동_문장이_있다(self):
+        from pettriage.triage.levels import TriageLevel
+
+        for lv in TriageLevel:
+            assert TriageLevel(lv).message, f"{lv.name} 에 행동 문장이 없다"
+
+    def test_행동_문장은_등급의_말을_쓴다(self):
+        from pettriage.triage.levels import TriageLevel
+
+        assert "병원" in TriageLevel.EMERGENCY.message
+        assert "전화" in TriageLevel.CALL_NOW.message
+        assert "진료" in TriageLevel.VISIT_SOON.message
+
+    def test_공시는_맨_끝에_붙는다(self):
+        """근거는 **단서**라 앞, 행동은 **결론**이라 뒤 (D-81 · D-89)."""
+        from pettriage.graph.engine import _advice_line
+
+        line = _advice_line({"triage_level": 3})  # type: ignore[arg-type]
+        assert line.startswith("[해야 할 일]")
+        assert "전화" in line
+
+    def test_MONITOR는_상승_조건을_함께_낸다(self):
+        """*"아래 증상이 나타나면"* 이라고 해 놓고 아래가 비면 안 된다 (D-39)."""
+        from pettriage.graph.engine import _advice_line
+
+        line = _advice_line(
+            {"triage_level": 1, "escalation_conditions": ["구토", "설사"]}  # type: ignore[arg-type]
+        )
+        assert "구토" in line and "설사" in line
+
+    def test_등급이_없으면_아무것도_안_붙인다(self):
+        from pettriage.graph.engine import _advice_line
+
+        assert _advice_line({}) == ""  # type: ignore[arg-type]
+        assert _advice_line({"triage_level": None}) == ""  # type: ignore[arg-type]
+
+    def test_행동_문장이_골든셋_금지_문구를_밟지_않는다(self):
+        """🔴 **기존 통과 건을 깨뜨리지 않는다.**
+
+        정답 등급의 행동 문장이 그 케이스의 금지 문구를 밟으면
+        골든셋이 자기모순이다 — 그 등급을 내라고 하면서 그 등급의 말을 금지한 것이다.
+        """
+        from pettriage.triage.levels import TriageLevel
+
+        name_to_level = {lv.name: int(lv) for lv in TriageLevel}
+        offenders = []
+        for r in self._rows():
+            level = name_to_level.get(r["expected_triage"])
+            if level is None:
+                continue
+            msg = TriageLevel(level).message
+            hit = [
+                t.strip()
+                for t in (r["must_not_contain"] or "").split("|")
+                if t.strip() and t.strip() in msg
+            ]
+            if hit:
+                offenders.append((r["case_id"], r["expected_triage"], hit))
+        assert not offenders, f"행동 문장을 실으면 이 건들이 실패로 돌아선다: {offenders}"
+

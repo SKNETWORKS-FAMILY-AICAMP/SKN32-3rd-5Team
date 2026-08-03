@@ -27,22 +27,13 @@ _INSTRUCTIONS: dict[Task, str] = {
         "판단이 서지 않으면 `unknown` 을 출력한다."
     ),
     Task.SLOT: (
-        "발화에서 슬롯을 추출해 **다음 키를 정확히 그대로 쓴** JSON 객체 하나로 출력한다.\n"
-        # graph.nodes.slots.extract_slots 가 이 키 이름으로 llm.get(...) 을 호출한다.
-        # 다른 키(예: weight·toxic_food)로 내면 코드가 못 찾아 결측으로 처리된다.
-        '  {"species": "dog"|"cat"|"bird"|null, "weight_kg": 숫자|null, '
-        '"amount_g": 숫자|null, "substance": 문자열|null}\n'
+        "발화에서 슬롯을 추출해 **JSON 객체 하나만** 출력한다. 설명을 덧붙이지 않는다.\n"
         "값이 발화에 없으면 **추정하지 말고 null** 로 둔다.\n"
-        "`species` 는 반드시 `dog`·`cat`·`bird` 중 하나(영문)로 쓴다 — "
-        "한국어(개·강아지 등)나 품종명·이름에서 추측하지 않는다.\n"
-        "`weight_kg`·`amount_g` 는 단위를 뺀 숫자만 쓴다(kg·g 단위로 이미 통일된 값).\n"
-        # 실측(2026-08-03): "양파"가 종종 "onion"으로 나왔다 — 코퍼스 물질명은
-        # 전부 한국어라 영문으로 나오면 매칭이 아예 안 된다(폐쇄 목록 이탈).
-        "`substance` 는 **발화에 쓰인 한국어 표현을 그대로** 옮긴다 — "
-        "번역하거나 학명·영문으로 바꾸지 않는다.\n"
+        "종은 명시된 경우에만 채운다 — 품종명이나 이름에서 추측하지 않는다.\n"
         # 실측(2026-08-03): "설사를 해요"·"기침을 해요"·"깃털을 뽑아요" 같은
         # **증상·행동 묘사**를 substance 자리에 그대로 넣는 오류가 잦았다.
-        # substance는 "먹었거나·핥았거나·접촉한 대상(음식·식물·화학물질 등)"만이다.
+        # 키 이름·번역 금지는 _schema_block(D-86)이 이미 알려주므로 여기서는
+        # 반복하지 않고, 스키마만으로는 못 잡는 판단 규칙만 남긴다.
         "`substance` 는 **먹었거나 핥았거나 접촉한 대상**(음식·식물·화학물질 등)만 담는다 — "
         "구토·설사·기침·가려움·깃털 뽑기처럼 **증상이나 행동을 나타내는 표현은 "
         "substance 가 아니다.** 그런 문장은 무엇을 먹었는지 나와 있지 않으므로 "
@@ -111,8 +102,35 @@ def _label_block(task: Task) -> str:
     return "\n".join(lines)
 
 
+def _schema_block(task: Task) -> str:
+    """**출력 스키마를 프롬프트에 싣는다** (D-86 · 03 §5).
+
+    ⚠️ 여기에 키를 손으로 적지 않는다. `SPECS[task].output_keys` 가 단일 출처이고,
+    `graph/nodes/slots.py` 의 파서도 **같은 것**을 본다 (D-22 · D-73).
+
+    적지 않았을 때 무슨 일이 났는지 — 모델이 키 이름을 모르니 `concern`·`item`
+    같은 것을 지어냈고, 코드는 `substance` 만 보므로 **뽑아 놓고 버렸다.**
+    ②슬롯이 사실상 키워드 폴백으로 돌고 있었는데 폴백 집계는 100% 로 찍혔다
+    (2026-08-03 실측).
+    """
+    spec = SPECS[task]
+    if not spec.output_keys:
+        return ""
+    hints = spec.key_hints or {}
+    width = max(len(k) for k in spec.output_keys)
+    rules = "\n".join(f"  {k:<{width}}  {hints.get(k, '')}".rstrip() for k in spec.output_keys)
+    # **형식 예시도 키 목록에서 만든다.** 손으로 적으면 키가 하나 늘 때 낡는다.
+    shape = "{" + ", ".join(f'"{k}": null' for k in spec.output_keys) + "}"
+    return (
+        "\n\n[출력 스키마] **아래 키만** 쓴다. 다른 이름의 키를 만들지 않는다.\n"
+        "값을 모르면 그 키를 `null` 로 둔다 — 키를 빼지 않는다.\n\n"
+        + rules
+        + f"\n\n형식: {shape}"
+    )
+
+
 def system_prompt(task: Task) -> str:
-    return f"{_COMMON}\n\n[과제] {_INSTRUCTIONS[task]}{_label_block(task)}"
+    return f"{_COMMON}\n\n[과제] {_INSTRUCTIONS[task]}{_label_block(task)}{_schema_block(task)}"
 
 
 def build_messages(task: Task, user_input: str) -> list[dict[str, str]]:
