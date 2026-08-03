@@ -111,7 +111,9 @@ def main() -> int:
             too_short += 1
             continue  # 실제로도 압축을 안 타는 케이스 — 학습에 안 넣는다
 
-        target = client.run(Task.COMPRESS, raw, max_tokens=400).strip()
+        # graph.nodes.generate.compress_context 와 같은 값을 쓴다 (400→700,
+        # 2026-08-03: 400에서 응답이 문장 중간에 잘리는 사례가 다수 발견됨).
+        target = client.run(Task.COMPRESS, raw, max_tokens=700).strip()
         hallucinated = bool(_numbers_in(target) - _numbers_in(raw))
 
         rows_out.append(

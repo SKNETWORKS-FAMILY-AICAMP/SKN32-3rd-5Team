@@ -150,7 +150,13 @@ def compress_context(state: GraphState) -> GraphState:
         return {"context": raw}  # type: ignore[typeddict-item]
 
     # LLM 압축 시도 — 실패하면 앞부분 잘라서 반환 (수치 유실은 없음).
-    compressed = _call_llm(Task.COMPRESS, raw, max_tokens=400)
+    #
+    # ⚠️ 400 이었을 때 실측(2026-08-03, ③ 학습데이터 생성 중 발견): 근거가
+    # 4~5건 겹치는 질의(예: 발작·청소용품 노출)에서 응답이 문장 중간에
+    # 잘렸다 — "5. 개에게 초콜" 처럼 단어 도중에 끊긴 사례가 489건 중
+    # 200건 이상. 압축이 오히려 못다 한 말을 사실처럼 남기는 것이 원문을
+    # 그대로 자르는 것보다 나쁘다.
+    compressed = _call_llm(Task.COMPRESS, raw, max_tokens=700)
     return {"context": compressed if compressed else raw[:_COMPRESS_LEN_THRESHOLD]}  # type: ignore[typeddict-item]
 
 
