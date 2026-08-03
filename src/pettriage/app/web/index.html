@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PetTriage — 로그인</title>
+<title>STP — 로그인</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -194,7 +194,7 @@
         <span class="logo-mark">
           <svg viewBox="0 0 24 24" fill="none"><path d="M12 14c-3.5 0-6.5 2.2-6.5 5.2 0 1 .8 1.8 1.8 1.8h9.4c1 0 1.8-.8 1.8-1.8 0-3-3-5.2-6.5-5.2Z" fill="#fff"/><circle cx="6" cy="8" r="2.3" fill="#fff"/><circle cx="18" cy="8" r="2.3" fill="#fff"/><circle cx="9.3" cy="4.6" r="2" fill="#fff"/><circle cx="14.7" cy="4.6" r="2" fill="#fff"/></svg>
         </span>
-        <span class="logo-text">PetTriage</span>
+        <span class="logo-text">Save The Pet</span>
       </div>
       <h2>"이거 먹어도 돼?"를<br>더는 헷갈리지 않게</h2>
       <p>우리 아이의 첫 안전 매뉴얼. 로그인하고 함께 나눠 먹은 순간을 기록해보세요.</p>
@@ -300,6 +300,12 @@ document.getElementById('goLogin').addEventListener('click', ()=>{
 /* ---- API 헬퍼 ---- */
 async function api(path, opts){
   const r = await fetch(path, opts);
+  if(r.status === 401){
+    sessionStorage.removeItem('ptt_token');
+    sessionStorage.removeItem('ptt_nickname');
+    window.location.href = '/';
+    throw new Error('로그인이 만료됐어요.');
+  }
   if(!r.ok){
     let detail = '';
     try{ detail = (await r.json()).detail || ''; } catch(e){}
@@ -473,9 +479,19 @@ signupBtn.addEventListener('click', async ()=>{
 
 /* ---- 이미 로그인된 상태로 이 페이지에 다시 오면 바로 다음 화면으로 ---- */
 (async function autoResume(){
-  if(sessionStorage.getItem('ptt_token')){
-    await afterLogin();
+  if(!sessionStorage.getItem('ptt_token')) return;
+
+  /* 저장된 토큰이 아직 유효한지 확인.
+     - 401 → api() 헬퍼가 알아서 로그아웃 + 리다이렉트
+     - 404 → user 가 DB 에서 사라졌다 (테이블 초기화 등) → 로그인 화면 유지 */
+  try{
+    await api('/api/users/me', { headers: authHeader() });
+  } catch(e){
+    sessionStorage.removeItem('ptt_token');
+    sessionStorage.removeItem('ptt_nickname');
+    return;  /* 로그인 화면 그대로 보여준다 */
   }
+  await afterLogin();
 })();
 </script>
 </body>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PetTriage — 프로필 설정</title>
+<title>STP — 프로필 설정</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -54,6 +54,13 @@
   /* ============ 메인 ============ */
   .main{ flex:1; min-width:0; display:flex; flex-direction:column; height:100vh; }
   .topbar{ display:flex; align-items:center; padding: 18px 30px; border-bottom:1px solid var(--line); flex-shrink:0; background: var(--surface); }
+  .welcome-chip{
+    display:inline-flex; align-items:center; gap:6px;
+    padding: 6px 12px; border-radius: 999px;
+    background: var(--moss-soft); color: var(--moss-dark);
+    font-size: 12.5px; font-weight: 600; white-space:nowrap;
+    flex-shrink:0; margin-left:auto;
+  }
   .menu-btn{ display:none; }
   .topbar-copy .eyebrow{ font-size:11px; font-weight:700; color: var(--moss-dark); background: var(--moss-soft); display:inline-block; padding:4px 10px; border-radius:999px; margin-bottom:8px; }
   .topbar-copy h1{ font-family:'Noto Serif KR', serif; font-size:20px; font-weight:700; margin:0 0 4px; }
@@ -153,7 +160,7 @@
       <span class="logo-mark">
         <svg viewBox="0 0 24 24" fill="none"><path d="M12 14c-3.5 0-6.5 2.2-6.5 5.2 0 1 .8 1.8 1.8 1.8h9.4c1 0 1.8-.8 1.8-1.8 0-3-3-5.2-6.5-5.2Z" fill="#fff"/><circle cx="6" cy="8" r="2.3" fill="#fff"/><circle cx="18" cy="8" r="2.3" fill="#fff"/><circle cx="9.3" cy="4.6" r="2" fill="#fff"/><circle cx="14.7" cy="4.6" r="2" fill="#fff"/></svg>
       </span>
-      <span class="logo-text">PetTriage</span>
+      <span class="logo-text">Save The Pet</span>
     </div>
     <div class="sidebar-profile">
       <div class="av" id="sbAvatar">🐶</div>
@@ -185,6 +192,7 @@
       <h1>프로필 설정</h1>
       <p id="topP">등록한 정보를 수정하거나 삭제할 수 있어요.</p>
     </div>
+    <span class="welcome-chip" id="welcomeChip"></span>
   </div>
 
   <div class="content">
@@ -223,6 +231,13 @@ if(!authToken){
 function authHeader(){
   return { 'Authorization': 'Bearer ' + authToken };
 }
+
+/* ---- 우측 상단 환영 문구 ---- */
+(function fillWelcome(){
+  const nick = sessionStorage.getItem('ptt_nickname');
+  const el = document.getElementById('welcomeChip');
+  if(nick && el){ el.innerHTML = `🐾 ${nick}님 환영합니다`; }
+})();
 
 /* ---- API 헬퍼 ----
    수정·삭제 엔드포인트가 아직 없을 수 있어서 404 / 405 를 따로 구분해 던진다.
@@ -281,6 +296,7 @@ function saveLocal(id, data){
 }
 
 let pet = null;                 // 서버가 준 값
+let totalPets = 0;              // 소유한 반려동물 총 수 — 마지막 한 마리 삭제 방지
 let local = loadLocal(petId);
 // 세션에 없고 URL에 있으면 URL 값으로 채운다 (pets.html을 거치지 않고 들어온 경우)
 ['size','age','gender','notes'].forEach(k=>{
@@ -419,8 +435,14 @@ function renderForm(){
 
     <div class="card danger">
       <h3>프로필 삭제</h3>
-      <p class="card-sub">${pet.name}의 프로필을 완전히 지웁니다. 되돌릴 수 없어요.</p>
-      <button class="btn-danger" id="openDelete">${pet.name} 프로필 삭제</button>
+      <p class="card-sub">
+        ${totalPets <= 1
+          ? '마지막 반려동물이라 삭제할 수 없어요. 새 반려동물을 먼저 등록해 주세요.'
+          : `${pet.name}의 프로필을 완전히 지웁니다. 되돌릴 수 없어요.`}
+      </p>
+      <button class="btn-danger" id="openDelete" ${totalPets <= 1 ? 'disabled' : ''}>
+        ${pet.name} 프로필 삭제
+      </button>
     </div>
   `;
 
@@ -536,7 +558,25 @@ confirmDelete.addEventListener('click', async ()=>{
       headers: authHeader(),
     });
     try{ sessionStorage.removeItem(localKey(pet.pet_id)); }catch(e){}
-    window.location.href = '/static/pets.html';
+
+    /* 삭제 후 남은 반려동물 중 하나를 자동으로 활성화한다.
+       이걸 안 하면 pets.html 에서 "지금 보는 아이" 표시가 사라져 UX 가 어색해진다. */
+    let nextUrl = '/static/pets.html';
+    try{
+      const remaining = await api('/api/pets', { headers: authHeader() });
+      if(remaining.length > 0){
+        const next = remaining[0];
+        const params = new URLSearchParams({
+          pet_id: next.pet_id,
+          name: next.name || '',
+          species: next.species || '',
+          breed: next.breed || '',
+          weight: next.weight_kg || '',
+        });
+        nextUrl = '/static/pets.html?' + params.toString();
+      }
+    } catch(_){ /* 목록 못 불러와도 최소한 pets.html 로는 이동 */ }
+    window.location.href = nextUrl;
   } catch(e){
     deleteModal.classList.remove('open');
     const hint = document.getElementById('saveHint');
@@ -558,6 +598,7 @@ async function load(){
   }
   try{
     const pets = await api('/api/pets', { headers: authHeader() });
+    totalPets = pets.length;
     pet = pets.find(p => String(p.pet_id) === String(petId));
     if(!pet){
       contentInner.innerHTML = `<div class="state-box err">해당 프로필을 찾을 수 없어요. 이미 삭제됐을 수 있어요.</div>`;

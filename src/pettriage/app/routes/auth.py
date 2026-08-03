@@ -18,8 +18,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..auth import create_access_token, hash_password, verify_password
-from ..contracts import LoginRequest, LoginResponse, SignupRequest, SignupResponse
-from ..deps import get_db
+from ..contracts import (
+    LoginRequest,
+    LoginResponse,
+    LogoutResponse,
+    SignupRequest,
+    SignupResponse,
+)
+from ..deps import get_current_user_id, get_db
 from ..models import User, utcnow
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -77,3 +83,19 @@ def login(req: LoginRequest, db: Session = _db_dep) -> LoginResponse:
     db.commit()
 
     return LoginResponse(access_token=create_access_token(user.user_id), nickname=user.nickname)
+
+
+@router.post("/logout", response_model=LogoutResponse)
+def logout(user_id: str = Depends(get_current_user_id)) -> LogoutResponse:
+    """로그아웃.
+
+    JWT 는 stateless 라 서버 측에서 토큰을 무효화하지 않는다 —
+    **클라이언트가 저장된 토큰을 삭제하는 것이 실질적 로그아웃**이다.
+
+    이 엔드포인트가 하는 일은 두 가지뿐이다.
+      1. Bearer 토큰이 유효한지 확인 (`get_current_user_id` 가 401 을 냄)
+      2. 클라이언트에 "토큰 지워도 된다" 는 신호 반환
+
+    나중에 블랙리스트 방식으로 강화하려면 여기서 revoked_tokens 테이블에 기록한다.
+    """
+    return LogoutResponse()
