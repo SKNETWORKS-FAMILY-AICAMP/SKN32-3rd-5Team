@@ -55,8 +55,17 @@ def load_samples(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
 
 
-def run_training(data_path: Path, out_dir: Path, cfg: AppConfig | None = None) -> Path:
-    """QLoRA 학습을 돌리고 어댑터 경로를 반환한다."""
+def run_training(
+    data_path: Path, out_dir: Path, cfg: AppConfig | None = None, *, strict: bool = True
+) -> Path:
+    """QLoRA 학습을 돌리고 어댑터 경로를 반환한다.
+
+    `strict` — task_mix 비율을 채울 샘플이 모자라면 기본은 예외로 막는다
+    (04 §8, "비율대로 학습했다"는 보고가 거짓이 되지 않도록). 태스크별
+    수집량이 원래 고르지 않은 초기 단계(2026-08-03, 5태스크 첫 합류)처럼
+    **모자란 걸 알고도 있는 만큼 쓰기로 한 경우**만 `False`로 부른다 —
+    그때는 mixer.mix()가 경고 로그를 남기고 부족한 태스크는 있는 만큼만 낸다.
+    """
     import torch
     from datasets import Dataset
     from peft import get_peft_model
@@ -82,7 +91,7 @@ def run_training(data_path: Path, out_dir: Path, cfg: AppConfig | None = None) -
     if leaked:
         raise RuntimeError(f"학습셋이 평가셋과 겹친다 ({len(leaked)}건): {leaked[:5]}")
 
-    mixed = mix(train, cfg.train.task_mix, total=len(train), seed=cfg.train.seed)
+    mixed = mix(train, cfg.train.task_mix, total=len(train), seed=cfg.train.seed, strict=strict)
 
     tok = AutoTokenizer.from_pretrained(cfg.model.base_id, revision=cfg.model.revision)
     if tok.pad_token is None:
