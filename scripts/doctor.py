@@ -85,6 +85,14 @@ def check_packages() -> None:
         ("openai", "openai", "--arm A 를 못 돌린다", False),
         ("langchain_openai", "langchain-openai", "--arm A-LC 를 못 돌린다 (D-71)", False),
         ("fastapi", "fastapi", "서버를 못 띄운다", False),
+        # 🔴 **`[db]` 가 없으면 조용히 검증이 빠진다.** `tests/test_auth_api.py` 는
+        #    `importorskip` 으로 **모듈째** 건너뛰어지고, 요약줄에는 `1 skipped` 로만
+        #    보인다 — 실제로는 회원가입·로그인·프로필 **25건이 안 돈다.**
+        #    2026-08-03 실측: `518 passed, 1 skipped` 를 머지 안전 신호로 읽었는데
+        #    그 머지가 바꾼 것이 `routes/pets.py` 였다. **필수로 둔다.**
+        ("sqlalchemy", "SQLAlchemy [db]", "인증·프로필 25건이 안 돈다", True),
+        ("bcrypt", "bcrypt [db]", "인증·프로필 25건이 안 돈다", True),
+        ("jwt", "PyJWT [db]", "인증·프로필 25건이 안 돈다", True),
         ("torch", "torch", "--arm C/D (로컬 Qwen) 를 못 돌린다", False),
     ]
     for mod, name, why, required in need:
@@ -93,7 +101,7 @@ def check_packages() -> None:
         else:
             line(BAD if required else WARN, name, f"없음 — {why}")
     if not all(_has(m) for m, _, _, req in need if req):
-        print("       → pip install -e '.[api,rag,ingest,dev]' -c constraints.txt")
+        print("       → pip install -e '.[api,rag,ingest,db,dev]' -c constraints.txt")
 
 
 def check_config() -> None:
@@ -128,10 +136,21 @@ def check_secrets() -> None:
         "있음" if env.exists() else "없음",
         "" if env.exists() else "cp .env.example .env  (PowerShell: Copy-Item)",
     )
-    # 🔴 **값을 찍지 않는다.** 길이와 접두사만 본다 — 화면 공유·로그에 키가 남는다.
-    key = os.getenv("OPENAI_API_KEY", "")
+    # 🔴 **`.env` 를 직접 읽는다.** 예전에는 `os.getenv` 만 봤는데, 앱은 키를
+    #    pydantic-settings 로 `.env` 에서 읽으므로 **키가 멀쩡히 있어도 "없음"** 이
+    #    찍혔다 (2026-08-03). 없는 문제를 쫓게 만드는 점검은 없느니만 못하다.
+    #    ⚠️ **값을 찍지 않는다** — 길이와 접두사만 본다. 화면 공유·로그에 키가 남는다.
+    key = os.getenv("OPENAI_API_KEY", "").strip()
+    where = "셸 환경변수"
+    if not key and env.exists():
+        for raw in env.read_text(encoding="utf-8", errors="replace").splitlines():
+            k, sep, v = raw.partition("=")
+            if sep and k.strip() == "OPENAI_API_KEY":
+                key = v.strip().strip("'\"")
+                where = ".env"
+                break
     if key:
-        line(OK, "OPENAI_API_KEY", f"{key[:7]}… ({len(key)}자)")
+        line(OK, "OPENAI_API_KEY", f"{key[:7]}… ({len(key)}자 · {where})")
     else:
         line(
             WARN,
@@ -139,6 +158,19 @@ def check_secrets() -> None:
             "없음 — --arm none 기준선만 돈다",
             ".env 에 넣는다. **셸에 넣지 않는다** — --arm 이 지우지는 않지만 이력에 남는다",
         )
+
+    # `.env` 에 살아 있으면 OpenAI 키로 Gemini 엔드포인트를 때려 401 이 난다.
+    lines = env.read_text(encoding="utf-8", errors="replace").splitlines() if env.exists() else []
+    for raw in lines:
+        s = raw.strip()
+        if s.startswith("PETTRIAGE__MODEL__API_BASE_URL") and s.partition("=")[2].strip():
+            line(
+                WARN,
+                "API_BASE_URL",
+                ".env 에 살아 있다",
+                "다른 사업자를 가리키면 401 이다. OpenAI 를 쓰면 **주석 처리한다**",
+            )
+            break
 
 
 def check_tables() -> None:
@@ -285,7 +317,9 @@ def main() -> int:
     print("  ✅ 막히는 것 없음")
     print("=" * 60)
     print("\n다음 —")
-    print("  pytest -q")
+    # ⚠️ `-q` 를 붙이지 않는다. `addopts` 에 이미 있어 `-qq` 가 되면
+    #    **`X passed` 요약줄이 사라진다** (2026-08-03).
+    print("  pytest                                      # 546 passed, 22 deselected")
     print("  python scripts/smoke_llm.py --arm A")
     print("  python eval/harness/run_eval.py --arm none --json eval/reports/확인.json")
     return 0
