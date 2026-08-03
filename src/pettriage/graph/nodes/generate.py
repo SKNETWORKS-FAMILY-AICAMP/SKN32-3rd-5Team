@@ -1,19 +1,38 @@
-"""③ 압축 · 생성 · ⑤ 평이화 · ⑥ finalize 노드.
+"""근거 조립 · 생성 · ⑤ 평이화 · ⑥ finalize 노드.
 
-설계 근거: 02 §2 · 05 §4 (③⑤) · D-47
+설계 근거: 02 §2 · 05 §4 (⑤) · D-47 · **D-83**
 
     LLM 이 문장을 만들고, **코드가 검증한다.**
-      · compress_context : 길이 임계 초과 시에만 실행
+      · build_context    : 검색 히트를 근거 문자열로 **잇기만 한다** (LLM 없음)
       · generate_draft   : 원문에 없는 수치·단위·종을 만들지 않는다
       · simplify         : 위험도를 낮추는 완곡 표현을 쓰지 않는다
       · finalize         : **마지막 관문** — 연락처 스크러빙 (D-47)
 
 `finalize` 는 LLM 판단에 맡길 수 없어 별도로 관리된다.
+
+## ③ 압축이 여기서 빠졌다 (D-83)
+
+    2026-08-03 까지 이 자리에 `compress_context` 가 있었고 `Task.COMPRESS` 를
+    불렀다. 세 가지 이유로 뺐다 —
+
+      ① **검증의 정답지가 LLM 생성물이었다.** `verify_grounding` 은 초안을
+         `context` 에 대고 판정하는데, 그 `context` 가 모델이 다시 쓴 문장이면
+         **LLM 이 쓴 것으로 LLM 을 검증**하게 된다. 압축 단계에 들어온 환각은
+         검증기가 근거로 인정한다 — 04 가 가장 나쁘다고 적은 경우다.
+      ② **풀려는 문제가 없었다.** 근거는 실측 393~533자이고 컨텍스트 창은 128k 다.
+         `dose` 5건에서 길이 임계(800자)를 **한 번도 넘지 않았다.**
+      ③ **근거가 모자라 실패하는 시스템에서 근거를 깎았다.** 등급 미판정 15.4% ·
+         `must_cite` 64.1% 가 전부 근거 부족 쪽이다.
+
+    ③ 태스크 자체는 없어지지 않는다. D-02 가 요약의 필연성을 둔 자리 —
+    **기간 리포트**(`app/routes/records.py::report`) 로 옮겼다.
+    05 §4 의 다섯 태스크는 그대로이고, ③이 도는 경로가 바뀐 것이다.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 
 from ...models.tasks import Task
 from ...safety import scrub_contacts
@@ -22,11 +41,18 @@ from ..state import GraphState
 
 log = logging.getLogger(__name__)
 
-#: 압축을 실행하는 길이 임계 (문자수). 미만이면 그대로 둔다 — LLM 호출 낭비.
-_COMPRESS_LEN_THRESHOLD = 800
-
 #: 위험도를 낮추는 표현 목록. simplify 후 이 표현이 들어 있으면 그 문장을 제거한다.
 _SOFTENING_TERMS = ("괜찮", "지켜보", "관찰만", "별문제", "걱정 마")
+
+#: 문장 분리 — **숫자 사이의 마침표는 자르지 않는다.** `0.5 g/kg` 를 지키려는 것이다.
+_SENTENCE_SPLIT = re.compile(r"(?<!\d)\.(?!\d)")
+
+#: 완곡 표현 제거로 문장이 하나도 안 남았을 때 **대신 나가는 한 줄.**
+#: 코드가 쓴 고정 문장이라 위험도를 낮출 수 없다 (D-11 · D-39).
+_FILTERED_OUT_NOTICE = (
+    "지금 확인된 내용만으로는 위험이 낮다고 볼 수 없습니다. "
+    "아래 긴급도와 근거를 확인하시고, 판단이 어려우면 수의사에게 문의하세요."
+)
 
 
 # **폴백 기록은 `graph/fallbacks.py` 가 갖는다** — 다섯 태스크가 같은 문을 쓴다.
@@ -148,36 +174,35 @@ def _call_llm(task: Task, user_input: str, max_tokens: int) -> str | None:
         return None
 
 
-def compress_context(state: GraphState) -> GraphState:
-    """검색 결과를 질문에 필요한 만큼으로 줄인다.
+def build_context(state: GraphState) -> GraphState:
+    """검색 히트를 근거 문자열로 **잇는다. 그뿐이다** (D-83).
 
-    **원문에 없는 수치·단위·종을 추가하지 않는다.** 압축 실행 여부는
-    길이 임계로 코드가 정한다 (05 §4).
+    🔴 **여기에 LLM 을 넣지 않는다.** 이 함수가 만든 `context` 는 두 곳이 쓴다 —
+    `generate_draft` 의 입력이고, **`verify_grounding` 의 정답지**다.
+    정답지를 모델이 다시 쓰면 *LLM 이 쓴 것으로 LLM 을 검증*하게 된다.
+    사람이 쓴 코퍼스 문장이 그대로 정답지로 남아야 ④가 성립한다.
+
+    **자르지도 않는다.** 예전에는 압축 실패 시 `raw[:800]` 로 글자 수를 잘랐는데,
+    단어 중간에서 끊겨 꼬리의 수치·단위가 사라졌다. 근거는 실측 393~533자이고
+    컨텍스트 창은 128k 다 — 자를 이유가 없다.
 
     Returns: `{"context": ...}`
     """
     hits = state.get("hits") or []
     existing_context = state.get("context", "")
 
-    # 검색 결과에서 원문 조각을 이어붙인다.
-    if hits:
-        texts = []
-        for h in hits:
-            chunk = getattr(h, "chunk", None) or getattr(h, "text", None)
-            text = getattr(chunk, "text", str(chunk)) if chunk else ""
-            if text:
-                texts.append(text)
-        raw = "\n\n".join(texts)
-    else:
-        raw = existing_context
+    if not hits:
+        # 히트가 없으면 이미 들고 있던 것을 유지한다. **비우지 않는다** —
+        # 재검색 경로에서 앞 회차 근거를 잃으면 검증이 통째로 근거없음이 된다.
+        return {"context": existing_context}  # type: ignore[typeddict-item]
 
-    # 짧으면 압축하지 않고 그대로 둔다.
-    if len(raw) < _COMPRESS_LEN_THRESHOLD:
-        return {"context": raw}  # type: ignore[typeddict-item]
-
-    # LLM 압축 시도 — 실패하면 앞부분 잘라서 반환 (수치 유실은 없음).
-    compressed = _call_llm(Task.COMPRESS, raw, max_tokens=400)
-    return {"context": compressed if compressed else raw[:_COMPRESS_LEN_THRESHOLD]}  # type: ignore[typeddict-item]
+    texts = []
+    for h in hits:
+        chunk = getattr(h, "chunk", None) or getattr(h, "text", None)
+        text = getattr(chunk, "text", str(chunk)) if chunk else ""
+        if text:
+            texts.append(text)
+    return {"context": "\n\n".join(texts)}  # type: ignore[typeddict-item]
 
 
 def generate_draft(state: GraphState) -> GraphState:
@@ -237,11 +262,26 @@ def simplify(state: GraphState) -> GraphState:
     # 검증: 위험도가 높은데 완곡 표현이 들어 있으면 해당 문장을 제거한다.
     #       이 검증은 D-11(진단 금지) · D-39(과소평가 억제) 를 코드가 강제하는 지점이다.
     if triage_level >= 3:
-        sentences = [s.strip() for s in answer.replace("\n", " ").split(".") if s.strip()]
+        # 🔴 **`split(".")` 을 쓰지 않는다.** 마침표와 소수점을 구별하지 못해
+        #    `"자일리톨 0.5 g/kg"` 이 `"자일리톨 0. 5 g/kg"` 이 됐다. 하필
+        #    `triage_level >= 3` 에서만 도는 분기라 **위험한 답변에서만 용량이 깨졌다.**
+        parts = _SENTENCE_SPLIT.split(answer.replace("\n", " "))
+        sentences = [s.strip() for s in parts if s.strip()]
         safe = [s for s in sentences if not any(t in s for t in _SOFTENING_TERMS)]
         answer = ". ".join(safe)
         if answer and not answer.endswith("."):
             answer += "."
+
+        # 🔴 **전 문장이 걸렸으면 빈 문자열을 돌려주지 않는다.**
+        #    `engine._build_response` 가 `state.get("answer") or state.get("draft","")`
+        #    라서, 빈 문자열은 falsy → **방금 지운 그 초안이 그대로 사용자에게 나갔다.**
+        #    과소평가 억제 장치가 가장 세게 걸려야 할 순간에만 무력화되던 자리다.
+        #    지울 것이 전부였다는 것은 초안 전체가 위험을 낮춰 말했다는 뜻이므로,
+        #    **모델 문장을 포기하고 코드가 쓴 한 줄로 대신한다.** 등급·근거·상승 조건은
+        #    `AskResponse.triage` 로 따로 나가므로 사용자가 받는 정보가 사라지지 않는다.
+        if not answer and sentences:
+            log.warning("simplify: 전 문장이 완곡 표현으로 제거됐다 (triage=%d)", triage_level)
+            answer = _FILTERED_OUT_NOTICE
 
     return {"answer": answer}  # type: ignore[typeddict-item]
 

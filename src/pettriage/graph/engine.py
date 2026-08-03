@@ -248,6 +248,10 @@ class GraphEngine:
         return {
             "llm_fallbacks": list(state.get("llm_fallbacks") or []),
             "removed_contact_count": len(state.get("removed_contacts") or []),
+            # **조건 없는 MONITOR 였다는 사실을 거절에도 싣는다** (D-39 · 04 §4.1.0).
+            # 이것이 없으면 채점이 이 건을 `판정불가` 와 구분하지 못해
+            # 과소평가 분모에서 빠진다 — 규칙은 "과소평가로 센다" 인데.
+            "monitor_without_conditions": bool(state.get("monitor_without_conditions")),
             # **④가 무엇을 봤는지 남긴다.** 04 가 ④의 지표를 요구했는데 `verdicts` 는
             # 상태에만 있고 아무도 읽지 않았다 — D-75 와 같은 모양의 끊김이다.
             "grounding": (

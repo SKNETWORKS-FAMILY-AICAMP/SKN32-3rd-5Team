@@ -188,14 +188,28 @@ def classify_intent(state: GraphState) -> GraphState:
     # ① LLM 우선 (05 §4 — 자연어 의도 파악은 LLM 담당)
     intent = _llm_classify(question)
 
-    # ② 폴백 — 키워드 매칭
+    # ② 허용목록 검증이 **폴백보다 먼저다** — 코드가 강제한다 (05 §4).
+    #
+    #    🔴 2026-08-03 까지 순서가 반대였다. 모델이 `'intoxication.'`(마침표)이나
+    #       `'위험성우려'` 같은 목록 밖 문자열을 내면 `intent is None` 이 아니므로
+    #       **키워드 폴백을 건너뛰고** 그대로 `unknown` 이 됐고, `_after_classify` 가
+    #       `unknown` 을 `refuse_scope`(범위밖 거절)로 보냈다.
+    #       *"강아지가 부동액을 핥았어요"* 가 라벨 한 글자 때문에 거절된다.
+    #
+    #       05 §6.1 이 한 절을 통째로 써서 금지한 동작이다 —
+    #       *"LLM 출력이 한 번 흔들린 것이 곧 사용자 거절이 되면 안 된다."*
+    #       이 모듈 머리말도 폴백 순서를 *"목록 밖 → 키워드 매칭"* 으로 적어 두었는데
+    #       코드가 그 순서를 안 지키고 있었다. **지어낸 라벨은 없는 것으로 친다.**
+    if intent is not None and intent not in ALLOWED_INTENTS:
+        log.warning("intent 허용목록 밖: %r → 키워드 폴백으로 내린다", intent)
+        intent = None
+
+    # ③ 폴백 — 키워드 매칭
     if intent is None:
         intent = _keyword_classify(question)
 
-    # ③ 허용목록 검증 — 코드가 강제한다 (05 §4).
-    #    LLM 이 지어낸 라벨은 여기서 걸러진다.
     if intent not in ALLOWED_INTENTS:
-        log.warning("intent 허용목록 밖: %r → 'unknown'", intent)
+        log.warning("키워드 폴백도 목록 밖: %r → 'unknown'", intent)
         intent = "unknown"
 
     return {"intent": intent}  # type: ignore[typeddict-item]

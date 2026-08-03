@@ -133,6 +133,26 @@ def apply_rule_table(state: GraphState) -> GraphState:
     return out
 
 
+#: 이 문서 종류에서 온 근거는 **"이 물질은 이 종에 위험하다"** 는 진술이다.
+#: `nutrition` 은 아니다 — 블루베리·고구마 같은 급여 질의가 여기 걸리면
+#: *"모른다"* 를 이유로 겁을 주게 된다 (D-79 주석의 G-041 교훈).
+_TOXIC_DOC_TYPES = ("toxicity_food", "toxicity_plant", "emergency")
+
+
+def _evidence_is_toxic(state: GraphState) -> bool:
+    """검색된 근거가 **독성·응급 자료**인가.
+
+    `Chunk.doc_type` 을 본다. 물질 이름을 코드에 적지 않는다 — 적는 순간
+    `engine.py` 안에 `_RULE_TABLE` 12줄이 있던 그 자리로 되돌아간다 (D-16 · D-38).
+    """
+    for h in state.get("hits") or []:
+        chunk = getattr(h, "chunk", None)
+        doc_type = getattr(chunk, "doc_type", None) or getattr(h, "doc_type", None)
+        if doc_type in _TOXIC_DOC_TYPES:
+            return True
+    return False
+
+
 def decide_triage(state: GraphState) -> GraphState:
     """규칙 1차 → 미적용 시 LLM → 하향 금지 게이트.
 
@@ -159,10 +179,54 @@ def decide_triage(state: GraphState) -> GraphState:
         )
     except MonitorWithoutConditions:
         # 조건 없는 '관찰'은 과소평가로 채점된다 (D-39 · 04 §4.1.0).
-        log.warning("MONITOR without escalation conditions — 거절로 전환")
+        #
+        # 🔴 **채점이 그것을 알 수 있게 표시를 남긴다.** 2026-08-03 까지 이 경로는
+        #    `판정불가` 거절로만 나갔고, 거절에는 `triage` 가 없으므로 하네스에서
+        #    `level_delta is None` → **과소평가 분모에서 통째로 빠졌다.**
+        #    04 §4.1.0 이 *"조건 없는 관찰은 그 자체가 과소평가"* 라고 못박은 규칙이
+        #    채점에 한 줄도 반영되지 않았고, 그래서 `과소평가율 0.0%` 가 나왔다.
+        #
+        #    `refusal_reason` 에 새 값을 만들지 않는 이유 — 골든셋의
+        #    `expected_refusal_reason` 이 그 값으로 채점되므로 새 값을 넣으면
+        #    기존 정답이 조용히 어긋난다. **더하기만 하는 표시**로 둔다.
+        # 🔴 **근거가 독성 자료면 거절이 아니라 CALL_NOW 로 올린다** (D-84).
+        #
+        #   D-39 는 *"조건 없는 관찰은 그 자체가 과소평가"* 라고 옳게 판정했다.
+        #   그런데 그에 대한 **조치**로 출력을 막았다. 2026-08-03 실측에서 그 조치가
+        #   무엇을 만드는지가 드러났다 —
+        #
+        #     G-012 살충제 · G-018 아스피린 · G-046 고양이 초콜릿
+        #     셋 다 정답이 CALL_NOW 인데 **사용자가 아무것도 받지 못했다.**
+        #
+        #   원인은 규칙 표에 이 물질들의 등급도 역치도 없어(사실 표에는 있다)
+        #   `rule_level` 이 서지 않고, 바닥이 없으니 LLM 의 MONITOR 가 그대로
+        #   최종이 된 것이다. 거기서 출력을 막으면 **과소평가를 침묵으로 바꿀 뿐**이다.
+        #
+        #   D-79 가 같은 자리에서 이미 답을 냈다 — *"모르는 것을 안전으로 읽지 않는다.
+        #   할 일은 관찰이 아니라 지금 전화해서 물어보는 것이다."* 상승 조건을 못 만든
+        #   것은 **관찰로 끝낼 수 없다는 뜻**이지 안전하다는 뜻이 아니다.
+        #
+        #   ⚠️ `nutrition` 근거에는 적용하지 않는다. 블루베리(G-007)처럼 정답이
+        #      MONITOR 인 급여 질의까지 올리면 되묻기가 아니라 **겁주기**가 된다 —
+        #      D-79 주석이 G-041 에서 얻은 교훈 그대로다.
+        if _evidence_is_toxic(state):
+            log.warning(
+                "MONITOR without escalation conditions + 독성 근거 → CALL_NOW 로 올린다 (D-84)"
+            )
+            return {  # type: ignore[typeddict-item]
+                "triage_level": int(TriageLevel.CALL_NOW),
+                "rule_level": int(rule_level) if rule_level is not None else None,
+                "llm_level": int(llm_level) if llm_level is not None else None,
+                "rule_basis": "조건미비",
+                "llm_capped": False,
+                "escalation_conditions": [],
+            }
+
+        log.warning("MONITOR without escalation conditions — 거절로 전환 (채점상 과소평가)")
         return {  # type: ignore[typeddict-item]
             "status": "refused",
             "refusal_reason": "판정불가",
+            "monitor_without_conditions": True,
         }
     except ValueError:
         # rule·llm 둘 다 None (판정 근거 없음).

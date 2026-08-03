@@ -24,7 +24,7 @@ class Task(StrEnum):
 
     CLASSIFY = "classify"  # ① 의도·위험 분류
     SLOT = "slot"  # ② 슬롯 추출
-    COMPRESS = "compress"  # ③ 컨텍스트 압축
+    COMPRESS = "compress"  # ③ 요약 — **기간 리포트** (D-83). 질의 경로에 없다
     VERIFY = "verify"  # ④ 근거 검증  ← 핵심
     SIMPLIFY = "simplify"  # ⑤ 평이화
     # ⑥ 번역 — **미채택 확정** (2026-08-02 · D-19 후속).
@@ -90,12 +90,22 @@ SPECS: dict[Task, TaskSpec] = {
         ),
         metric="슬롯 단위 정확도 · 결측 탐지율",
     ),
+    # ③ 은 **질의 그래프에 없다** (2026-08-03 · D-83).
+    #
+    #   D-02 가 요약의 필연성을 둔 자리는 처음부터 **기간 리포트**였다 —
+    #   *"원안(중독 응급 QA)은 요약 태스크의 필연성도 약했다"*. 질의 경로의
+    #   `compress_context` 는 그 태스크를 파이프라인에도 한 번 더 붙인 것이었고,
+    #   03 §1.1(*"파이프라인이 실제로 필요로 하는 태스크만 고른다"*)과 어긋났다.
+    #
+    #   빼기로 한 직접 이유는 ①검증의 정답지가 LLM 생성물이 되는 순환,
+    #   ②실측 근거 393~533자 대 창 128k(임계 800자를 안 넘었다),
+    #   ③근거가 모자라 실패하는 시스템에서 근거를 깎는다는 것이다.
     Task.COMPRESS: TaskSpec(
         task=Task.COMPRESS,
-        graph_node="compress_context",
+        graph_node="(질의 그래프 밖 — app/routes/records.py::report)",
         output_kind="문단",
-        verified_by="길이 임계 · 원문 포함 검사",
-        metric="압축률 대비 근거 보존율",
+        verified_by="기간·건수 대조 · 원문에 없는 증상·수치 불가",
+        metric="기록 보존율 · 원문 밖 내용 생성률",
     ),
     Task.VERIFY: TaskSpec(
         task=Task.VERIFY,
