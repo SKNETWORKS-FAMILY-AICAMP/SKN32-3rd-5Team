@@ -66,15 +66,12 @@ class GraphState(TypedDict, total=False):
 
     # ── ① 분류 ──────────────────────────────────────────────
     intent: Intent
-    risk: str
 
     # ── ② 슬롯 ──────────────────────────────────────────────
     slots: Slots
     missing_slots: list[str]
     clarify_turns: int
     clarify_question: str
-    #: ②가 LLM 으로 뽑았나, 규칙 폴백이었나 (05 §6 — 폴백은 기록한다).
-    slot_llm_used: bool
     #: 물질을 하나로 못 좁혔을 때의 후보 전체. **하나를 고르면 나머지를 배제한 것이고
     #: 그 배제가 곧 진단이다** — 고르지 않고 전부 검색어로 넘긴다 (D-49 · D-58).
     substance_candidates: list[str]
@@ -88,7 +85,16 @@ class GraphState(TypedDict, total=False):
     # ── 검색 · 계산 ─────────────────────────────────────────
     where: dict[str, Any]  # 검색 필터 — 코드가 만든다 (05 §4)
     hits: list[Any]  # retrieval.Hit
-    computed: dict[str, Any]  # 계산 노드 결과 (체중당 섭취량 등)
+    #: 계산 노드 결과 — 체중당 섭취량(g/kg) · 조류 일일 권장 열량(kcal/day).
+    #:
+    #: **수치는 코드가 계산한다** (D-16). 그런데 2026-08-02 까지 이 값을 읽는 곳이
+    #: 어디에도 없었다 — `compute_metrics` 가 채우고 그대로 버려졌고, 같은 노드가
+    #: 함께 내는 `rule_level` 만 살아남았다. **계산했다는 증거가 응답에 없었다.**
+    #: 지금은 `engine._build_response` 가 `AskResponse.computed` 로 올린다.
+    #:
+    #: ⚠️ 답변 *문장*에 넣는 것은 아직 아니다. 초안 프롬프트에 수치를 주면
+    #:    답이 달라지고, 그러면 기준선과 비교군을 같은 자로 잴 수 없다 (04 §8).
+    computed: dict[str, Any]
 
     # ── ③ 압축 · 생성 ───────────────────────────────────────
     context: str
@@ -96,8 +102,21 @@ class GraphState(TypedDict, total=False):
 
     # ── 트리아지 ────────────────────────────────────────────
     rule_level: int | None
+    #: `rule_level` 이 **실제 용량 계산**에서 나왔나 (D-80).
+    #:
+    #: 참이면 LLM 은 그 위로 등급을 올릴 수 없다 — 출처 달린 역치와 계산된 용량이
+    #: 있는데 그 위로 올리는 것은 **근거 없는 상승**이다 (D-16).
+    #: **`compute_metrics` 만 세운다.** 정성 표(`qualitative_level_for`)와
+    #: 양 미상 바닥(D-79)은 세우지 않는다 — 거기서는 LLM 이 맞는 경우가 있고,
+    #: 실제로 G-011·G-017 이 그렇게 고쳐졌다 (2026-08-03 실측).
+    rule_is_quantitative: bool
+    #: **규칙 등급을 누가 어떻게 냈나** (D-81). `triage.basis.Basis` 값.
+    #: 세우는 곳은 `compute_metrics`(정량계산)와 `apply_rule_table`(정성·양미상) 둘뿐이다.
+    rule_basis: str
     llm_level: int | None
     triage_level: int | None
+    #: LLM 이 **올리려** 한 것을 게이트가 막았나 (D-80). 감사 정보다.
+    llm_capped: bool
     escalation_conditions: list[str]
 
     # ── ④ 근거 검증 ─────────────────────────────────────────
@@ -108,10 +127,17 @@ class GraphState(TypedDict, total=False):
     status: Literal["answered", "clarify", "refused"]
     answer: str
     refusal_reason: str
-    removed_contacts: list[str]  # 연락처 차단으로 뺀 문장 (D-47). 비면 아무것도 안 뺐다
+    #: 연락처 차단으로 뺀 **문장 원문** (D-47). 비면 아무것도 안 뺐다.
+    #:
+    #: 🔴 **이 목록을 그대로 응답에 실으면 안 된다.** 뺀 문장 안에 그 번호가 그대로 있다 —
+    #:    막 지운 연락처를 다른 필드로 되돌려주는 꼴이다. `contacts.ScrubResult` 도
+    #:    *"`removed` 는 로그용이다"* 라고 적어 두었다.
+    #:    응답에는 **몇 개를 뺐는지**만 나간다 (`AskResponse.removed_contact_count`).
+    removed_contacts: list[str]
     #: 이 응답을 만드는 동안 LLM 대신 폴백을 탄 태스크 이름 (05 §6).
-    #: 전역 `generate.LLM_FALLBACKS` 는 서버에서 요청 간에 누적되므로 **상태에 남긴다** —
+    #: 전역 `fallbacks.LLM_FALLBACKS` 는 서버에서 요청 간에 누적되므로 **상태에 남긴다** —
     #: *"이 응답이 폴백으로 만들어졌는가"* 는 응답 단위로만 말할 수 있는 사실이다.
+    #: 채우는 곳은 `engine._run_pipeline` 하나다 — 되묻기·거절 경로에도 실려야 한다.
     llm_fallbacks: list[str]
 
 

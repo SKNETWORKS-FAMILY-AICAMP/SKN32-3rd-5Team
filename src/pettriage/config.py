@@ -67,8 +67,9 @@ class ModelConfig(_ConfigBase):
 
     #: **어느 클라이언트로 서빙할 것인가** (04 §3 비교군).
     #:
-    #:   none  모델 없이 돈다 — 5태스크가 전부 폴백. **비교군 없음(코드·규칙만)**
-    #:   api   대형 LLM (`api_model`).                        **비교군 A**
+    #:   none      모델 없이 돈다 — 5태스크가 전부 폴백. **비교군 없음(코드·규칙만)**
+    #:   api       대형 LLM (`api_model`) — `openai` SDK 직접.  **비교군 A**
+    #:   langchain 같은 모델을 **LangChain 으로** 부른다 (D-71 · 필수 산출물)
     #:   qwen  `base_id`(+`adapter_path`). 어댑터 없으면 베이스. **비교군 D / C**
     #:   echo  테스트용 고정 응답
     #:
@@ -79,7 +80,7 @@ class ModelConfig(_ConfigBase):
     #:
     #: `adapter_path` 유무로 자동 판단하지 않는다 — `null` 이 *"베이스 Qwen"* 인지
     #: *"Qwen 안 씀"* 인지 구분이 안 된다. **묻지 않고 정하지 않는다.**
-    provider: Literal["none", "api", "qwen", "echo"] = "api"
+    provider: Literal["none", "api", "langchain", "qwen", "echo"] = "api"
 
     #: `provider="api"` 일 때 쓸 모델 이름. 비밀이 아니므로 여기 둔다 (D-41).
     api_model: str = "gpt-4o-mini"
@@ -92,6 +93,17 @@ class ModelConfig(_ConfigBase):
     #: `model.revision`(`1cfa9a72…`) 이 **걸리지 않는다.**
     #: 리포트에는 `D(근사 · 호스팅)` 로 적고 사유를 단다 (04 §8).
     api_base_url: str | None = None
+
+    #: **요청 사이 최소 간격(ms).** 0이면 제한 없음.
+    #:
+    #: 무료·저등급 API 는 분당 요청 수(RPM)가 낮다. 하네스는 질의 하나에 LLM 을
+    #: 6번 연달아 부르고 60건을 쉬지 않고 돌아 **순간 분당 100회를 넘긴다.**
+    #: 그러면 429 가 쏟아지고, 재시도가 흡수하려 애쓰다 실행이 몇십 분씩 멈춘다
+    #: (2026-08-02 Gemini 실측 — 재시도 8회를 다 쓰고도 실패).
+    #:
+    #: **기다리는 것이 폴백보다 낫다.** 폴백으로 넘어가면 그 실행은 LLM 성능이 아니다.
+    #:   10 RPM → 6000 · 60 RPM → 1000 · 제한 없음 → 0
+    min_interval_ms: int = 0
 
     base_id: str = "Qwen/Qwen3-4B"
     revision: str | None = None  # 재현성: 모델도 버전을 고정한다

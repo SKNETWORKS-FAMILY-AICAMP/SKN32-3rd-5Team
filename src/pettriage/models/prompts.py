@@ -11,7 +11,7 @@ Qwen3는 chat template을 쓰므로 **역할 분리 메시지**로 만든다 (D-
 
 from __future__ import annotations
 
-from .tasks import Task
+from .tasks import SPECS, Task
 
 #: 전 태스크 공통 규칙. **모델이 지어내지 못하게 막는 문장들이다.**
 _COMMON = (
@@ -23,7 +23,7 @@ _COMMON = (
 _INSTRUCTIONS: dict[Task, str] = {
     Task.CLASSIFY: (
         "사용자 발화의 의도와 위험 성격을 분류한다.\n"
-        "허용된 라벨 중 **하나만** 출력한다. 라벨 외의 문자를 덧붙이지 않는다.\n"
+        "아래 라벨 중 **하나만**, 적힌 문자열 그대로 출력한다. 다른 문자를 덧붙이지 않는다.\n"
         "판단이 서지 않으면 `unknown` 을 출력한다."
     ),
     Task.SLOT: (
@@ -39,7 +39,7 @@ _INSTRUCTIONS: dict[Task, str] = {
     ),
     Task.VERIFY: (
         "답변의 각 문장이 근거 문서에 의해 뒷받침되는지 판정한다.\n"
-        "문장마다 `근거있음` / `근거없음` / `모순` 중 하나를 출력한다.\n"
+        "문장마다 아래 라벨 중 하나를 적힌 그대로 출력한다.\n"
         "**애매하면 `근거없음` 쪽으로 판정한다** — 놓친 환각이 나가는 것보다 낫다."
     ),
     Task.SIMPLIFY: (
@@ -53,8 +53,29 @@ _INSTRUCTIONS: dict[Task, str] = {
 }
 
 
+def _label_block(task: Task) -> str:
+    """**허용 라벨을 프롬프트에 싣는다** (D-73).
+
+    ⚠️ 여기에 라벨을 손으로 적지 않는다. `SPECS[task].labels` 가 단일 출처이고,
+    `graph/nodes/classify.py` 의 검증기도 **같은 것**을 본다 (D-22).
+
+    적지 않았을 때 무슨 일이 났는지 — 모델이 보기를 모르니 `'위험성우려'` 처럼
+    그럴듯한 말을 냈고, 코드가 전부 `unknown` 으로 걸러 거절로 보냈다.
+    **진짜 LLM 을 붙였더니 키워드 폴백보다 성적이 나빠졌다** (2026-08-02).
+    """
+    spec = SPECS[task]
+    if not spec.labels:
+        return ""
+    lines = [f"\n[라벨] 다음 중 하나를 **그대로** 출력한다 — {' · '.join(spec.labels)}"]
+    for label in spec.labels:
+        hint = (spec.label_hints or {}).get(label)
+        if hint:
+            lines.append(f"  {label:<14} {hint}")
+    return "\n".join(lines)
+
+
 def system_prompt(task: Task) -> str:
-    return f"{_COMMON}\n\n[과제] {_INSTRUCTIONS[task]}"
+    return f"{_COMMON}\n\n[과제] {_INSTRUCTIONS[task]}{_label_block(task)}"
 
 
 def build_messages(task: Task, user_input: str) -> list[dict[str, str]]:

@@ -121,14 +121,18 @@ def _retry(state: GraphState) -> GraphState:
 
 
 def _answered(state: GraphState) -> GraphState:
-    """성공 종료. **폴백 기록을 응답 단위로 고정한다** (05 §6).
+    """성공 종료.
 
-    전역 `LLM_FALLBACKS` 는 서버에서 요청 간에 누적되므로 그대로 읽으면
-    *"이 응답이 폴백으로 만들어졌는가"* 에 답할 수 없다.
+    ⚠️ **폴백 기록을 여기서 하지 않는다.** 예전에는 이 노드가
+    `llm_fallbacks` 를 세웠는데, 이 노드는 **성공 경로에만** 있다.
+    되묻기(`clarify`)와 거절 세 갈래는 ①분류·②슬롯이 폴백을 탔더라도
+    그 사실을 잃은 채 끝났다 — 그리고 04 §3 에서 확인해야 하는 것은
+    *"거절된 건이 모델을 탔는가"* 이기도 하다.
+
+    지금은 `engine._run_pipeline` 이 그래프가 끝난 뒤 **모든 경로에 대해** 한 번 채운다.
+    비우는 것도 채우는 것도 요청 경계의 일이고, 그 경계를 아는 것은 엔진이다 (D-22).
     """
-    from .nodes.generate import LLM_FALLBACKS
-
-    return {"status": "answered", "llm_fallbacks": sorted(LLM_FALLBACKS)}
+    return {"status": "answered"}
 
 
 # ── 라우터: 어디로 갈지만 정한다 ─────────────────────────────────
@@ -157,7 +161,12 @@ def _after_retrieve(state: GraphState) -> str:
     - 히트 있음 · 첫 검색  → 계산부터
     - 히트 있음 · 재검색   → **계산·판정을 다시 하지 않는다.** 등급은 이미 정해졌고
       재검색은 *근거 문장*을 다시 붙이려는 것이다. 다시 돌리면 같은 입력에
-      LLM 판정이 한 번 더 끼어들어 등급이 흔들린다
+      LLM 판정이 한 번 더 끼어들어 등급이 흔들린다.
+
+      ⚠️ 여기서 건너뛰는 것은 `compute`·`rules` 둘뿐이다. 목적지 `compress` 뒤에
+      `generate → judge → decide` 가 그대로 이어지므로 **`judge` 는 이 갈림길로
+      막히지 않는다.** 그 차단은 `nodes/generate.py::judge_triage` 가 직접 한다 —
+      2026-08-02 까지 이 주석만 있고 차단이 없었다.
     - 히트 없음 · 첫 검색  → `근거없음`
     - 히트 없음 · 재검색   → `검증실패` (원래 실패 이유를 유지한다)
     """
