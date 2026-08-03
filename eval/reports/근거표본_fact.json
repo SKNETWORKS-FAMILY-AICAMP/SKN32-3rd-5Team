@@ -1,0 +1,176 @@
+[
+  {
+    "case_id": "G-011",
+    "case_type": "fact",
+    "species": "cat",
+    "question": "고양이가 백합 꽃잎을 씹어먹었어요",
+    "status": "answered",
+    "context_chars": 610,
+    "checked": 5,
+    "unsupported": 2,
+    "sentences": [
+      {
+        "verdict": "근거없음",
+        "ratio": 0.263,
+        "sentence": "고양이가 백합 꽃잎을 씹어먹었다면, 이는 매우 위험한 상황입니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.562,
+        "sentence": "백합은 고양이에게 독성이 있으며, 잎과 꽃이 독성 부위입니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.471,
+        "sentence": "1-2개의 잎을 섭취했을 경우 급성 신부전이 발생할 수 있으며, 주요 증상으로는 식욕부진, 구토, 무기력, 다뇨 후 무뇨 등이 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.667,
+        "sentence": "이러한 증상은 섭취 후 12-72시간 이내에 나타날 수 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거없음",
+        "ratio": 0.062,
+        "sentence": "즉시 수의사에게 상담하고 치료를 받는 것이 중요합니다",
+        "redacted": false
+      }
+    ]
+  },
+  {
+    "case_id": "G-012",
+    "case_type": "fact",
+    "species": "dog",
+    "question": "강아지가 마당에 뿌려둔 살충제를 핥아먹은 것 같아요",
+    "status": "answered",
+    "context_chars": 423,
+    "checked": 3,
+    "unsupported": 1,
+    "sentences": [
+      {
+        "verdict": "근거있음",
+        "ratio": 0.333,
+        "sentence": "강아지가 마당에 뿌려둔 살충제를 핥아먹었다면, 경미한 위장 장애, 떨림, 보행 곤란 등의 증상이 나타날 수 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거없음",
+        "ratio": 0.053,
+        "sentence": "이러한 증상이 보인다면 즉시 수의사와 상담하는 것이 중요합니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.357,
+        "sentence": "또한, 반려동물에게 가정 내 해독제를 임의로 투여하는 것은 금지되어 있으니 주의하시기 바랍니다",
+        "redacted": false
+      }
+    ]
+  },
+  {
+    "case_id": "G-018",
+    "case_type": "fact",
+    "species": "dog",
+    "question": "강아지가 산책하다가 알약 하나를 주워 먹은 것 같은데 아스피린 같아요",
+    "status": "answered",
+    "context_chars": 557,
+    "checked": 3,
+    "unsupported": 1,
+    "sentences": [
+      {
+        "verdict": "근거있음",
+        "ratio": 0.565,
+        "sentence": "강아지가 아스피린을 섭취한 경우, 이는 반려동물에게 급여 금지로 분류됩니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.652,
+        "sentence": "아스피린은 비스테로이드성 소염진통제로, 개에게는 위험할 수 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거없음",
+        "ratio": 0.0,
+        "sentence": "즉시 수의사와 상담하여 적절한 조치를 취하는 것이 중요합니다",
+        "redacted": false
+      }
+    ]
+  },
+  {
+    "case_id": "G-019",
+    "case_type": "fact",
+    "species": "cat",
+    "question": "고양이가 세제 거품을 핥았어요",
+    "status": "answered",
+    "context_chars": 565,
+    "checked": 3,
+    "unsupported": 0,
+    "sentences": [
+      {
+        "verdict": "근거있음",
+        "ratio": 0.312,
+        "sentence": "고양이가 세제 거품을 핥았다면, 이는 응급 상황일 수 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.714,
+        "sentence": "세제와 같은 가정용 화학물질에 노출된 경우, 침 흘림, 입을 긁음, 구토, 식욕 없음, 설사, 복통, 무기력, 지남력 상실, 발작, 혼수 등의 증상이 나타날 수 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.545,
+        "sentence": "즉시 병원에 연락하시고, 노출된 제품과 경로, 노출량을 확인한 후 상담하시기 바랍니다",
+        "redacted": false
+      }
+    ]
+  },
+  {
+    "case_id": "G-025",
+    "case_type": "fact",
+    "species": "dog",
+    "question": "강아지가 차고에서 부동액을 핥은 것 같아요 조금이라 괜찮겠죠",
+    "status": "answered",
+    "context_chars": 938,
+    "checked": 5,
+    "unsupported": 3,
+    "sentences": [
+      {
+        "verdict": "근거없음",
+        "ratio": 0.188,
+        "sentence": "강아지가 부동액을 핥았을 경우, 이는 매우 위험할 수 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거없음",
+        "ratio": 0.095,
+        "sentence": "부동액은 독성이 있으며, 강아지에게 심각한 건강 문제를 일으킬 수 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.304,
+        "sentence": "강아지가 부동액을 핥은 후에 어떤 증상이 나타나는지 관찰하는 것이 중요합니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.688,
+        "sentence": "반복적인 핥기 행동이 매일 나타나거나 악화될 경우, 수면, 식욕, 산책, 훈련, 휴식을 방해할 때, 자해가 있을 때, 또는 허탈, 심한 혼돈, 발작 유사 증상이 동반될 경우 즉시 수의사에게 진료를 받는 것이 필요합니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거없음",
+        "ratio": 0.034,
+        "sentence": "강아지의 상태를 주의 깊게 살펴보시고, 이상이 느껴지면 빠르게 전문가의 도움을 받으시기 바랍니다",
+        "redacted": false
+      }
+    ]
+  }
+]

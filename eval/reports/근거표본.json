@@ -4,54 +4,203 @@
     "case_type": "dose",
     "species": "dog",
     "question": "강아지가 다크초콜릿을 새끼손톱만큼 먹었는데 그 정도 양이면 괜찮겠죠",
-    "status": "clarify",
-    "context_chars": 0,
-    "checked": 0,
-    "unsupported": 0,
-    "sentences": []
+    "status": "answered",
+    "context_chars": 437,
+    "checked": 4,
+    "unsupported": 3,
+    "sentences": [
+      {
+        "verdict": "근거없음",
+        "ratio": 0.231,
+        "sentence": "강아지가 다크 초콜릿을 먹은 것은 위험합니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.64,
+        "sentence": "개와 고양이에게 다크 초콜릿은 급여 금지로 분류되며, 초콜릿은 반려동물에게 해로운 물질입니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거없음",
+        "ratio": 0.136,
+        "sentence": "따라서, 다크 초콜릿을 새끼손톱만큼 먹었더라도 안전하다고 할 수 없습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거없음",
+        "ratio": 0.0,
+        "sentence": "강아지의 상태를 주의 깊게 관찰하고, 필요시 수의사와 상담하는 것이 좋습니다",
+        "redacted": false
+      }
+    ]
   },
   {
     "case_id": "G-007",
     "case_type": "dose",
     "species": "dog",
     "question": "강아지가 블루베리를 한 줌 집어 먹었는데 괜찮나요",
-    "status": "clarify",
-    "context_chars": 0,
-    "checked": 0,
-    "unsupported": 0,
-    "sentences": []
+    "status": "answered",
+    "context_chars": 574,
+    "checked": 3,
+    "unsupported": 1,
+    "sentences": [
+      {
+        "verdict": "근거있음",
+        "ratio": 0.333,
+        "sentence": "강아지가 블루베리를 한 줌 집어 먹은 것은 권장량인 2~3개를 초과한 섭취입니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.429,
+        "sentence": "블루베리는 조건부 급여로 분류되므로, 과다 섭취 시 문제가 발생할 수 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거없음",
+        "ratio": 0.115,
+        "sentence": "강아지의 상태를 주의 깊게 관찰하고, 이상 증상이 나타나면 수의사와 상담하는 것이 좋습니다",
+        "redacted": false
+      }
+    ]
   },
   {
     "case_id": "G-028",
     "case_type": "dose",
     "species": "dog",
     "question": "5kg 말티즈가 밀크초콜릿 20g 정도를 먹었어요",
-    "status": "clarify",
-    "context_chars": 0,
-    "checked": 0,
+    "status": "answered",
+    "context_chars": 533,
+    "checked": 5,
     "unsupported": 0,
-    "sentences": []
+    "sentences": [
+      {
+        "verdict": "근거있음",
+        "ratio": 0.424,
+        "sentence": "5kg 말티즈가 밀크 초콜릿 20g을 섭취한 경우, 초콜릿에 포함된 테오브로민과 카페인으로 인해 중독 위험이 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.541,
+        "sentence": "밀크 초콜릿의 테오브로민 함량은 2mg/g 수준으로 보고되었으므로, 20g의 밀크 초콜릿에는 약 40mg의 테오브로민이 포함되어 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.333,
+        "sentence": "말티즈의 체중이 5kg이므로, 섭취한 테오브로민의 양은 8mg/kg에 해당합니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.407,
+        "sentence": "이는 20mg/kg 이상 섭취 시 나타나는 중독 증상에 미치지 않지만, 여전히 주의가 필요합니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.452,
+        "sentence": "초콜릿 섭취 후 2-4시간 이내에 불안, 구토, 설사 등의 증상이 나타날 수 있으므로, 즉시 수의사와 상담하시기 바랍니다",
+        "redacted": false
+      }
+    ]
   },
   {
     "case_id": "G-029",
     "case_type": "dose",
     "species": "dog",
     "question": "5kg 말티즈가 밀크초콜릿 60g을 먹었어요",
-    "status": "clarify",
-    "context_chars": 0,
-    "checked": 0,
-    "unsupported": 0,
-    "sentences": []
+    "status": "answered",
+    "context_chars": 509,
+    "checked": 5,
+    "unsupported": 1,
+    "sentences": [
+      {
+        "verdict": "근거있음",
+        "ratio": 0.447,
+        "sentence": "5kg 말티즈가 밀크 초콜릿 60g을 섭취한 경우, 초콜릿에 포함된 테오브로민과 카페인으로 인해 중증 메틸잔틴 중독의 위험이 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.5,
+        "sentence": "밀크 초콜릿의 테오브로민 함량은 2mg/g 수준으로 보고되었으므로, 60g의 밀크 초콜릿에는 약 120mg의 테오브로민이 포함되어 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.429,
+        "sentence": "이는 5kg(5000g) 개체에 대해 24mg/kg에 해당하며, 40-50mg/kg 이상 섭취 시 중증 중독이 발생할 수 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거없음",
+        "ratio": 0.0,
+        "sentence": "따라서, 즉시 수의사와 상담하여 적절한 조치를 취하는 것이 필요합니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.5,
+        "sentence": "증상은 섭취 후 2-4시간 이내에 나타날 수 있으니 주의 깊게 관찰해야 합니다",
+        "redacted": false
+      }
+    ]
   },
   {
     "case_id": "G-030",
     "case_type": "dose",
     "species": "dog",
     "question": "5kg 강아지가 다크초콜릿 50g을 먹었어요",
-    "status": "clarify",
-    "context_chars": 0,
-    "checked": 0,
-    "unsupported": 0,
-    "sentences": []
+    "status": "answered",
+    "context_chars": 547,
+    "checked": 7,
+    "unsupported": 1,
+    "sentences": [
+      {
+        "verdict": "근거있음",
+        "ratio": 0.423,
+        "sentence": "5kg 강아지가 다크초콜릿 50g을 섭취한 경우, 중증 메틸잔틴 중독의 위험이 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.593,
+        "sentence": "다크초콜릿은 개에게 급여 금지로 분류되며, 테오브로민과 카페인이 포함되어 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.7,
+        "sentence": "40-50mg/kg 이상의 섭취 시 중증 중독이 발생할 수 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.348,
+        "sentence": "5kg 강아지의 경우, 50g의 다크초콜릿은 중독 증상을 유발할 수 있는 양입니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.692,
+        "sentence": "주요 증상으로는 고혈압, 심부정맥, 심실조기수축, 근강직, 운동실조, 발작, 혼수가 포함됩니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거있음",
+        "ratio": 0.714,
+        "sentence": "증상은 섭취 후 2-4시간 이내에 나타날 수 있습니다",
+        "redacted": false
+      },
+      {
+        "verdict": "근거없음",
+        "ratio": 0.0,
+        "sentence": "즉시 수의사와 상담하시기 바랍니다",
+        "redacted": false
+      }
+    ]
   }
 ]
