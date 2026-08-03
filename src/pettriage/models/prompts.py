@@ -27,10 +27,9 @@ _INSTRUCTIONS: dict[Task, str] = {
         "판단이 서지 않으면 `unknown` 을 출력한다."
     ),
     Task.SLOT: (
-        "발화에서 슬롯을 추출해 JSON 객체 하나로 출력한다.\n"
+        "발화에서 슬롯을 추출해 **JSON 객체 하나만** 출력한다. 설명을 덧붙이지 않는다.\n"
         "값이 발화에 없으면 **추정하지 말고 null** 로 둔다.\n"
-        "종(species)은 개·고양이·앵무새 중 명시된 경우에만 채운다 — "
-        "품종명이나 이름에서 추측하지 않는다."
+        "종은 명시된 경우에만 채운다 — 품종명이나 이름에서 추측하지 않는다."
     ),
     # ③ 은 **기간 리포트**를 요약한다 (D-83). 2026-08-03 까지 이 지시문은
     # *"검색된 문서들을 질문에 필요한 내용만 남겨 압축한다"* 였고, 질의 경로의
@@ -80,8 +79,35 @@ def _label_block(task: Task) -> str:
     return "\n".join(lines)
 
 
+def _schema_block(task: Task) -> str:
+    """**출력 스키마를 프롬프트에 싣는다** (D-86 · 03 §5).
+
+    ⚠️ 여기에 키를 손으로 적지 않는다. `SPECS[task].output_keys` 가 단일 출처이고,
+    `graph/nodes/slots.py` 의 파서도 **같은 것**을 본다 (D-22 · D-73).
+
+    적지 않았을 때 무슨 일이 났는지 — 모델이 키 이름을 모르니 `concern`·`item`
+    같은 것을 지어냈고, 코드는 `substance` 만 보므로 **뽑아 놓고 버렸다.**
+    ②슬롯이 사실상 키워드 폴백으로 돌고 있었는데 폴백 집계는 100% 로 찍혔다
+    (2026-08-03 실측).
+    """
+    spec = SPECS[task]
+    if not spec.output_keys:
+        return ""
+    hints = spec.key_hints or {}
+    width = max(len(k) for k in spec.output_keys)
+    rules = "\n".join(f"  {k:<{width}}  {hints.get(k, '')}".rstrip() for k in spec.output_keys)
+    # **형식 예시도 키 목록에서 만든다.** 손으로 적으면 키가 하나 늘 때 낡는다.
+    shape = "{" + ", ".join(f'"{k}": null' for k in spec.output_keys) + "}"
+    return (
+        "\n\n[출력 스키마] **아래 키만** 쓴다. 다른 이름의 키를 만들지 않는다.\n"
+        "값을 모르면 그 키를 `null` 로 둔다 — 키를 빼지 않는다.\n\n"
+        + rules
+        + f"\n\n형식: {shape}"
+    )
+
+
 def system_prompt(task: Task) -> str:
-    return f"{_COMMON}\n\n[과제] {_INSTRUCTIONS[task]}{_label_block(task)}"
+    return f"{_COMMON}\n\n[과제] {_INSTRUCTIONS[task]}{_label_block(task)}{_schema_block(task)}"
 
 
 def build_messages(task: Task, user_input: str) -> list[dict[str, str]]:
