@@ -144,13 +144,17 @@ def _after_classify(state: GraphState) -> str:
 
 
 def _after_slots(state: GraphState) -> str:
-    """② 뒤 갈림길 **셋**. *"왜 물질을 못 올렸나"* 가 행선지를 가른다 (D-68).
+    """② 뒤 갈림길 **넷**. *"왜 물질을 못 올렸나"* 가 행선지를 가른다 (D-68 · D-85).
 
     - **종밖** — 물질은 아는데 이 종 자료가 없다 → `근거없음`. 되물어도 답이 안 나온다
+    - **모름** — 말했는데 코퍼스에 없다 → `근거없음` (D-85). 되물어도 같은 답이 온다
     - **결측** — 종이 없거나 물질을 모른다 → 되묻는다 (D-10 · D-49)
     - 그 외 → 검색. `모호` 는 후보를 들고 여기로 온다 (D-62 — 모호는 실패가 아니다)
     """
     if state.get("off_species_substance"):  # type: ignore[typeddict-item]
+        return "refuse_nohit"
+    # **말했는데 코퍼스에 없다** — 되물어도 같은 답이 온다 (D-85).
+    if state.get("unknown_substance"):  # type: ignore[typeddict-item]
         return "refuse_nohit"
     return "clarify" if state.get("missing_slots") else "filter"
 

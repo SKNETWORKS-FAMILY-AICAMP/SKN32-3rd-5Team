@@ -114,6 +114,49 @@ def _basis_notice(state: GraphState) -> str:
     return notice(basis)
 
 
+def _advice_line(state: GraphState) -> str:
+    """**등급이 시킨 일을 문장에도 싣는다** (D-89).
+
+    D-81 이 근거(`basis`)에 대해 편 논증이 그대로 적용된다 —
+    *"밑에 한 줄 붙여도 사람은 배지를 읽고 문장은 흘린다."* 여기서는 방향이
+    반대였다. **배지만 있고 문장이 없었다.**
+
+        2026-08-03 실측: 등급 `CALL_NOW` 이상 36건 중 **19건(53%)** 이
+        `전화`·`병원` 을 답변 본문에 한 번도 쓰지 않았다.
+
+    `levels.py::TriageLevel.message` 가 문장을 이미 들고 있고 02 §7 이 그것을
+    등급의 행동 언어로 정해 놨는데, **응답 조립이 배달하지 않았다** (D-48).
+    배지를 못 보는 경로(음성·요약·로그·스크린리더)에서는 지시가 통째로 사라진다.
+
+    ## 왜 맨 끝인가
+
+        근거는 **단서**라 앞에 서고(D-81), 행동은 **결론**이라 뒤에 선다.
+        앞에 세 덩이가 쌓이면 아무도 안 읽는다 (D-13 주석).
+
+    ## 왜 파이프라인 밖인가
+
+        행동 권고는 근거 문서에 없는 문장이다. ④ 안쪽에 넣으면 전부
+        `근거없음` 으로 잡힌다 — *사실 주장 vs 행동 권고* 를 가르는 선행 결정이
+        아직 없다 (06 §8). 그 결정을 건드리지 않고 지나가는 자리가 여기다.
+
+    ## 상충이 보이게 된다 — 그것이 목적이다
+
+        본문이 *"집에서 지켜보세요"* 인데 게이트가 `CALL_NOW` 를 냈다면 그 상충은
+        **지금도 있다.** 배지와 본문이 다를 뿐 아무도 못 본다. 문장으로 실으면
+        보이고, 채점에서도 `must_not_contain` 이 잡는다.
+    """
+    level = state.get("triage_level")
+    if level is None:
+        return ""
+    msg = TriageLevel(int(level)).message
+    conditions = list(state.get("escalation_conditions") or [])
+    if int(level) == int(TriageLevel.MONITOR) and conditions:
+        # *"아래 증상이 나타나면"* 이라고 해 놓고 아래에 아무것도 없으면 안 된다 (D-39).
+        return f"[해야 할 일] {msg} — " + " · ".join(conditions) + "."
+    return f"[해야 할 일] {msg}."
+
+
+
 class GraphEngine:
     """LangGraph 기반 질의 엔진.
 
@@ -310,6 +353,12 @@ class GraphEngine:
             answer = f"{notice} {answer}".strip()
         if assumed:
             answer = f"{_assumption_notice(slots)} {answer}".strip()
+
+        # **행동은 맨 끝에.** 중복은 붙이지 않는다 — 초안이 이미 같은 말을 했으면
+        # 두 번 말하는 것이 아니라 한 번 말한 것으로 둔다 (D-89).
+        advice = _advice_line(state)
+        if advice and TriageLevel(int(state["triage_level"])).message not in answer:
+            answer = f"{answer}\n\n{advice}".strip()
 
         return AskResponse(
             status="answered",

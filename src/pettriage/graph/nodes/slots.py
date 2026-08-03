@@ -15,6 +15,7 @@ import logging
 import re
 
 from ...compute.vocabulary import SPECIES_WORDS, is_word_hit, mention_in
+from ...models.tasks import SPECS, Task
 from ..fallbacks import note_fallback
 from ..state import GraphState, set_substance
 
@@ -27,6 +28,27 @@ REQUIRED_SLOTS = {
     "nutrition": ("species",),
     "general": ("species",),
 }
+
+#: 🔴 **물질을 말한 것이 아니다.** LLM 이 슬롯을 비우지 않고 이런 말을 채워 넣는다.
+#:
+#: 이 목록이 없으면 *"뭔가 이상한 걸 먹었어요"* 가 **물질을 말한 것**으로 읽혀
+#: `근거없음` 거절로 간다. 되물어야 할 것을 거절하는 것이고, 방향이 반대다 —
+#: `없음`(사용자가 말 안 함)과 `모름`(말했는데 우리가 모름)을 가르는 것이 아래
+#: `_unknown_substance` 인데, 그 판단의 입력이 오염되면 판단 전체가 뒤집힌다.
+#:
+#: 부분 일치로 본다 — `"뭔가 하얀 가루"` 처럼 꾸밈말이 붙어 온다.
+_VAGUE_SURFACES: tuple[str, ...] = (
+    "뭔가", "무언가", "뭘까", "뭔지", "미상", "모름", "모르겠", "알 수 없",
+    "이상한", "정체불명", "unknown",
+)
+
+
+def _is_vague(surface: str | None) -> bool:
+    """표면형이 **물질 이름이 아니라 모른다는 말**인가."""
+    if not surface:
+        return True
+    return any(v in surface for v in _VAGUE_SURFACES)
+
 
 #: 종 키워드. **이름·품종은 여기 넣지 않는다** — 이름에서 종을 추측하면 환각이다.
 #: 종 표기의 단일 출처는 `compute.vocabulary` 다 (P2 · D-22).
@@ -62,6 +84,47 @@ def _extract_species(question: str) -> str | None:
     return None
 
 
+def _normalize_species(value: object) -> str | None:
+    """LLM 이 낸 종 값을 코드가 쓰는 `dog·cat·bird` 로 올린다 (D-86).
+
+    🔴 2026-08-03 실측 — 모델이 여섯 건 전부 `'개'`·`'고양이'` 를 냈고 코드는
+       `("dog","cat","bird")` 만 받아 **전부 버렸다.** 그러고는 `llm.get("species")`
+       가 truthy 라서 **키워드 폴백도 건너뛰었다** — 오늘 아침 `classify.py` 에서
+       고친 것과 같은 구조가 여기 남아 있었다.
+
+       프롬프트에 스키마를 실었으니 대부분 `dog` 로 올 것이다. 그래도 이 함수를
+       두는 이유는 **모델 출력에 기대지 않기 위해서**다 — 종을 잘못 읽으면
+       포유류 기준이 조류에 적용된다 (D-10, 이 도메인에서 가장 치명적인 오류).
+
+    ⚠️ 어휘는 `vocabulary.SPECIES_WORDS` 한 곳에서 온다. 여기 다시 적지 않는다 (D-67).
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    v = value.strip().lower()
+    if v in ("dog", "cat", "bird"):
+        return v
+    for code, words in _SPECIES_KEYWORDS.items():
+        if any(w in value for w in words):
+            return code
+    return None
+
+
+def _off_schema_keys(raw: dict | None) -> list[str]:
+    """모델이 **스키마 밖 이름으로 낸 키.** 비어 있으면 스키마를 지킨 것이다.
+
+    이것을 세는 이유 — 오늘의 사고는 *"모델이 답했는데 코드가 못 읽었다"* 인데
+    **폴백 집계가 그것을 못 잡았다.** JSON 파싱은 성공했으니 `note_fallback` 이
+    안 불렸고, 리포트는 *"3태스크 전부 모델 100%"* 를 찍었다.
+
+    D-82 가 *"안 부른 태스크를 성공으로 세지 않는다"* 를 고쳤다면, 여기는
+    **"부르고 버린 태스크를 성공으로 세지 않는다"** 이다. 같은 종류의 거짓 신호다.
+    """
+    if not isinstance(raw, dict):
+        return []
+    allowed = set(SPECS[Task.SLOT].output_keys)
+    return sorted(k for k in raw if k not in allowed)
+
+
 def _extract_substance_fallback(question: str, species: str | None) -> str | None:
     """**LLM 이 없을 때의 폴백.** 코퍼스 어휘와 별칭 표에서 표면형을 찾는다.
 
@@ -76,6 +139,25 @@ def _extract_substance_fallback(question: str, species: str | None) -> str | Non
     그것이 ②를 LLM 에 맡긴 이유다. **못 잡으면 되묻는다** — 거절이 아니다 (D-49).
     """
     return mention_in(question, species)
+
+
+def _resolvable(surface: str, species: str | None) -> bool:
+    """이 표면형이 **폐쇄 목록 위로 올라갈 수 있는가.**
+
+    이름이 서거나(직접·별칭·부분일치) 후보가 여럿이거나(모호 · D-62),
+    종만 안 맞는 경우(종밖 · D-68) 전부 **안다**로 본다. 셋 다 다음 행선지가
+    있고, 그 행선지들이 이미 설계되어 있다.
+
+    ⚠️ `mention_in` 을 여기서 부르지 않는다. 그 함수는 **문장**을 훑는 것이라
+       표면형에 쓰면 부분 매칭이 터진다 — 2026-08-03 D-87 사고가 그것이었다.
+    """
+    from ...compute.vocabulary import resolve_substance
+
+    res = resolve_substance(surface, species)
+    if res.name or res.candidates:
+        return True
+    return bool(species and resolve_substance(surface, None).name)
+
 
 
 def _llm_slots(question: str) -> dict | None:
@@ -143,11 +225,22 @@ def extract_slots(state: GraphState) -> GraphState:
     # 그것은 응답과 평가 리포트까지 나간다 (D-22 — 두 곳에 적지 않는다).
     llm = _llm_slots(question) or {}
 
-    species = llm.get("species") or _extract_species(question)
-    if species in ("dog", "cat", "bird"):
+    # **스키마를 지켰는지 본다** (D-86). 지키지 않았으면 아래 코드가 값을 못 읽는다.
+    off = _off_schema_keys(llm)
+    if off:
+        log.warning("SLOT: 스키마 밖 키 %s — 그 값은 버려진다 (D-86)", off)
+        # 🔴 **아는 키가 하나도 없으면 모델을 안 쓴 것과 같다.** 폴백으로 센다 —
+        #    JSON 파싱이 성공했다는 이유로 성공에 넣으면 지표가 거짓말을 한다.
+        if not any(k in llm for k in SPECS[Task.SLOT].output_keys):
+            note_fallback(Task.SLOT)
+
+    # **정규화가 폴백보다 먼저다** (D-86). 예전에는 `llm.get("species") or 폴백` 이라
+    # 모델이 `'개'` 를 내면 truthy 라서 **폴백을 건너뛰고 그대로 버려졌다.**
+    species = _normalize_species(llm.get("species")) or _extract_species(question)
+    if species:
         new_slots["species"] = species
-    elif species:
-        log.info("SLOT: 허용목록 밖 종 %r — 버린다 (05 §6 ①)", species)
+    elif llm.get("species"):
+        log.info("SLOT: 종을 못 올렸다 %r — 폴백도 못 잡았다 (05 §6 ①)", llm.get("species"))
 
     weight = _as_float(llm.get("weight_kg")) or _extract_weight(question)
     if weight is not None:
@@ -165,7 +258,32 @@ def extract_slots(state: GraphState) -> GraphState:
     #
     # `set_substance` 가 유일한 문이다. 폐쇄 목록 밖이면 키가 안 생기고,
     # 추정 별칭을 탔으면 `substance_is_assumed` 가 함께 선다 (D-59 ⑤).
-    surface = llm.get("substance") or _extract_substance_fallback(question, sp)
+    # 🔴 **성공 판정을 "LLM 이 문자열을 냈다" 에서 "폐쇄 목록에 오른다" 로 옮긴다** (D-88).
+    #
+    #   D-86 으로 ②슬롯이 진짜 일하기 시작하자 **그 성공이 폴백을 껐다.**
+    #   전에는 모델이 `concern`·`item` 같은 키를 내서 `llm_surface` 가 `None` 이었고,
+    #   그래서 문장 스캔이 돌아 `세제 거품` 안의 `세제` 를 잡았다. 이제는 모델이
+    #   구(句)를 정확히 뽑아 오고, 그 값이 폴백을 가린 채 폐쇄 목록에서 떨어진다 —
+    #   D-85 가 **아는 물질을 모른다고** 거절한다. 60건 실측 4건:
+    #
+    #       세제 거품(G-019) · 니코틴 껌 조각(G-107) · 양파국(G-048) · 감기약(G-022)
+    #
+    #   `mention_in` 은 **문장**용이다. 표면형에 쓰면 부분 매칭이 터진다(D-87).
+    #   그러니 표면형이 아니라 **질문 문장**으로 내려간다 — 함수를 원래 용도로 쓴다.
+    #
+    #   ⚠️ 모호어(`뭔가`)는 내려가지 않는다. 사용자가 *모른다*고 말한 것이고,
+    #      문장을 뒤져 물질을 세우면 그게 추정이다 (D-49).
+    llm_surface = llm.get("substance")
+    surface = llm_surface or _extract_substance_fallback(question, sp)
+    if llm_surface and not _is_vague(llm_surface) and not _resolvable(llm_surface, sp):
+        inner = _extract_substance_fallback(question, sp)
+        if inner and inner != llm_surface:
+            log.info(
+                "SLOT: 표면형 %r 이 폐쇄 목록에 못 오른다 — 문장에서 %r 로 내려간다 (D-88)",
+                llm_surface,
+                inner,
+            )
+            surface = inner
 
     # ⚠️ **표면형을 못 찾았을 때, 종 때문인지 확인한다** (D-68).
     #
@@ -192,6 +310,7 @@ def extract_slots(state: GraphState) -> GraphState:
     #
     #   모호      후보가 여럿이다        → 진행한다. 후보를 전부 검색어로 넘긴다 (D-62)
     #   종밖      물질은 아는데 이 종에 자료가 없다 → **근거없음 거절** (D-10)
+    #   모름      말했는데 코퍼스에 없다   → **근거없음 거절** (D-85)
     #   없음      아무것도 못 찾았다      → 되묻는다 (D-49)
     #
     # 예전에는 셋을 전부 `결측 → 되묻기` 로 뭉쳤다. 그래서
@@ -209,6 +328,20 @@ def extract_slots(state: GraphState) -> GraphState:
         elif sp and resolve_substance(surface, None).name:
             # 표면형은 잡혔는데 종 필터에서 떨어진 경우도 같다.
             extras["off_species_substance"] = surface
+        elif not _is_vague(surface):
+            # 🔴 **네 번째 갈래 — 말했는데 우리가 모른다** (D-85).
+            #
+            #   `목캔디 · 달팽이약 · 실리카겔 · 매니큐어 · 모기향 · 계피가루`
+            #   여섯 건이 여기 걸린다. 코퍼스에 없는 물질인데 시스템은
+            #   *"무엇을 먹었나요?"* 를 되물었다. **사용자는 이미 말했다.**
+            #
+            #   되물어도 같은 답이 돌아온다 — D-68 이 종밖 물질에서 내린 결론과
+            #   똑같은 구조다. *"응급 상황에서 못 쓸 질문은 거절보다 나쁘다."*
+            #
+            #   ⚠️ 슬롯에는 넣지 않는다. 폐쇄 목록 밖 이름이 슬롯에 들어가면
+            #      계약(`SubstanceName`)이 막는 환각의 문이 열린다 (D-62).
+            extras["unknown_substance"] = surface
+            log.info("물질 %r 은 코퍼스에 없다 — 되묻지 않고 근거없음으로 보낸다 (D-85).", surface)
 
     # 결측 슬롯 판정
     required = REQUIRED_SLOTS.get(intent, ("species",))
@@ -218,6 +351,9 @@ def extract_slots(state: GraphState) -> GraphState:
         missing.remove("substance")
     # **종밖도 결측이 아니다** — 되묻기가 아니라 거절로 가야 한다 (D-68).
     if "substance" in missing and extras.get("off_species_substance"):
+        missing.remove("substance")
+    # **코퍼스에 없는 물질도 결측이 아니다** — 사용자는 말했다 (D-85).
+    if "substance" in missing and extras.get("unknown_substance"):
         missing.remove("substance")
 
     return {"slots": merged, "missing_slots": missing, **extras}  # type: ignore[return-value]
