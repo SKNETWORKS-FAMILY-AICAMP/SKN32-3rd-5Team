@@ -1,13 +1,18 @@
-.PHONY: help install initdb serve test todo lint fmt verify facts golden eval rules vocab index train up db down docker clean
+.PHONY: help doctor install initdb serve test todo lint fmt verify facts golden eval rules vocab index train up db down docker clean
 
 help:            ## 이 목록
 	@grep -E '^[a-z-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
+
+doctor:          ## 새 기계에서 돌 준비가 됐나 (환경·키·인덱스 점검. 고치지는 않는다)
+	python scripts/doctor.py
 
 initdb:          ## DB 스키마 생성 (DATABASE_URL 필요). 기동 시 자동 실행하지 않는다
 	python -m pettriage.app.database
 
 install:         ## 개발 환경 설치 (GPU 없이 API·테스트까지)
-	pip install -e '.[api,rag,ingest,dev]' -c constraints.txt
+# 🔴 `db` 를 빼지 않는다 — 없으면 tests/test_auth_api.py 가 모듈째 건너뛰어
+#    인증·프로필 25건이 조용히 안 돈다 (요약줄엔 `1 skipped` 로만 보인다).
+	pip install -e '.[api,rag,ingest,db,dev]' -c constraints.txt
 	@git rev-parse --git-dir >/dev/null 2>&1 \
 		&& pre-commit install \
 		|| echo "· git 저장소가 아니라 pre-commit 훅은 건너뛴다 (설치는 완료)"

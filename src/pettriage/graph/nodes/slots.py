@@ -15,6 +15,7 @@ import logging
 import re
 
 from ...compute.vocabulary import SPECIES_WORDS, is_word_hit, mention_in
+from ..fallbacks import note_fallback
 from ..state import GraphState, set_substance
 
 log = logging.getLogger(__name__)
@@ -84,24 +85,29 @@ def _llm_slots(question: str) -> dict | None:
     JSON 파싱 실패도 실패로 본다 (04 §3 의 *JSON 파싱 성공률* 이 그것을 잰다).
     """
     from ...models.serving.factory import get_client
+    from ...models.tasks import Task
 
     client = get_client()
     if client is None:
+        note_fallback(Task.SLOT)
         return None
     try:
         import json
-
-        from ...models.tasks import Task
 
         raw = client.run(Task.SLOT, question, max_tokens=200).strip()
         start, end = raw.find("{"), raw.rfind("}")
         if start < 0 or end <= start:
             log.warning("SLOT: JSON 을 찾지 못했다")
+            note_fallback(Task.SLOT)
             return None
         got = json.loads(raw[start : end + 1])
-        return got if isinstance(got, dict) else None
+        if isinstance(got, dict):
+            return got
+        note_fallback(Task.SLOT)
+        return None
     except Exception as e:  # noqa: BLE001 — 어떤 실패든 폴백으로 내려간다
         log.warning("SLOT LLM 실패: %s", type(e).__name__)
+        note_fallback(Task.SLOT)
         return None
 
 
@@ -132,8 +138,10 @@ def extract_slots(state: GraphState) -> GraphState:
     # ── ② LLM 이 먼저, 없으면 폴백 (05 §6) ────────────────────
     # **입력 state 를 변형하지 않는다** — 노드는 바뀐 키만 돌려준다 (state.py 머리말).
     extras: dict = {}
+    # **`slot_llm_used` 를 여기 두지 않는다.** 상태에만 남고 아무도 안 읽었다.
+    # 같은 사실을 `graph/fallbacks.py` 가 다섯 태스크에 대해 한 방식으로 남기고,
+    # 그것은 응답과 평가 리포트까지 나간다 (D-22 — 두 곳에 적지 않는다).
     llm = _llm_slots(question) or {}
-    extras["slot_llm_used"] = bool(llm)
 
     species = llm.get("species") or _extract_species(question)
     if species in ("dog", "cat", "bird"):

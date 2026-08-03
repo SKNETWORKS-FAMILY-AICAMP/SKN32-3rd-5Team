@@ -18,7 +18,8 @@
     provider    무엇                                        04 §3
     ─────────────────────────────────────────────────────────────
     none        모델 없음. 5태스크 전부 폴백               (기준선)
-    api         대형 LLM (`model.api_model`)                 A
+    api         대형 LLM (`model.api_model`) — openai SDK 직접   A
+    langchain   같은 모델을 **LangChain 으로** (D-71)          A(LC)
     qwen        Qwen3-4B 베이스 (`adapter_path` 없음)        D
     qwen        Qwen3-4B + LoRA (`adapter_path` 있음)        C
     echo        고정 응답 (테스트)                            —
@@ -67,14 +68,21 @@ def get_client() -> LLMClient | None:
 
         return EchoClient()
 
-    if m.provider == "api":
+    if m.provider in ("api", "langchain"):
         if not get_secrets().openai_api_key:
+            # **실제 provider 를 찍는다.** `api` 로 고정돼 있어서 `langchain` 으로
+            # 돌렸는데 로그는 `api` 라고 말했다 — 로그가 거짓이면 진단이 어긋난다.
             log.warning(
-                "model.provider=api 인데 OPENAI_API_KEY 가 없다 — "
+                "model.provider=%s 인데 OPENAI_API_KEY 가 없다 — "
                 "5태스크가 전부 폴백으로 돈다. 의도한 것이면 provider=none 으로 두면 "
-                "그 사실이 설정에 남는다 (04 §8)."
+                "그 사실이 설정에 남는다 (04 §8).",
+                m.provider,
             )
             return None
+        if m.provider == "langchain":
+            from .client import LangChainClient
+
+            return LangChainClient(model=m.api_model, base_url=m.api_base_url)
         from .client import APIClient
 
         return APIClient(model=m.api_model, base_url=m.api_base_url)

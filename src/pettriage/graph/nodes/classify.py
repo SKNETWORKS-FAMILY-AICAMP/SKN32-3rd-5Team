@@ -24,13 +24,19 @@ from __future__ import annotations
 
 import logging
 
-from ...models.tasks import Task
+from ...models.tasks import SPECS, Task
+from ..fallbacks import note_fallback
 from ..state import GraphState
 
 log = logging.getLogger(__name__)
 
 #: 허용 라벨. LLM 출력이 여기 없으면 폴백한다 (05 §4).
-ALLOWED_INTENTS = ("intoxication", "symptom", "nutrition", "general")
+#:
+#: ⚠️ **프롬프트와 같은 것을 본다** (D-73 · D-22). 손으로 적어 두면
+#: *"코드는 아는데 모델은 모르는 목록"* 이 생기고, 실제로 그랬다 —
+#: 모델이 `'위험성우려'` 를 내고 코드가 전부 `unknown` 으로 걸러 거절이 됐다.
+#: 여기 `" "` 가 들어가 있던 사고(2026-08-02)도 두 곳에 적혀 있어서 안 드러났다.
+ALLOWED_INTENTS = SPECS[Task.CLASSIFY].labels
 
 
 def _mentions_substance(question: str) -> bool:
@@ -151,6 +157,7 @@ def _llm_classify(question: str) -> str | None:
 
     client = get_client()
     if client is None:
+        note_fallback(Task.CLASSIFY)
         return None
 
     try:
@@ -158,6 +165,7 @@ def _llm_classify(question: str) -> str | None:
         return raw.strip().lower()
     except Exception as e:
         log.warning("classify LLM 호출 실패 — 키워드 폴백: %s", type(e).__name__)
+        note_fallback(Task.CLASSIFY)
         return None
 
 
@@ -169,21 +177,39 @@ def classify_intent(state: GraphState) -> GraphState:
     검색해 봐야 관련 없는 청크가 0.5대로 딸려 오기 때문이다.
 
     Returns:
-        `{"intent": ..., "risk": ...}` 만. 목록 밖이면 `intent="unknown"`.
+        `{"intent": ...}` 만. 목록 밖이면 `intent="unknown"`.
+
+    ⚠️ 예전에는 `{"intent": intent, "risk": intent}` 로 **같은 값을 두 키에** 넣었다.
+        `risk` 를 읽는 곳은 어디에도 없었고, 값이 `intent` 의 사본이라 읽을 것도 없었다.
+        상태에 남은 안 읽히는 키는 *"누군가 쓰고 있겠지"* 로 보여 지우기 어려워진다.
     """
     question = state.get("question", "")
 
     # ① LLM 우선 (05 §4 — 자연어 의도 파악은 LLM 담당)
     intent = _llm_classify(question)
 
-    # ② 폴백 — 키워드 매칭
+    # ② 허용목록 검증이 **폴백보다 먼저다** — 코드가 강제한다 (05 §4).
+    #
+    #    🔴 2026-08-03 까지 순서가 반대였다. 모델이 `'intoxication.'`(마침표)이나
+    #       `'위험성우려'` 같은 목록 밖 문자열을 내면 `intent is None` 이 아니므로
+    #       **키워드 폴백을 건너뛰고** 그대로 `unknown` 이 됐고, `_after_classify` 가
+    #       `unknown` 을 `refuse_scope`(범위밖 거절)로 보냈다.
+    #       *"강아지가 부동액을 핥았어요"* 가 라벨 한 글자 때문에 거절된다.
+    #
+    #       05 §6.1 이 한 절을 통째로 써서 금지한 동작이다 —
+    #       *"LLM 출력이 한 번 흔들린 것이 곧 사용자 거절이 되면 안 된다."*
+    #       이 모듈 머리말도 폴백 순서를 *"목록 밖 → 키워드 매칭"* 으로 적어 두었는데
+    #       코드가 그 순서를 안 지키고 있었다. **지어낸 라벨은 없는 것으로 친다.**
+    if intent is not None and intent not in ALLOWED_INTENTS:
+        log.warning("intent 허용목록 밖: %r → 키워드 폴백으로 내린다", intent)
+        intent = None
+
+    # ③ 폴백 — 키워드 매칭
     if intent is None:
         intent = _keyword_classify(question)
 
-    # ③ 허용목록 검증 — 코드가 강제한다 (05 §4).
-    #    LLM 이 지어낸 라벨은 여기서 걸러진다.
     if intent not in ALLOWED_INTENTS:
-        log.warning("intent 허용목록 밖: %r → 'unknown'", intent)
+        log.warning("키워드 폴백도 목록 밖: %r → 'unknown'", intent)
         intent = "unknown"
 
-    return {"intent": intent, "risk": intent}  # type: ignore[typeddict-item]
+    return {"intent": intent}  # type: ignore[typeddict-item]

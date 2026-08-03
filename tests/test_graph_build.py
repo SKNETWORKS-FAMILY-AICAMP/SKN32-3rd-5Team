@@ -91,7 +91,46 @@ class TestTopology:
         """`rule_level` 은 `apply_gate` 의 **바닥**이다. 판정 전에 서야 한다 (D-50)."""
         edges = self._edges()
         assert ("compute", "rules") in edges
-        assert ("rules", "compress") in edges
+        assert ("rules", "evidence") in edges
+
+    def test_the_query_path_has_no_compression(self):
+        """🔴 **③ 압축은 질의 경로에 없다** (D-83).
+
+        `verify_grounding` 은 초안을 `context` 에 대고 판정한다. 그 `context` 를
+        모델이 다시 쓰면 **LLM 이 쓴 것으로 LLM 을 검증**하게 되고, 압축 단계에
+        들어온 환각을 검증기가 근거로 인정한다.
+
+        ③ 태스크가 없어진 것이 아니라 **기간 리포트로 옮겼다**
+        (`app/routes/records.py::report` — D-02 가 요약의 필연성을 둔 자리).
+        여기 노드가 다시 생기면 그 결정이 조용히 뒤집힌 것이다.
+        """
+        import inspect
+
+        from pettriage.graph.nodes import generate
+
+        assert "compress" not in {s for s, _ in self._edges()}
+        # 머리말에는 **왜 뺐는지**가 적혀 있으므로 이름이 등장한다. 호출부만 센다.
+        src = inspect.getsource(generate)
+        called = "_call_llm(Task.COMPRESS" in src or "client.run(Task.COMPRESS" in src
+        assert not called, "③이 질의 경로로 돌아왔다 — D-83 을 다시 읽을 것"
+
+    def test_node_names_never_collide_with_state_keys(self):
+        """🔴 **노드 이름과 상태 키가 겹치면 조립이 터진다** (랭그래프 제약).
+
+        `build_graph()` 머리말이 `slots`·`draft` 전례를 적어 두었는데도
+        2026-08-03 에 `context` 로 같은 사고가 났다 —
+        `'context' is already being used as a state key`.
+
+        주석은 두 번 못 막았다. **테스트가 막는다** (D-40).
+        조립이 터질 때까지 기다리지 않고 이름 규칙 자체를 고정한다 —
+        노드는 **단계**의 이름이고 상태 키는 **값**의 이름이다.
+        """
+        from pettriage.graph.state import GraphState
+
+        nodes = {s for s, _ in self._edges()} | {t for _, t in self._edges()}
+        nodes = {n for n in nodes if not n.startswith("__")}
+        collided = nodes & set(GraphState.__annotations__)
+        assert not collided, f"노드 이름이 상태 키와 겹친다: {sorted(collided)}"
 
     def test_clarify_is_terminal(self):
         """되묻기는 **응답이다.** 계속 진행하면 결측 슬롯으로 검색이 돈다 (D-10)."""
@@ -127,7 +166,7 @@ class TestRouters:
         st: GraphState = initial_state("q", "s1", hits=[object()], retry_count=0)
         assert _after_retrieve(st) == "compute"
         st["retry_count"] = 1
-        assert _after_retrieve(st) == "compress", "재검색인데 판정을 다시 돌린다"
+        assert _after_retrieve(st) == "evidence", "재검색인데 판정을 다시 돌린다"
 
     def test_retry_is_capped_by_max_retry(self):
         from pettriage.graph.build import _after_verify
@@ -172,7 +211,7 @@ def test_recursion_limit_is_above_the_longest_path():
     """
     from pettriage.graph.nodes import MAX_RETRY
 
-    longest = 14 + 4 * MAX_RETRY  # 정상 경로 + 재검색마다 retry·retrieve·compress·generate·verify
+    longest = 14 + 4 * MAX_RETRY  # 정상 경로 + 재검색마다 retry·retrieve·evidence·generate·verify
     assert longest < RECURSION_LIMIT
 
 

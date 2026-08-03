@@ -44,6 +44,7 @@ for _p in (str(_HERE), str(ROOT / "src")):  # 설치 없이도, 어디서 불러
         sys.path.insert(0, _p)
 
 from metrics import (  # noqa: E402  (sys.path 조작 뒤에 와야 한다)
+    NAME_TO_LEVEL,
     CaseResult,
     Summary,
     fmt,
@@ -115,8 +116,18 @@ def _provenance() -> dict[str, object]:
 
     def git(*args: str) -> str:
         try:
+            # ⚠️ **`encoding` 을 반드시 준다.** 윈도우의 기본은 cp949 이고,
+            # 한글 경로·커밋메시지가 섞이면 읽는 스레드가 `UnicodeDecodeError` 로
+            # 죽는다 (2026-08-02 실측). 그러면 `dirty` 가 조용히 거짓이 되고,
+            # **재현 불가인 결과가 재현 가능한 것처럼 기록된다** (04 §8).
             return subprocess.run(
-                ["git", *args], capture_output=True, text=True, timeout=5, check=False
+                ["git", *args],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=5,
+                check=False,
             ).stdout.strip()
         except Exception:  # noqa: BLE001 — git 이 없거나 저장소가 아니면 그냥 비운다
             return ""
@@ -125,20 +136,48 @@ def _provenance() -> dict[str, object]:
 
     cfg = get_config()
     head = git("rev-parse", "HEAD")
-    return {
+    out: dict[str, object] = {
         "repo_commit": head or "(git 없음)",
         # 커밋 안 된 변경 위에서 쟀는가. 참이면 **재현 불가**다.
         "dirty": bool(git("status", "--porcelain")),
         "profile": os.getenv("PETTRIAGE_PROFILE", "default"),
         "engine_configured": cfg.serve.engine,
         "model_provider": cfg.model.provider,
-        "model_base_id": cfg.model.base_id,
-        "model_revision": cfg.model.revision,
+    }
+
+    # ── 🔴 **쓰는 값만 적는다** ─────────────────────────────────
+    #
+    # 예전에는 provider 와 무관하게 `base_id`·`revision` 을 늘 적었다. 그래서
+    # `--arm A`(gpt-4o-mini) 실행의 provenance 에 이렇게 남았다 —
+    #
+    #     model_provider: api
+    #     model_base_id:  Qwen/Qwen3-4B                    ← 이 실행과 무관하다
+    #     model_revision: 1cfa9a72...                      ← 게다가 무효한 핀이다
+    #
+    # 정작 그 실행을 정의하는 `api_model` 은 provenance 에 **없었다.**
+    # 나중에 이 JSON 만 보면 **Qwen 으로 잰 것으로 읽는다.** 04 §8 이
+    # *"무엇으로 잰 건지 모르는 숫자를 남기지 않는다"* 라고 한 것의 반대다.
+    #
+    # **안 쓰는 값을 쓰는 값처럼 적는 것은, 안 적는 것보다 나쁘다.**
+    if cfg.model.provider in ("api", "langchain"):
+        out["model_api_model"] = cfg.model.api_model
+        out["model_api_base_url"] = cfg.model.api_base_url or "(OpenAI 본가)"
+    elif cfg.model.provider == "qwen":
+        out["model_base_id"] = cfg.model.base_id
+        out["model_revision"] = cfg.model.revision
+        out["model_dtype"] = cfg.model.dtype
+        out["model_load_in_4bit"] = cfg.model.load_in_4bit
+        # **C 와 D 를 가르는 유일한 값이다.** 없으면 어느 쪽을 잰 건지 모른다.
+        out["model_adapter_path"] = cfg.model.adapter_path
+    # provider == "none" 이면 모델 관련 값을 아무것도 적지 않는다 — 쓴 것이 없다.
+
+    out |= {
         "embedding_model": cfg.retrieval.embedding_model,
         "top_k": cfg.retrieval.top_k,
         "score_threshold": cfg.retrieval.score_threshold,
         "max_clarify_turns": cfg.triage.max_clarify_turns,
     }
+    return out
 
 
 def make_engine(kind: str | None):
@@ -279,12 +318,29 @@ def run(rows: Iterable[dict[str, str]], engine) -> list[CaseResult]:
                 score_case(
                     row,
                     status=resp.status,
-                    level=resp.triage.level if resp.triage else None,
+                    # **조건 없는 MONITOR 는 MONITOR 로 채점한다** (D-39 · 04 §4.1.0).
+                    #
+                    # 시스템은 실제로 `MONITOR` 로 판정했고, 상승 조건을 못 내서
+                    # 출력을 막았을 뿐이다. 04 §4.1.0 은 *"조건 없는 관찰은 그 자체가
+                    # 과소평가"* 라고 정했는데, 2026-08-03 까지는 이 건이 `triage=None`
+                    # 인 거절로 들어와 **등급 분모에서 통째로 빠졌다.** 규칙이 채점에
+                    # 한 줄도 반영돼 있지 않았고, 그 결과가 `과소평가율 0.0%` 였다.
+                    level=(
+                        NAME_TO_LEVEL["MONITOR"]
+                        if getattr(resp, "monitor_without_conditions", False)
+                        else (resp.triage.level if resp.triage else None)
+                    ),
                     refusal_reason=resp.refusal.reason if resp.refusal else "",
                     answer_text=scored_text(resp),  # 상승 조건 포함 · 고지 문구 제외
                     citations=[c.source_id for c in resp.citations],
                     latency_ms=elapsed,
                     node_ms=node_timings(resp),
+                    llm_fallbacks=resp.llm_fallbacks,
+                    rule_level=resp.triage.rule_level if resp.triage else None,
+                    llm_level=resp.triage.llm_level if resp.triage else None,
+                    gate_overridden=bool(resp.triage and resp.triage.overridden),
+                    gate_capped=bool(resp.triage and resp.triage.llm_capped),
+                    grounding=getattr(resp, "grounding", None),
                 )
             )
         except Exception as e:  # 계약 위반(ValidationError)도 여기 잡힌다 — 결과다
@@ -356,6 +412,78 @@ def report(results: list[CaseResult], *, engine_name: str, model_name: str = "?"
     L.append("    정답이 CALL_NOW 이상인데 거절·되묻기로 빠진 건이다.")
     L.append("    등급 오류가 아니라 **분모가 다르다** — 과소평가율에 섞지 않는다 (04 §1.2).")
 
+    # ── LLM 이 실제로 불렸나 ──────────────────────────────────────
+    #
+    # 🔴 **다른 모든 수치보다 먼저 읽어야 하는 칸이다.** 이것이 없으면 성적이 낮을 때
+    #    *모델이 못한 것*인지 *모델이 안 불린 것*인지 구분이 안 된다.
+    #    이서은 팀원이 잡은 D-73(라벨 누락으로 LLM 이 키워드 폴백보다 나빴다)이
+    #    오래 안 보인 이유가 정확히 그 구분이 없었기 때문이다.
+    # ── 게이트가 무엇을 했나 ────────────────────────────────────
+    #
+    # 산출물 ④ 가 요구하는 *"하향 금지 게이트가 실제로 작동했다"* 는 이 칸으로 보인다.
+    # 그리고 등급 오류의 **원인**이 여기서 갈린다 — 규칙이 틀렸나, LLM 이 덮었나.
+    if s.gate_n:
+        L.append(f"\n■ 하향 금지 게이트 (D-09 · 분모 {s.gate_n} — 규칙·LLM 둘 다 등급을 낸 건)")
+        L.append(f"  일치            {s.gate_agreed:>4}")
+        L.append(
+            f"  LLM 이 올렸다    {s.gate_raised:>4}   (그중 과대로 끝난 것 {s.gate_raised_wrong})"
+        )
+        L.append(f"  🔒 하향 차단     {s.gate_blocked:>4}   ← 게이트가 실제로 막은 횟수")
+        if s.gate_capped:
+            L.append(
+                f"  🔒 상승 차단     {s.gate_capped:>4}   "
+                f"← 잰 자리라 막았다 (D-80. 그중 여전히 어긋난 것 {s.gate_capped_wrong})"
+            )
+        if s.gate_raised_wrong:
+            L.append("    ▸ 올림이 언제나 옳지는 않다. 규칙이 정량 계산으로 낸 등급을")
+            L.append("      LLM 이 덮었다면 **근거 없는 상승**이다 (D-79 트레이드오프).")
+
+    L.append("\n■ LLM 실행 (05 §6 — 폴백은 끄지 않고 표시한다)")
+    # 🔴 예전에는 *"5태스크 전부 모델"* 이라고 적었다. **거짓이었다** —
+    #    `Task.VERIFY` 는 호출부가 없어 부르지 않고, 부르지 않으니 폴백도 안 남는다.
+    #    세는 대상을 이름으로 밝힌다 (`fallbacks.WIRED`).
+    from pettriage.graph.fallbacks import UNWIRED, WIRED
+
+    L.append(
+        f"  {len(WIRED)}태스크 전부 모델   {fmt(s.fully_llm_rate):>7}   ({s.fully_llm}/{s.n})"
+        f"   [{' · '.join(WIRED)}]"
+    )
+    L.append(
+        f"  ⚠️ 집계에 없는 태스크: {' · '.join(UNWIRED)} — 프롬프트는 있으나 "
+        "호출부가 없다 (05 §4 와 어긋남)"
+    )
+    if s.fallback_counts:
+        L.append("  폴백으로 처리된 태스크 (분모 = 전체 건수)")
+        for task, cnt in s.fallback_counts.most_common():
+            flag = "  ← 한 번도 모델을 타지 않았다" if cnt == s.n else ""
+            L.append(f"    {task:12} {cnt:>4}/{s.n}{flag}")
+    else:
+        L.append("  폴백 없음 — 모든 태스크가 모델을 탔다.")
+    if s.fully_llm == 0 and not model_name.startswith("none"):
+        L.append("  🔴 **모델을 붙였는데 전 건이 어딘가에서 폴백을 탔다.**")
+        L.append("     아래 지표는 비교군 성능이 아니다. 키·한도·프롬프트를 먼저 확인한다.")
+
+    # ── ④ 근거 검증 ────────────────────────────────────────────
+    #
+    # 🔴 **이것은 탐지율이지 재현율이 아니다.** 04 는 *"근거없음 탐지 재현율"* 을
+    #    요구했는데, 재현율을 재려면 *"실제로 근거 없는 문장"* 의 정답 라벨이 있어야
+    #    한다. 우리에게는 없다. 없는 것을 있는 것처럼 부르지 않는다.
+    L.append("\n■ ④ 근거 검증 (02 §2 — 이 프로젝트의 핵심)")
+    if s.ground_cases:
+        L.append(f"  검증이 돈 건수    {s.ground_cases:>4}/{s.n}   문장 {s.ground_sentences}개")
+        L.append(f"  근거없음 판정     {s.ground_unsupported:>4}문장")
+        L.append(f"  모순 판정         {s.ground_contradicted:>4}문장")
+        L.append(f"  재검색으로 감     {s.ground_retried:>4}건")
+        if s.ground_unsupported == 0:
+            L.append("  ⚠️ **한 문장도 못 걸렀다.** 환각이 없었다는 뜻이 아니다 —")
+            L.append("     검증기가 약해서 못 잡은 것과 구별되지 않는다.")
+    else:
+        L.append("  검증이 한 번도 돌지 않았다 (전건이 거절·되묻기로 끝났다).")
+    L.append("  ⚠️ 검증기는 **LLM 이 아니라 2-gram 문자 일치율**이다 —")
+    L.append("     `Task.VERIFY` 프롬프트가 있으나 `verify_grounding` 이 부르지 않는다.")
+    L.append("     05 §4 는 ④를 LLM 태스크로 적어 두었다. **문서와 코드가 어긋나 있다.**")
+    L.append("  ⚠️ 위 숫자는 **탐지율**이다. 재현율은 정답 라벨이 없어 잴 수 없다 (04 §8).")
+
     L.append("\n■ 근거·문구")
     L.append(f"  must_cite 적중(any)  {fmt(s.cite_any_rate):>7}   ({s.cite_any}/{s.cite_n})")
     L.append(f"  must_cite 적중(all)  {fmt(s.cite_all_rate):>7}   ({s.cite_all}/{s.cite_n})")
@@ -363,6 +491,21 @@ def report(results: list[CaseResult], *, engine_name: str, model_name: str = "?"
     L.append(
         f"  must_contain (all)   {fmt(s.contain_all_rate):>7}   ({s.contain_all}/{s.contain_n})"
     )
+    # 🔴 **되묻기 문구 채점을 답변 채점과 섞지 않는다.**
+    #    `clarify` 기대 건에서 `must_contain` 은 *우리가 정한 되묻기 문장의 표현*이
+    #    골든셋 표기와 같은지를 본다 — `무엇을 먹었나요?` vs `무엇을 먹었는지`(G-014).
+    #    행동은 옳은데 어미가 달라 실패한다. 섞으면 **문구 문제가 성능 문제로 보인다.**
+    L.append(
+        f"    ▸ answered 만        {fmt(s.contain_answered_rate):>7}   "
+        f"({s.contain_answered_ok}/{s.contain_answered_n})   ← 답에 필요한 말이 들어갔나"
+    )
+    L.append(
+        f"    ▸ clarify 만         {fmt(s.contain_clarify_rate):>7}   "
+        f"({s.contain_clarify_ok}/{s.contain_clarify_n})   ← **되묻기 문구 표기 일치**"
+    )
+    if s.missed_terms:
+        L.append("  못 채운 문구 (빈도순) — 같은 것이 여러 건이면 골든셋 쪽을 본다")
+        L.append("    " + " · ".join(f"{t}×{n}" for t, n in s.missed_terms.most_common(8)))
     L.append(
         f"  must_not_contain     {fmt(s.not_contain_rate):>7}   "
         f"({s.not_contain_ok}/{s.not_contain_n})   ← answered 만"
@@ -413,7 +556,19 @@ def report(results: list[CaseResult], *, engine_name: str, model_name: str = "?"
                 # **거절했는데 이유가 다르다** — 상태만 보면 통과로 보이는 자리다.
                 else f"거절이유 {r.expected_refusal_reason}→{r.actual_refusal_reason or '(없음)'}"
                 if r.reason_ok is False
-                else f"등급 {r.expected_level}→{r.actual_level}"
+                else (
+                    f"등급 {r.expected_level}→{r.actual_level}"
+                    # **원인을 한 줄에 같이 낸다** — 규칙이 틀렸나, LLM 이 덮었나.
+                    + (
+                        f" (rule={r.rule_level} llm={r.llm_level}"
+                        + (" ↑LLM" if r.gate_raised else "")
+                        + (" 🔒차단" if r.gate_overridden else "")
+                        + (" 🔒상승차단" if r.gate_capped else "")
+                        + ")"
+                        if r.rule_level is not None or r.llm_level is not None
+                        else ""
+                    )
+                )
                 if r.expected_level != r.actual_level
                 else "근거/문구"
             )
@@ -430,6 +585,15 @@ def report(results: list[CaseResult], *, engine_name: str, model_name: str = "?"
 
 def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="골든셋 평가 하네스 (04 §4)")
+    ap.add_argument(
+        "--arm",
+        choices=["none", "A", "A-LC", "C", "D"],
+        help=(
+            "04 §3 비교군을 이름으로 고른다 (models/serving/arms.py). "
+            "`PETTRIAGE__MODEL__*` 를 손으로 맞추다 하나 빠뜨리면 "
+            "**다른 조건으로 재고도 모른다** — D 를 잰다고 생각하며 C 를 잰다"
+        ),
+    )
     ap.add_argument("--engine", choices=["stub", "graph"], help="기본값은 configs 의 serve.engine")
     ap.add_argument(
         "--goldenset", nargs="*", type=Path, help="기본값은 eval/goldenset/golden_*.csv"
@@ -475,6 +639,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     a = ap.parse_args(argv)
 
+    # ⚠️ **설정을 읽기 전에** 세운다 — `get_config` 는 `lru_cache` 라 한 번 읽히면 굳는다.
+    if a.arm:
+        from pettriage.models.serving.arms import apply_arm
+
+        print(f"비교군 {a.arm} — {apply_arm(a.arm)}")
+
     paths = a.goldenset or sorted(GOLDEN_DIR.glob("golden_*.csv"))
     rows = load_goldenset(paths)
     if a.only:
@@ -501,6 +671,30 @@ def main(argv: Sequence[str] | None = None) -> int:
             "provenance": _provenance(),
             "goldenset": [p.name for p in paths],
             "n": len(results),
+            # **이 실행이 LLM 을 잰 것인가** (D-76). 리포트에서만 보이면 JSON 을 나중에
+            # 비교할 때 그 사실이 사라진다 — 04 §8 이 요구하는 것은 *숫자와 조건이 같이*다.
+            "grounding": {
+                "cases": summarize(results).ground_cases,
+                "sentences": summarize(results).ground_sentences,
+                "unsupported": summarize(results).ground_unsupported,
+                "contradicted": summarize(results).ground_contradicted,
+                "retried": summarize(results).ground_retried,
+                "note": "탐지율이지 재현율이 아니다. 검증기는 LLM 이 아니라 2-gram 이다.",
+            },
+            "llm": {
+                "fully_llm": summarize(results).fully_llm,
+                "fallback_counts": dict(summarize(results).fallback_counts),
+            },
+            # 산출물 ④ — **게이트가 작동했다는 증거**를 숫자로 남긴다 (D-09).
+            "gate": {
+                "n": summarize(results).gate_n,
+                "agreed": summarize(results).gate_agreed,
+                "raised": summarize(results).gate_raised,
+                "raised_wrong": summarize(results).gate_raised_wrong,
+                "blocked": summarize(results).gate_blocked,
+                "capped": summarize(results).gate_capped,
+                "capped_wrong": summarize(results).gate_capped_wrong,
+            },
             "latency": {
                 "p50_ms": summarize(results).p50_ms,
                 "p95_ms": summarize(results).p95_ms,
@@ -532,9 +726,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         if s.under_rate is not None and s.under_rate > a.fail_under:
             print(f"✗ 과소평가율 {fmt(s.under_rate)} > 상한 {fmt(a.fail_under)}")
             return 1
-        # **등급을 아예 못 낸 긴급 건**은 과소평가율의 분모에 없다 (04 §1.2).
-        # 그래서 별도 게이트가 필요하다 — 없으면 "전부 거절" 이 0.0% 로 통과한다.
-        if s.missed_urgent_rate is not None and s.missed_urgent_rate > a.fail_missed:
+
+    # 🔴 **중대 과소평가는 상한이 없다. 0이 아니면 실패다** (04 §4.1.0).
+    #
+    #    2026-08-03 까지 이 지표에는 게이트가 아예 없었다. *"0을 목표로 한다"* 고
+    #    문서가 못박은 유일한 지표인데, 1건이 나와도 `--fail-under 0.05` 는
+    #    `1/29 = 3.4% ≤ 5%` 로 초록이었다. 분모를 고친 지금은 `1/8 = 12.5%` 지만,
+    #    애초에 **비율로 볼 것이 아니라 건수로 볼 것**이다.
+    #
+    #    `--fail-under` 블록 **밖**에 둔다. 안에 두면 그 인자를 안 준 실행에서
+    #    조용히 통과한다 (`--fail-missed` 가 정확히 그 상태였다).
+    s = summarize(results)
+    if s.critical_under:
+        print(
+            f"✗ 🔴 중대 과소평가 {s.critical_under}건 "
+            f"(정답 EMERGENCY 이면서 등급을 낸 {s.critical_n}건 중) — "
+            "04 §4.1.0 은 0을 목표로 한다. 상한을 두지 않는다."
+        )
+        return 1
+
+    # **등급을 아예 못 낸 긴급 건**은 과소평가율의 분모에 없다 (04 §1.2).
+    # 그래서 별도 게이트가 필요하다 — 없으면 "전부 거절" 이 0.0% 로 통과한다.
+    #
+    # ⚠️ 이 검사도 `--fail-under` 블록 밖으로 꺼냈다. 안에 있던 동안에는
+    #    `--fail-missed` 만 주고 돌리면 **아무것도 검사하지 않고 종료코드 0** 이었다.
+    if a.fail_missed is not None and s.missed_urgent_rate is not None:
+        if s.missed_urgent_rate > a.fail_missed:
             print(
                 f"✗ 등급을 못 낸 긴급 건 {fmt(s.missed_urgent_rate)} > "
                 f"상한 {fmt(a.fail_missed)}"

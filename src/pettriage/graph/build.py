@@ -11,8 +11,8 @@
     `GraphEngine._run_pipeline` 79줄짜리 **손으로 펼친 선형 실행기**였고,
     05 §5 가 *"표현 불가"* 라고 한 그 순환은 이렇게 복붙돼 있었다 —
 
-        compress → generate → verify                      # 정상 경로
-        if 실패: retrieve → compress → generate → verify   # ← 같은 4줄이 또
+        evidence → generate → verify                      # 정상 경로
+        if 실패: retrieve → evidence → generate → verify   # ← 같은 4줄이 또
 
     **문서에 적힌 결정이 코드에서 강제되지 않고 있었다** (D-48).
 
@@ -52,9 +52,9 @@ from .nodes import (
     MAX_RETRY,
     apply_rule_table,
     ask_clarify,
+    build_context,
     build_filter,
     classify_intent,
-    compress_context,
     compute_metrics,
     decide_triage,
     extract_slots,
@@ -121,14 +121,18 @@ def _retry(state: GraphState) -> GraphState:
 
 
 def _answered(state: GraphState) -> GraphState:
-    """성공 종료. **폴백 기록을 응답 단위로 고정한다** (05 §6).
+    """성공 종료.
 
-    전역 `LLM_FALLBACKS` 는 서버에서 요청 간에 누적되므로 그대로 읽으면
-    *"이 응답이 폴백으로 만들어졌는가"* 에 답할 수 없다.
+    ⚠️ **폴백 기록을 여기서 하지 않는다.** 예전에는 이 노드가
+    `llm_fallbacks` 를 세웠는데, 이 노드는 **성공 경로에만** 있다.
+    되묻기(`clarify`)와 거절 세 갈래는 ①분류·②슬롯이 폴백을 탔더라도
+    그 사실을 잃은 채 끝났다 — 그리고 04 §3 에서 확인해야 하는 것은
+    *"거절된 건이 모델을 탔는가"* 이기도 하다.
+
+    지금은 `engine._run_pipeline` 이 그래프가 끝난 뒤 **모든 경로에 대해** 한 번 채운다.
+    비우는 것도 채우는 것도 요청 경계의 일이고, 그 경계를 아는 것은 엔진이다 (D-22).
     """
-    from .nodes.generate import LLM_FALLBACKS
-
-    return {"status": "answered", "llm_fallbacks": sorted(LLM_FALLBACKS)}
+    return {"status": "answered"}
 
 
 # ── 라우터: 어디로 갈지만 정한다 ─────────────────────────────────
@@ -157,13 +161,18 @@ def _after_retrieve(state: GraphState) -> str:
     - 히트 있음 · 첫 검색  → 계산부터
     - 히트 있음 · 재검색   → **계산·판정을 다시 하지 않는다.** 등급은 이미 정해졌고
       재검색은 *근거 문장*을 다시 붙이려는 것이다. 다시 돌리면 같은 입력에
-      LLM 판정이 한 번 더 끼어들어 등급이 흔들린다
+      LLM 판정이 한 번 더 끼어들어 등급이 흔들린다.
+
+      ⚠️ 여기서 건너뛰는 것은 `compute`·`rules` 둘뿐이다. 목적지 `evidence` 뒤에
+      `generate → judge → decide` 가 그대로 이어지므로 **`judge` 는 이 갈림길로
+      막히지 않는다.** 그 차단은 `nodes/generate.py::judge_triage` 가 직접 한다 —
+      2026-08-02 까지 이 주석만 있고 차단이 없었다.
     - 히트 없음 · 첫 검색  → `근거없음`
     - 히트 없음 · 재검색   → `검증실패` (원래 실패 이유를 유지한다)
     """
     retried = state.get("retry_count", 0) > 0
     if state.get("hits"):
-        return "compress" if retried else "compute"
+        return "evidence" if retried else "compute"
     return "refuse_verify" if retried else "refuse_nohit"
 
 
@@ -175,7 +184,7 @@ def _after_triage(state: GraphState) -> str:
 def _after_verify(state: GraphState) -> str:
     """④ 검증 뒤. **이 갈림길이 이 파일이 존재하는 이유다** (05 §5).
 
-    실패 → 재검색 → 재압축 → 재초안 → 재검증. 예전에는 이 네 단계가
+    실패 → 재검색 → 근거 재조립 → 재초안 → 재검증. 예전에는 이 네 단계가
     정상 경로 바로 아래에 **복붙**돼 있었다.
     """
     if state.get("status") != "refused":
@@ -209,7 +218,14 @@ def build_graph() -> Any:
     g.add_node("retrieve", retrieve)
     g.add_node("compute", compute_metrics)
     g.add_node("rules", apply_rule_table)
-    g.add_node("compress", compress_context)
+    # ⚠️ 노드 이름이 `compress` 가 아니다 (D-83). ③ 압축은 기간 리포트로 옮겼고
+    #    여기 남은 것은 **히트를 잇는 조립**뿐이다. 이름이 하는 일과 달라지면
+    #    다음 사람이 그래프만 보고 *"질의 경로에 압축이 있다"* 고 믿는다.
+    #
+    # ⚠️ 그렇다고 `context` 로 지으면 **조립이 터진다** — 위 경고 그대로 상태 키와
+    #    겹친다 (2026-08-03 실측: `'context' is already being used as a state key`).
+    #    노드는 **단계**의 이름이고 `context` 는 **값**의 이름이다. `evidence` 로 둔다.
+    g.add_node("evidence", build_context)
     g.add_node("generate", generate_draft)
     g.add_node("judge", judge_triage)
     g.add_node("decide", decide_triage)
@@ -236,16 +252,16 @@ def build_graph() -> Any:
         _after_retrieve,
         {
             "compute": "compute",
-            "compress": "compress",
+            "evidence": "evidence",
             "refuse_nohit": "refuse_nohit",
             "refuse_verify": "refuse_verify",
         },
     )
 
-    # 계산 → 규칙 바닥 → 압축 → 초안. 순서를 바꾸면 `rule_level` 없이 판정이 돈다.
+    # 계산 → 규칙 바닥 → 근거 조립 → 초안. 순서를 바꾸면 `rule_level` 없이 판정이 돈다.
     g.add_edge("compute", "rules")
-    g.add_edge("rules", "compress")
-    g.add_edge("compress", "generate")
+    g.add_edge("rules", "evidence")
+    g.add_edge("evidence", "generate")
 
     # ⑨ LLM 판정 **다음에** 게이트. 순서를 뒤집으면 `max(rule, llm)` 이
     #    llm_level=None 으로 돌아 상승이 통째로 사라진다 (D-09 · D-50).

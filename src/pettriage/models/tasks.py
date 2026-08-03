@@ -24,7 +24,7 @@ class Task(StrEnum):
 
     CLASSIFY = "classify"  # ① 의도·위험 분류
     SLOT = "slot"  # ② 슬롯 추출
-    COMPRESS = "compress"  # ③ 컨텍스트 압축
+    COMPRESS = "compress"  # ③ 요약 — **기간 리포트** (D-83). 질의 경로에 없다
     VERIFY = "verify"  # ④ 근거 검증  ← 핵심
     SIMPLIFY = "simplify"  # ⑤ 평이화
     # ⑥ 번역 — **미채택 확정** (2026-08-02 · D-19 후속).
@@ -43,6 +43,27 @@ class TaskSpec:
     verified_by: str  # 05 §4 — LLM 출력에 붙는 검증 코드
     metric: str  # 04 §3 태스크별 지표
 
+    #: **이 태스크가 낼 수 있는 라벨.** 비어 있으면 자유 출력이다.
+    #:
+    #: ⚠️ 여기가 단일 출처다 (D-22 · D-73). 2026-08-02 실측에서 —
+    #:
+    #:     ① 프롬프트는 *"허용된 라벨 중 하나만 출력한다"* 라고만 적었다.
+    #:        **그 라벨이 무엇인지는 안 적혀 있었다.**
+    #:     ② 코드는 `ALLOWED_INTENTS` 로 정확히 대조했다.
+    #:
+    #:   모델은 보기를 모르니 `'위험성우려'`·`'high_risk'` 같은 그럴듯한 말을 냈고,
+    #:   코드가 전부 `unknown` 으로 걸러 **거절**로 보냈다. 결과가 뒤집혔다 —
+    #:   **키워드 폴백(통과 10%)보다 진짜 LLM(3.3%)이 더 나빴다.**
+    #:   *(이서은 팀원 발견)*
+    #:
+    #:   프롬프트와 검증기가 **같은 목록을 봐야 한다.** 프롬프트에 손으로 다시 적으면
+    #:   라벨이 하나 늘어날 때 같은 사고가 반복된다.
+    labels: tuple[str, ...] = ()
+
+    #: 라벨의 뜻. 프롬프트에 함께 실어 **모델이 경계를 알게** 한다.
+    #: `general` 이 *"우리가 다루지 않는 질문"* 이라는 것은 설명 없이는 알 수 없다 (D-46).
+    label_hints: dict[str, str] | None = None
+
 
 SPECS: dict[Task, TaskSpec] = {
     Task.CLASSIFY: TaskSpec(
@@ -51,6 +72,13 @@ SPECS: dict[Task, TaskSpec] = {
         output_kind="단일 라벨",
         verified_by="허용목록 검증 · 미분류 시 폴백",
         metric="macro F1",
+        labels=("intoxication", "symptom", "nutrition", "general"),
+        label_hints={
+            "intoxication": "물질을 먹었거나 핥았거나 접촉했다",
+            "symptom": "증상만 말하고 물질은 말하지 않았다",
+            "nutrition": "급여·영양·사료에 대한 질문이다",
+            "general": "우리가 다루지 않는 질문 — 이름 짓기·훈련·보험·브랜드 추천",
+        },
     ),
     Task.SLOT: TaskSpec(
         task=Task.SLOT,
@@ -62,12 +90,22 @@ SPECS: dict[Task, TaskSpec] = {
         ),
         metric="슬롯 단위 정확도 · 결측 탐지율",
     ),
+    # ③ 은 **질의 그래프에 없다** (2026-08-03 · D-83).
+    #
+    #   D-02 가 요약의 필연성을 둔 자리는 처음부터 **기간 리포트**였다 —
+    #   *"원안(중독 응급 QA)은 요약 태스크의 필연성도 약했다"*. 질의 경로의
+    #   `compress_context` 는 그 태스크를 파이프라인에도 한 번 더 붙인 것이었고,
+    #   03 §1.1(*"파이프라인이 실제로 필요로 하는 태스크만 고른다"*)과 어긋났다.
+    #
+    #   빼기로 한 직접 이유는 ①검증의 정답지가 LLM 생성물이 되는 순환,
+    #   ②실측 근거 393~533자 대 창 128k(임계 800자를 안 넘었다),
+    #   ③근거가 모자라 실패하는 시스템에서 근거를 깎는다는 것이다.
     Task.COMPRESS: TaskSpec(
         task=Task.COMPRESS,
-        graph_node="compress_context",
+        graph_node="(질의 그래프 밖 — app/routes/records.py::report)",
         output_kind="문단",
-        verified_by="길이 임계 · 원문 포함 검사",
-        metric="압축률 대비 근거 보존율",
+        verified_by="기간·건수 대조 · 원문에 없는 증상·수치 불가",
+        metric="기록 보존율 · 원문 밖 내용 생성률",
     ),
     Task.VERIFY: TaskSpec(
         task=Task.VERIFY,
@@ -75,6 +113,7 @@ SPECS: dict[Task, TaskSpec] = {
         output_kind="문장별 3값 라벨",
         verified_by="판정에 따른 게이트 · 재검색 트리거 · 문장 제거",
         metric="근거없음 탐지 재현율 (**놓치면 환각이 나간다**)",
+        labels=("근거있음", "근거없음", "모순"),
     ),
     Task.SIMPLIFY: TaskSpec(
         task=Task.SIMPLIFY,

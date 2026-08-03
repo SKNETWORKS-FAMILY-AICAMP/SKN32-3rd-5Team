@@ -107,6 +107,10 @@ def scrub_response(resp: AskResponse) -> AskResponse:
         len(removed),
         " / ".join(s[:60] for s in removed),
     )
+    # **더한다, 덮지 않는다.** 그래프의 `finalize` 노드가 이미 뺀 것이 있을 수 있고,
+    # 그것은 여기 도착하기 전에 사라져 `removed` 에 안 잡힌다. 둘의 합이 이 응답에서
+    # 실제로 빠진 문장 수다. 🔴 문장 자체는 로그에만 남긴다 — 응답에 실으면 되살아난다.
+    changes["removed_contact_count"] = resp.removed_contact_count + len(removed)
     # `model_copy` 는 검증기를 돌리지 않는다. 생성자로 다시 만들어
     # 최종 안전망(`AskResponse._no_foreign_contacts`)을 반드시 태운다.
     # `full_text` 는 계산 필드라 입력에서 뺀다.

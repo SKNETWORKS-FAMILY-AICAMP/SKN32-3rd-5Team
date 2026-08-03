@@ -11,7 +11,7 @@ Qwen3는 chat template을 쓰므로 **역할 분리 메시지**로 만든다 (D-
 
 from __future__ import annotations
 
-from .tasks import Task
+from .tasks import SPECS, Task
 
 #: 전 태스크 공통 규칙. **모델이 지어내지 못하게 막는 문장들이다.**
 _COMMON = (
@@ -23,10 +23,7 @@ _COMMON = (
 _INSTRUCTIONS: dict[Task, str] = {
     Task.CLASSIFY: (
         "사용자 발화의 의도와 위험 성격을 분류한다.\n"
-        "다음 라벨 중 **하나만** 출력한다. 라벨 외의 문자를 덧붙이지 않는다.\n"
-        # graph.nodes.classify.ALLOWED_INTENTS 와 같은 목록이어야 한다 —
-        # 여기 없는 라벨을 출력하면 코드가 걸러 unknown 으로 떨어진다.
-        "  intoxication (중독·오섭취) · symptom (증상) · nutrition (영양·급여) · general (그 외)\n"
+        "아래 라벨 중 **하나만**, 적힌 문자열 그대로 출력한다. 다른 문자를 덧붙이지 않는다.\n"
         "판단이 서지 않으면 `unknown` 을 출력한다."
     ),
     Task.SLOT: (
@@ -53,17 +50,21 @@ _INSTRUCTIONS: dict[Task, str] = {
         "  예: '강아지가 설사를 해요' → substance: null (증상만 있고 물질 언급 없음)\n"
         "  예: '강아지가 초콜릿을 먹고 설사를 해요' → substance: '초콜릿' (물질이 실제로 있음)"
     ),
+    # ③ 은 **기간 리포트**를 요약한다 (D-83). 2026-08-03 까지 이 지시문은
+    # *"검색된 문서들을 질문에 필요한 내용만 남겨 압축한다"* 였고, 질의 경로의
+    # 압축 노드를 향하고 있었다. 그 노드가 없어졌으므로 지시문도 함께 옮긴다 —
+    # **이 파일은 학습과 추론이 같이 읽는다.** 여기가 안 바뀌면 이서은 팀원이
+    # 만드는 ③ 학습 데이터가 없어진 노드를 향해 생성된다 (03 §5 템플릿 통일).
     Task.COMPRESS: (
-        "검색된 문서들을 질문에 필요한 내용만 남겨 압축한다.\n"
-        "**원문에 없는 수치·단위·종을 추가하지 않는다.**\n"
-        "수치는 단위까지 원문 그대로 옮긴다."
+        "반려동물 일일 기록 여러 건을 보호자가 읽을 기간 요약으로 만든다.\n"
+        "**기록에 없는 증상·수치·날짜를 추가하지 않는다.**\n"
+        "수치는 단위까지 기록 그대로 옮긴다.\n"
+        "진단하지 않는다 — 관찰된 것과 변화만 적는다."
     ),
     Task.VERIFY: (
         "입력은 `문장: ...` 한 줄과 `근거 문서:` 뒤에 이어지는 근거 문서로 구성된다.\n"
         "그 문장 하나가 근거 문서로 뒷받침되는지 판정한다.\n"
-        # graph.nodes.verify._llm_judge_sentence 가 출력 문자열에서 이 3개 중
-        # 하나를 찾는다 — 다른 말을 덧붙이면 매칭에 실패해 폴백(2-gram)으로 내려간다.
-        "`근거있음` · `근거없음` · `모순` 중 **하나만** 출력한다. 다른 말을 덧붙이지 않는다.\n"
+        "문장마다 아래 라벨 중 하나를 적힌 그대로 출력한다.\n"
         # 실측(2026-08-03): "모순"으로 만든 문장이 전부 "근거없음"으로만 나왔다 —
         # 둘을 가르는 기준이 프롬프트에 없어서 모델이 "모순"을 거의 안 썼다.
         "**`근거없음`과 `모순`을 반드시 구분한다:**\n"
@@ -89,8 +90,29 @@ _INSTRUCTIONS: dict[Task, str] = {
 }
 
 
+def _label_block(task: Task) -> str:
+    """**허용 라벨을 프롬프트에 싣는다** (D-73).
+
+    ⚠️ 여기에 라벨을 손으로 적지 않는다. `SPECS[task].labels` 가 단일 출처이고,
+    `graph/nodes/classify.py` 의 검증기도 **같은 것**을 본다 (D-22).
+
+    적지 않았을 때 무슨 일이 났는지 — 모델이 보기를 모르니 `'위험성우려'` 처럼
+    그럴듯한 말을 냈고, 코드가 전부 `unknown` 으로 걸러 거절로 보냈다.
+    **진짜 LLM 을 붙였더니 키워드 폴백보다 성적이 나빠졌다** (2026-08-02).
+    """
+    spec = SPECS[task]
+    if not spec.labels:
+        return ""
+    lines = [f"\n[라벨] 다음 중 하나를 **그대로** 출력한다 — {' · '.join(spec.labels)}"]
+    for label in spec.labels:
+        hint = (spec.label_hints or {}).get(label)
+        if hint:
+            lines.append(f"  {label:<14} {hint}")
+    return "\n".join(lines)
+
+
 def system_prompt(task: Task) -> str:
-    return f"{_COMMON}\n\n[과제] {_INSTRUCTIONS[task]}"
+    return f"{_COMMON}\n\n[과제] {_INSTRUCTIONS[task]}{_label_block(task)}"
 
 
 def build_messages(task: Task, user_input: str) -> list[dict[str, str]]:

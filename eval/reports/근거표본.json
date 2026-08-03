@@ -1,0 +1,57 @@
+[
+  {
+    "case_id": "G-001",
+    "case_type": "dose",
+    "species": "dog",
+    "question": "강아지가 다크초콜릿을 새끼손톱만큼 먹었는데 그 정도 양이면 괜찮겠죠",
+    "status": "clarify",
+    "context_chars": 0,
+    "checked": 0,
+    "unsupported": 0,
+    "sentences": []
+  },
+  {
+    "case_id": "G-007",
+    "case_type": "dose",
+    "species": "dog",
+    "question": "강아지가 블루베리를 한 줌 집어 먹었는데 괜찮나요",
+    "status": "clarify",
+    "context_chars": 0,
+    "checked": 0,
+    "unsupported": 0,
+    "sentences": []
+  },
+  {
+    "case_id": "G-028",
+    "case_type": "dose",
+    "species": "dog",
+    "question": "5kg 말티즈가 밀크초콜릿 20g 정도를 먹었어요",
+    "status": "clarify",
+    "context_chars": 0,
+    "checked": 0,
+    "unsupported": 0,
+    "sentences": []
+  },
+  {
+    "case_id": "G-029",
+    "case_type": "dose",
+    "species": "dog",
+    "question": "5kg 말티즈가 밀크초콜릿 60g을 먹었어요",
+    "status": "clarify",
+    "context_chars": 0,
+    "checked": 0,
+    "unsupported": 0,
+    "sentences": []
+  },
+  {
+    "case_id": "G-030",
+    "case_type": "dose",
+    "species": "dog",
+    "question": "5kg 강아지가 다크초콜릿 50g을 먹었어요",
+    "status": "clarify",
+    "context_chars": 0,
+    "checked": 0,
+    "unsupported": 0,
+    "sentences": []
+  }
+]

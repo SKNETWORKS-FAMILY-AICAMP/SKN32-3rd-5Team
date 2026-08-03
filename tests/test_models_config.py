@@ -224,3 +224,121 @@ def test_no_leakage_when_inputs_differ():
         )
     ]
     assert check_leakage(train, dev) == []
+
+
+# ── 프롬프트와 검증기가 같은 목록을 본다 (D-73) ────────────────
+class TestLabelsAreShared:
+    """**코드는 아는데 모델은 모르는 목록**을 만들지 않는다.
+
+    2026-08-02 이서은 팀원 발견 — ①분류 프롬프트가 *"허용된 라벨 중 하나만
+    출력한다"* 라고만 적고 **그 라벨이 무엇인지는 안 적었다.** 모델은
+    `'위험성우려'`·`'high_risk'` 를 냈고 코드가 전부 `unknown` 으로 걸러 거절이 됐다.
+
+    결과가 뒤집혔다 — **키워드 폴백(통과 10%)보다 진짜 LLM(3.3%)이 더 나빴다.**
+    """
+
+    def test_classify_prompt_lists_every_allowed_label(self):
+        from pettriage.graph.nodes.classify import ALLOWED_INTENTS
+        from pettriage.models.prompts import system_prompt
+
+        prompt = system_prompt(Task.CLASSIFY)
+        missing = [label for label in ALLOWED_INTENTS if label not in prompt]
+        assert not missing, f"검증기는 아는데 프롬프트에 없는 라벨: {missing}"
+
+    def test_validator_and_prompt_share_one_source(self):
+        """손으로 두 곳에 적으면 하나만 고치는 일이 반드시 생긴다 (D-22).
+
+        `ALLOWED_INTENTS` 에 `" "` 가 들어가 있던 사고(2026-08-02)도
+        두 곳에 적혀 있어서 안 드러났다.
+        """
+        from pettriage.graph.nodes.classify import ALLOWED_INTENTS
+
+        assert ALLOWED_INTENTS is SPECS[Task.CLASSIFY].labels
+
+    def test_verify_prompt_lists_its_labels(self):
+        """④ 근거 검증도 같다 — 라벨이 어긋나면 판정이 통째로 버려진다."""
+        from pettriage.models.prompts import system_prompt
+
+        prompt = system_prompt(Task.VERIFY)
+        for label in SPECS[Task.VERIFY].labels:
+            assert label in prompt, label
+
+    def test_intent_type_covers_the_labels(self):
+        """`graph.state.Intent` 가 라벨 + `unknown` 을 덮는다.
+
+        타입과 목록이 어긋나면 정상 라벨이 타입 검사에서 죽는다.
+        """
+        from typing import get_args
+
+        from pettriage.graph.state import Intent
+
+        allowed = set(get_args(Intent))
+        assert set(SPECS[Task.CLASSIFY].labels) <= allowed
+        assert "unknown" in allowed, "폴백 라벨이 타입에 없다"
+
+    def test_free_output_tasks_have_no_label_block(self):
+        """압축·평이화는 자유 출력이다. 없는 라벨을 프롬프트가 지어내면 안 된다."""
+        from pettriage.models.prompts import system_prompt
+
+        for task in (Task.COMPRESS, Task.SIMPLIFY):
+            assert SPECS[task].labels == ()
+            assert "[라벨]" not in system_prompt(task)
+
+
+# ── 호출 간격 제한 ───────────────────────────────────────────
+class Test호출간격:
+    """저등급 API 의 429 를 **부딪히기 전에** 막는다.
+
+    2026-08-02 Gemini 실측 — 재시도 8회를 다 쓰고도 실패했고, 실행이 통째로 멈췄다.
+    재시도는 실패한 뒤의 대응이고, 간격 제한은 실패를 안 만드는 쪽이다.
+    """
+
+    def test_기본은_꺼져있다(self):
+        """기본값이 0이 아니면 **아무도 모르게 평가가 느려진다.**"""
+        assert load_config("default").model.min_interval_ms == 0
+
+    def test_0이면_기다리지_않는다(self, monkeypatch):
+        import time
+
+        from pettriage.models.serving import client as mod
+
+        monkeypatch.setattr(mod, "_last_call_at", 0.0)
+        t0 = time.monotonic()
+        mod._throttle()
+        assert time.monotonic() - t0 < 0.05
+
+    def test_설정한_간격만큼_기다린다(self, monkeypatch):
+        """`min_interval_ms` 를 코드가 **실제로 읽는지** 본다 (D-69).
+
+        설정에 키만 두고 아무도 안 읽던 전례가 있다. 여기서는 시간으로 확인한다.
+        """
+        import time
+
+        from pettriage.config import get_config, reset_caches
+        from pettriage.models.serving import client as mod
+
+        # **가짜 설정을 끼우지 않는다.** 환경변수 → 설정 → 코드까지 사슬을 통째로 태운다.
+        # 이 사슬의 마지막 칸이 끊겨 있던 것이 D-69 였다.
+        monkeypatch.setenv("PETTRIAGE__MODEL__MIN_INTERVAL_MS", "120")
+        reset_caches()
+        assert get_config().model.min_interval_ms == 120, "환경변수가 설정에 안 닿는다"
+
+        monkeypatch.setattr(mod, "_last_call_at", 0.0)
+        mod._throttle()  # 첫 호출은 기준점만 잡는다
+        t0 = time.monotonic()
+        mod._throttle()  # 두 번째는 간격을 채운다
+        waited = time.monotonic() - t0
+        assert waited >= 0.10, f"기다리지 않았다: {waited:.3f}s"
+
+    def test_설정을_못_읽어도_호출은_나간다(self, monkeypatch):
+        """간격 제한이 **호출을 막는 새 실패 원인이 되면 안 된다.**"""
+        import pettriage.config as cfgmod
+        from pettriage.models.serving import client as mod
+
+        def boom():
+            raise RuntimeError("설정 없음")
+
+        boom.cache_clear = lambda: None  # conftest 의 캐시 비우기가 이것을 부른다
+        monkeypatch.setattr(cfgmod, "get_config", boom)
+        monkeypatch.setattr(mod, "_last_call_at", 0.0)
+        mod._throttle()  # 예외가 새어 나오지 않는다
