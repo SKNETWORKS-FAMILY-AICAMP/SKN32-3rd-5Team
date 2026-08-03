@@ -387,6 +387,7 @@ class Test조건없는MONITOR:
             "llm_level": int(TriageLevel.MONITOR),
             "escalation_conditions": [],
             "hits": [self._hit("emergency")],
+            "intent": "intoxication",
         }
         out = decide_triage(st)  # type: ignore[arg-type]
         assert out.get("status") != "refused", "독성 근거인데 침묵으로 끝났다 (D-84)"
@@ -402,6 +403,7 @@ class Test조건없는MONITOR:
             "llm_level": int(TriageLevel.MONITOR),
             "escalation_conditions": [],
             "hits": [self._hit("nutrition")],
+            "intent": "nutrition",
         }
         out = decide_triage(st)  # type: ignore[arg-type]
         assert out.get("status") == "refused"
@@ -415,6 +417,24 @@ class Test조건없는MONITOR:
             "llm_level": None,
             "escalation_conditions": ["구토"],
             "hits": [self._hit("emergency")],
+            "intent": "intoxication",
         }
         out = decide_triage(st)  # type: ignore[arg-type]
         assert out["triage_level"] == int(TriageLevel.MONITOR)
+
+    def test_급여_질의는_독성_문서가_섞여도_올리지_않는다(self):
+        """G-007 블루베리 — 검색이 초콜릿 자료를 딸려왔다고 전화를 걸게 하지 않는다.
+
+        **무엇을 물었는지는 히트가 아니라 ①분류가 안다** (2026-08-03 실측).
+        """
+        from pettriage.graph.nodes.triage import decide_triage
+
+        st = {
+            "rule_level": None,
+            "llm_level": int(TriageLevel.MONITOR),
+            "escalation_conditions": [],
+            "hits": [self._hit("nutrition"), self._hit("toxicity_food")],
+            "intent": "nutrition",
+        }
+        out = decide_triage(st)  # type: ignore[arg-type]
+        assert out.get("status") == "refused", "급여 질의를 독성 히트만 보고 올렸다 (D-84)"
