@@ -10,8 +10,12 @@
     ⚠️ **2026-08-03까지 이 노드가 LLM을 한 번도 부르지 않았다.** `Task.VERIFY`
     프롬프트·태스크 정의는 있었지만 호출부가 없어서, ④를 파인튜닝해도 그
     결과를 쓸 자리가 없었다(05 §4가 ④를 "핵심"이라 부른 것과 정반대 상태).
-    `_llm_judge_sentence` 가 그 호출부다 — LLM 우선, 실패·미설정이면
-    2-gram 폴백(`_judge_sentence`)으로 내려간다 (05 §6과 같은 패턴).
+    `_llm_judge_sentence` 가 그 호출부다. 실패·미설정이면 2-gram 폴백
+    (`_judge_sentence`)으로 내려간다 (05 §6과 같은 패턴). 둘 다 있으면
+    `_combined_verdict` 가 합친다 — **2-gram이 바닥, LLM은 조이기만
+    한다**(2026-08-03 합의). LLM의 `근거있음`이 2-gram의 `근거없음`을
+    못 뒤집는다 — LLM의 관대한 오판 하나가 환각을 그대로 통과시키는
+    사고를 막는다.
 """
 
 from __future__ import annotations
@@ -48,6 +52,24 @@ def _llm_judge_sentence(sentence: str, context: str) -> str | None:
             return v
     log.info("VERIFY 응답이 허용목록 밖이다: %r — 2-gram 폴백", raw[:40])
     return None
+
+
+def _combined_verdict(sentence: str, context: str) -> str:
+    """LLM과 2-gram을 합친다 — **2-gram이 바닥, LLM은 조이기만 한다.**
+
+    합의(한빈·이서은, 2026-08-03): LLM이 `근거있음`이라고 해도 2-gram이
+    `근거없음`이면 2-gram이 이긴다 — LLM의 관대한 판정이 2-gram의 신중함을
+    못 뒤집는다. 반대로 LLM이 `모순`·`근거없음`(이미 엄격한 방향)이면
+    그대로 믿는다 — 2-gram은 `모순` 개념이 없어 그 방향에서는 비교할
+    상대가 못 된다. LLM이 아예 없거나 실패하면 2-gram 단독으로 돈다
+    (기존 폴백과 동일).
+    """
+    llm_verdict = _llm_judge_sentence(sentence, context)
+    if llm_verdict is None:
+        return _judge_sentence(sentence, context)
+    if llm_verdict == "근거있음" and _judge_sentence(sentence, context) == "근거없음":
+        return "근거없음"
+    return llm_verdict
 
 
 #: 재검색은 1회까지 (02 §2). 무한 루프를 막는다.
@@ -113,7 +135,7 @@ def verify_grounding(state: GraphState) -> GraphState:
 
     verdicts: list[dict[str, str]] = []
     for sentence in sentences:
-        verdict = _llm_judge_sentence(sentence, context) or _judge_sentence(sentence, context)
+        verdict = _combined_verdict(sentence, context)
         verdicts.append({"sentence": sentence, "verdict": verdict})
 
     # 전부 근거없음/모순(=근거있음이 하나도 없음) → **실패를 세운다. 상한 판단은 하지 않는다.**
