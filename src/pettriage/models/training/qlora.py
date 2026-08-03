@@ -108,6 +108,9 @@ def run_training(
     )
     model = get_peft_model(model, build_peft_config(cfg))
     model.print_trainable_parameters()
+    # gradient_checkpointing과 PEFT(베이스 동결)를 같이 쓸 때 흔한 함정 —
+    # 이걸 안 하면 역전파 시작점이 없어 "does not require grad" 로 죽는다.
+    model.enable_input_require_grads()
 
     trainer = SFTTrainer(
         model=model,
@@ -126,6 +129,12 @@ def run_training(
             save_strategy="epoch",
             seed=cfg.train.seed,
             report_to=[],
+            # 실측(2026-08-03): 분류만 섞였을 땐(문장 1줄) 문제없었는데, ③④가
+            # 합류하면서 입력이 700~1500자로 길어지자 RTX 3080(10GB)에서
+            # 2스텝 만에 OOM이 났다. 활성화값을 다 들고 있지 않고 필요할 때
+            # 다시 계산하는 방식이라 메모리를 크게 아낀다(대신 조금 느려진다).
+            gradient_checkpointing=True,
+            gradient_checkpointing_kwargs={"use_reentrant": False},
         ),
     )
     trainer.train()
