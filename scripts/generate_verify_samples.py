@@ -3,9 +3,16 @@
 
 설계 근거: docs/03_모델-멀티태스크학습.md §4
 
-    "정답 답변(positive) + 의도적 왜곡 답변(negative) 생성" — ③에서 이미
-    실제 검색으로 만든 압축 결과(407건, 전부 진짜 코퍼스 근거)를 "근거
-    문서" 풀로 재사용한다. 새로 검색하지 않는다.
+    ⚠️ 2026-08-03 D-83: ③압축이 질의 경로에서 빠지면서(기간 리포트로 이동),
+    ③의 LLM 출력을 ④의 "정답 근거 문서"로 쓰던 것이 순환 오염이 됐다 —
+    압축도 LLM이 만든 글이라 그 자체에 오류가 있을 수 있는데 그걸 정답으로
+    썼고, 실제 서비스에서 ④가 받을 입력(raw 검색 결과)과도 형태가 달랐다.
+
+    그래서 ③의 LLM 출력(target) 대신, ③ 만들 때 검색으로 얻은 **원본 코퍼스
+    텍스트(raw_context)**를 근거 문서 풀로 쓴다 — `data/train/compress_batch.jsonl`
+    에 캐시돼 있어 재검색이 필요 없다. LLM이 한 번도 거치지 않은 진짜 원본이라
+    순환 오염이 없고, 프로덕션에서 ④가 실제로 보는 형태(`build_context`의
+    raw 조인 텍스트)와 일치한다.
 
     각 근거 문서마다 LLM에게 세 문장을 동시에 만들게 한다 — 문장과 정답을
     같이 받는 것은 ②슬롯과 같은 방식이다(만든 사람이 정답을 제일 잘 안다):
@@ -89,10 +96,13 @@ def _parse(raw: str) -> dict | None:
 
 
 def _load_context_pool() -> list[str]:
-    """③ 압축 산출물(407건, 전부 실제 코퍼스 근거)을 근거 문서 풀로 재사용한다."""
-    text = (ROOT / "data" / "train" / "samples.jsonl").read_text(encoding="utf-8")
+    """③ 압축 만들 때 캐시된 raw_context(원본 검색 결과, LLM 미개입)를 근거 문서 풀로 쓴다."""
+    text = (ROOT / "data" / "train" / "compress_batch.jsonl").read_text(encoding="utf-8")
     rows = [json.loads(line) for line in text.splitlines() if line]
-    return [r["target"] for r in rows if r["task"] == "compress"]
+    seen: dict[str, None] = {}
+    for r in rows:
+        seen.setdefault(r["raw_context"], None)
+    return list(seen.keys())
 
 
 def _already_done(out_path: Path) -> set[str]:
