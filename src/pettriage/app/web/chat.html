@@ -622,12 +622,13 @@ function normalizeQuestion(text){
   let q = text;
 
   // 숫자+g/그램 패턴 추출 (공백 유무 무관: "5g", "5 g", "5그램" 모두 인식)
+  // 질문에 적힌 값이 1순위 — 프로필 값이 있어도 덮어쓴다.
   const amountMatch = q.match(/([\d.]+)\s*(g|그램)/i);
-  if(amountMatch && knownAmountG === null){
+  if(amountMatch){
     knownAmountG = parseFloat(amountMatch[1]);
   }
   const weightMatch = q.match(/([\d.]+)\s*(kg|키로|킬로)/i);
-  if(weightMatch && knownWeightKg === null){
+  if(weightMatch){
     knownWeightKg = parseFloat(weightMatch[1]);
   }
 
