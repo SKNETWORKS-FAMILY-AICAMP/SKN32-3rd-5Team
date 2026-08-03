@@ -25,6 +25,11 @@ from ..state import GraphState
 
 log = logging.getLogger(__name__)
 
+#: 과다 인출 배수. **접기가 자리를 비우므로 미리 더 가져온다.**
+#: 3배로 둔 근거 — 코퍼스가 물질 단위 청크(D-14)라 같은 물질이 여러 출처에서 오고,
+#: 실측에서 5건 인출이 접은 뒤 3건으로 줄었다(≈60% 생존). 3배면 `top_k` 를 채운다.
+_OVERFETCH = 3
+
 #: 종별 필터 확장 규칙 (D-39).
 #: 고양이 자체 자료가 2단계뿐이라 mammal·all 을 함께 봐야 4단계가 성립한다.
 _SPECIES_FILTER: dict[str, list[str]] = {
@@ -160,7 +165,11 @@ def retrieve(state: GraphState, store: Any = None) -> GraphState:
         cfg = get_config().retrieval
         top_k = cfg.top_k
         threshold = cfg.score_threshold
-    except Exception:
+    except Exception as e:  # noqa: BLE001
+        # ⚠️ **조용히 넘어가지 않는다.** `ConfigNotFound` 는 *"평가 프로파일이 무시된 채
+        #    지표가 산출되는 것"* 을 막으려고 만든 예외인데, 여기서 말없이 삼키면
+        #    그 예외가 존재할 이유가 없어진다 (`config.py` 머리말 · D-69).
+        log.warning("검색 설정을 읽지 못해 기본값으로 간다 — %s: %s", type(e).__name__, e)
         top_k = 5
         threshold = 0.50
 
@@ -172,19 +181,42 @@ def retrieve(state: GraphState, store: Any = None) -> GraphState:
 
     from ...retrieval import dedupe_by_substance, filter_by_threshold
 
-    hits = store.search(query, top_k=top_k, where=where)
+    # 🔴 **접은 뒤에 자른다** — 그 전에는 `top_k` 가 실현된 적이 없다.
+    #
+    #    예전 순서는 `search(top_k=5) → threshold → dedupe` 였다. 접기는 중복을
+    #    흡수할 뿐 **빈자리를 채우지 않으므로** `top_k=5` 로 설정한 실행이 실제로는
+    #    근거 3건으로 답했다 (`dedupe_by_substance` docstring 이 그 현상을 그대로
+    #    적어 두었다). 그런데 리포트 provenance 에는 `top_k: 5` 가 기록된다 —
+    #    **실제보다 큰 값을 적는 것**이라 04 §8 재현성에 걸린다.
+    #
+    #    과다 인출한 뒤 접고, 마지막에 `top_k` 로 자른다.
+    retried = state.get("retry_count", 0) > 0
+    fetch_k = top_k * (_OVERFETCH * 2 if retried else _OVERFETCH)
+
+    # 재검색은 **다른 것을 가져와야 의미가 있다.** 예전에는 `_retry` 가 카운터만 올리고
+    # 쿼리·필터·`top_k` 가 모두 같아 **글자 그대로 같은 히트**를 돌려줬다 — 재검색이
+    # 근거를 새로 붙일 수단이 없었다. 넓히는 방향은 잡음 하한을 내리는 쪽이다.
+    # D-46 이 *"임계값으로는 거절을 만들 수 없다"* 로 이미 결론냈으므로 안전하다.
+    if retried:
+        threshold = 0.0
+
+    hits = store.search(query, top_k=fetch_k, where=where)
 
     # 1) 임계값 미만 잘라내기 — 잡음 하한 (02 §8.3, D-46).
     filtered = filter_by_threshold(hits, threshold)
 
     # 2) 같은 물질 중복 접기 (D-46 후속).
     #    접기를 앞에 두면 임계 미달 청크가 대표로 남을 수 있어 반드시 뒤에 둔다.
-    deduped = dedupe_by_substance(filtered)
+    deduped = dedupe_by_substance(filtered)[:top_k]
 
     log.info(
-        "retrieve: %d hits → %d ≥threshold → %d after dedupe",
+        "retrieve: fetch_k=%d(top_k=%d%s) → %d hits → %d ≥%.2f → %d after dedupe/cut",
+        fetch_k,
+        top_k,
+        " · 재검색" if retried else "",
         len(hits),
         len(filtered),
+        threshold,
         len(deduped),
     )
 

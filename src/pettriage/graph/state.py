@@ -117,6 +117,13 @@ class GraphState(TypedDict, total=False):
     triage_level: int | None
     #: LLM 이 **올리려** 한 것을 게이트가 막았나 (D-80). 감사 정보다.
     llm_capped: bool
+    #: **조건 없는 MONITOR 라서 거절했다** (D-39 · 04 §4.1.0).
+    #:
+    #: 거절이라 응답에 `triage` 가 없고, 그러면 채점에서 등급 분모에서 빠진다.
+    #: 그런데 04 §4.1.0 은 이것을 **과소평가로 채점하라**고 정했다. 하네스가 그
+    #: 규칙을 지킬 수 있도록 표시를 남긴다 — 없으면 `판정불가`(판정 근거 자체가
+    #: 없는 경우)와 구분할 방법이 없다.
+    monitor_without_conditions: bool
     escalation_conditions: list[str]
 
     # ── ④ 근거 검증 ─────────────────────────────────────────

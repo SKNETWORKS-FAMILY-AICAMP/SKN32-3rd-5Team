@@ -37,6 +37,8 @@ pytest -m todo -k slot  # 한 노드만
 - `classify` — 도메인 밖(`general`·`unknown`)은 **검색조차 하지 않는다** (D-46)
 - `extract` — 결측·물질미상은 되묻기로 빠진다 (D-10 · D-49)
 - `retrieve` — 히트 0건이면 거절. **첫 검색이면 `근거없음`, 재검색이면 `검증실패`**
+- `evidence` — 히트를 근거 문자열로 **잇기만 한다.** ③ 압축은 2026-08-03 에
+  여기서 빠져 **기간 리포트**로 옮겼다 (D-83). 검증의 정답지는 사람이 쓴 문장이어야 한다
 - `decide` — 조건 없는 MONITOR·판정 근거 없음은 여기서 끝난다 (D-39)
 - `verify` — 실패하면 `retrieve` 로 **되돌아간다** (`MAX_RETRY` 회). 05 §5 가
   *"선형 체인으로 표현 불가"* 라고 한 순환이 이것이고, 랭그래프를 쓰는 유일한 이유다
@@ -118,7 +120,7 @@ hits = dedupe_by_substance(hits)                        # 같은 물질 접기
 
 from .classify import ALLOWED_INTENTS, classify_intent
 from .compute import compute_metrics
-from .generate import compress_context, finalize, generate_draft, judge_triage, simplify
+from .generate import build_context, finalize, generate_draft, judge_triage, simplify
 from .retrieve import build_filter, retrieve
 from .slots import ask_clarify, extract_slots
 from .triage import apply_rule_table, decide_triage
@@ -135,9 +137,9 @@ __all__ = [
     "NODES_IMPLEMENTED",
     "apply_rule_table",
     "ask_clarify",
+    "build_context",
     "build_filter",
     "classify_intent",
-    "compress_context",
     "compute_metrics",
     "decide_triage",
     "extract_slots",

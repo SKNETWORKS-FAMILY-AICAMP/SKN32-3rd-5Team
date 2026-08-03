@@ -44,6 +44,7 @@ for _p in (str(_HERE), str(ROOT / "src")):  # 설치 없이도, 어디서 불러
         sys.path.insert(0, _p)
 
 from metrics import (  # noqa: E402  (sys.path 조작 뒤에 와야 한다)
+    NAME_TO_LEVEL,
     CaseResult,
     Summary,
     fmt,
@@ -317,7 +318,18 @@ def run(rows: Iterable[dict[str, str]], engine) -> list[CaseResult]:
                 score_case(
                     row,
                     status=resp.status,
-                    level=resp.triage.level if resp.triage else None,
+                    # **조건 없는 MONITOR 는 MONITOR 로 채점한다** (D-39 · 04 §4.1.0).
+                    #
+                    # 시스템은 실제로 `MONITOR` 로 판정했고, 상승 조건을 못 내서
+                    # 출력을 막았을 뿐이다. 04 §4.1.0 은 *"조건 없는 관찰은 그 자체가
+                    # 과소평가"* 라고 정했는데, 2026-08-03 까지는 이 건이 `triage=None`
+                    # 인 거절로 들어와 **등급 분모에서 통째로 빠졌다.** 규칙이 채점에
+                    # 한 줄도 반영돼 있지 않았고, 그 결과가 `과소평가율 0.0%` 였다.
+                    level=(
+                        NAME_TO_LEVEL["MONITOR"]
+                        if getattr(resp, "monitor_without_conditions", False)
+                        else (resp.triage.level if resp.triage else None)
+                    ),
                     refusal_reason=resp.refusal.reason if resp.refusal else "",
                     answer_text=scored_text(resp),  # 상승 조건 포함 · 고지 문구 제외
                     citations=[c.source_id for c in resp.citations],
@@ -714,9 +726,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         if s.under_rate is not None and s.under_rate > a.fail_under:
             print(f"✗ 과소평가율 {fmt(s.under_rate)} > 상한 {fmt(a.fail_under)}")
             return 1
-        # **등급을 아예 못 낸 긴급 건**은 과소평가율의 분모에 없다 (04 §1.2).
-        # 그래서 별도 게이트가 필요하다 — 없으면 "전부 거절" 이 0.0% 로 통과한다.
-        if s.missed_urgent_rate is not None and s.missed_urgent_rate > a.fail_missed:
+
+    # 🔴 **중대 과소평가는 상한이 없다. 0이 아니면 실패다** (04 §4.1.0).
+    #
+    #    2026-08-03 까지 이 지표에는 게이트가 아예 없었다. *"0을 목표로 한다"* 고
+    #    문서가 못박은 유일한 지표인데, 1건이 나와도 `--fail-under 0.05` 는
+    #    `1/29 = 3.4% ≤ 5%` 로 초록이었다. 분모를 고친 지금은 `1/8 = 12.5%` 지만,
+    #    애초에 **비율로 볼 것이 아니라 건수로 볼 것**이다.
+    #
+    #    `--fail-under` 블록 **밖**에 둔다. 안에 두면 그 인자를 안 준 실행에서
+    #    조용히 통과한다 (`--fail-missed` 가 정확히 그 상태였다).
+    s = summarize(results)
+    if s.critical_under:
+        print(
+            f"✗ 🔴 중대 과소평가 {s.critical_under}건 "
+            f"(정답 EMERGENCY 이면서 등급을 낸 {s.critical_n}건 중) — "
+            "04 §4.1.0 은 0을 목표로 한다. 상한을 두지 않는다."
+        )
+        return 1
+
+    # **등급을 아예 못 낸 긴급 건**은 과소평가율의 분모에 없다 (04 §1.2).
+    # 그래서 별도 게이트가 필요하다 — 없으면 "전부 거절" 이 0.0% 로 통과한다.
+    #
+    # ⚠️ 이 검사도 `--fail-under` 블록 밖으로 꺼냈다. 안에 있던 동안에는
+    #    `--fail-missed` 만 주고 돌리면 **아무것도 검사하지 않고 종료코드 0** 이었다.
+    if a.fail_missed is not None and s.missed_urgent_rate is not None:
+        if s.missed_urgent_rate > a.fail_missed:
             print(
                 f"✗ 등급을 못 낸 긴급 건 {fmt(s.missed_urgent_rate)} > "
                 f"상한 {fmt(a.fail_missed)}"

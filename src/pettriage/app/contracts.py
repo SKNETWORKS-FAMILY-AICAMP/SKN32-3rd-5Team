@@ -435,6 +435,14 @@ class AskResponse(_Strict):
     #: ④ 근거 검증이 무엇을 봤나. **검증이 돌지 않았으면 `None`** — 0건과 다르다.
     grounding: GroundingReport | None = None
 
+    #: **조건 없는 MONITOR 라서 거절했나** (D-39 · 04 §4.1.0).
+    #:
+    #: 참이면 시스템은 사실 `MONITOR` 로 판정했고, 상승 조건을 못 내서 출력을 막은 것이다.
+    #: 04 §4.1.0 은 이것을 *"그 자체가 과소평가"* 로 채점하라고 정했으므로 하네스가
+    #: 이 값을 보고 예측 등급을 `MONITOR` 로 세운다. 표시가 없으면 판정 근거 자체가
+    #: 없는 `판정불가` 와 구분되지 않아 **등급 분모에서 통째로 빠진다.**
+    monitor_without_conditions: bool = False
+
     #: 02 §9 — 상태와 무관하게 항상 나간다.
     disclaimer: str = DISCLAIMER
 
@@ -584,14 +592,41 @@ class RecordCreated(BaseModel):
 
 
 class ReportResponse(BaseModel):
-    """기간 리포트 (02 §12 · 구현 3단계)."""
+    """기간 리포트 (02 §12 · **③ 요약이 도는 곳** — D-83)."""
 
     pet_id: str
     period_from: str
     period_to: str
     timeline: list[dict] = Field(default_factory=list)
     summary: str = ""
+
+    #: 요약을 **무엇이 만들었나.** `"model"` 이면 ③ 태스크가 돌았고,
+    #: `"code"` 면 모델이 없거나 실패해 결정론 집계가 그대로 나간 것이다.
+    #: 폴백을 숨기지 않는다 — `HealthResponse.degraded` 와 같은 태도다 (04 §8).
+    summary_by: Literal["model", "code"] = "code"
+
     disclaimer: str = DISCLAIMER
+
+    @model_validator(mode="after")
+    def _no_foreign_contacts(self) -> ReportResponse:
+        """**리포트도 같은 관문을 지난다** (D-47).
+
+        🔴 2026-08-03 까지 이 응답에는 검증기가 하나도 없었다. `SafetyEngine` 은
+        `QAEngine.ask` 만 감싸고 `_no_foreign_contacts` 는 `AskResponse` 에만 있어,
+        **`/api/report` 는 D-47 관문 밖**이었다. 요약은 모델이 쓰고, 모델은 검색
+        근거에 없어도 자기 사전지식으로 미국 톨프리를 붙인다
+        (`safety/contacts.py` 머리말). 국내 사용자가 그 번호로 걸면 아무 일도
+        일어나지 않는다 — **응급 상황에서 안 걸리는 번호는 오답보다 나쁘다.**
+
+        스크럽은 `app/report.py::summarize_period` 가 한다. 여기는 그것이 **실제로
+        돌았는지** 확인하는 자리다. 정상 경로에서는 걸리지 않는다.
+        """
+        if has_contact(self.summary):
+            raise ValueError(
+                "기간 요약에 국내에서 쓸 수 없는 연락처가 남아 있다 (D-47). "
+                "`report.summarize_period` 의 스크럽이 돌지 않았다."
+            )
+        return self
 
 
 class HealthResponse(BaseModel):

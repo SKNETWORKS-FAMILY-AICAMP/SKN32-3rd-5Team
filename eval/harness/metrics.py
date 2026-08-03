@@ -331,6 +331,15 @@ class Summary:
     over: int = 0
     critical_under: int = 0
 
+    #: 🔴 **중대 과소평가율의 올바른 분모** — 정답이 `EMERGENCY(4)` 이면서 등급을 낸 건.
+    #:
+    #: 2026-08-03 까지 분모가 `level_n` 이었다. 분자는 `expected_level == 4` 에서만
+    #: 생기는데(`CaseResult.critical_under`) 분모는 등급을 낸 **모든** 건이라
+    #: **정답이 EMERGENCY 가 아닌 건들이 분모를 부풀렸다.** 실측 규모로 보면
+    #: `1/29 = 3.4%` 로 찍힐 것이 실제로는 `1/8 = 12.5%` 다.
+    #: 04 §4.1.0 이 *"0을 목표로 한다"* 고 못박은 유일한 지표라 희석이 특히 나쁘다.
+    critical_n: int = 0
+
     #: 등급 오류가 아니라 **판정 자체를 못 낸** 긴급 건. 분모가 다르므로 따로 센다.
     urgent_n: int = 0
     missed_urgent: int = 0
@@ -444,7 +453,8 @@ class Summary:
 
     @property
     def critical_under_rate(self) -> float | None:
-        return _rate(self.critical_under, self.level_n)
+        """🔴 중대 과소평가율. **분모는 `critical_n`** — `critical_n` 필드 주석 참조."""
+        return _rate(self.critical_under, self.critical_n)
 
     @property
     def missed_urgent_rate(self) -> float | None:
@@ -553,8 +563,11 @@ def summarize(results: Iterable[CaseResult]) -> Summary:
                 s.under += 1
             if d > 0:
                 s.over += 1
-            if r.critical_under:
-                s.critical_under += 1
+            # 중대 과소평가는 **정답 EMERGENCY 인 건**에서만 성립한다. 분모도 거기서 센다.
+            if r.expected_level == NAME_TO_LEVEL["EMERGENCY"]:
+                s.critical_n += 1
+                if r.critical_under:
+                    s.critical_under += 1
 
         if r.cite_any is not None:
             s.cite_n += 1
