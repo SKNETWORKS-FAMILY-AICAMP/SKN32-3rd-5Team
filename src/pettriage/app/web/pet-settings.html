@@ -558,7 +558,25 @@ confirmDelete.addEventListener('click', async ()=>{
       headers: authHeader(),
     });
     try{ sessionStorage.removeItem(localKey(pet.pet_id)); }catch(e){}
-    window.location.href = '/static/pets.html';
+
+    /* 삭제 후 남은 반려동물 중 하나를 자동으로 활성화한다.
+       이걸 안 하면 pets.html 에서 "지금 보는 아이" 표시가 사라져 UX 가 어색해진다. */
+    let nextUrl = '/static/pets.html';
+    try{
+      const remaining = await api('/api/pets', { headers: authHeader() });
+      if(remaining.length > 0){
+        const next = remaining[0];
+        const params = new URLSearchParams({
+          pet_id: next.pet_id,
+          name: next.name || '',
+          species: next.species || '',
+          breed: next.breed || '',
+          weight: next.weight_kg || '',
+        });
+        nextUrl = '/static/pets.html?' + params.toString();
+      }
+    } catch(_){ /* 목록 못 불러와도 최소한 pets.html 로는 이동 */ }
+    window.location.href = nextUrl;
   } catch(e){
     deleteModal.classList.remove('open');
     const hint = document.getElementById('saveHint');
