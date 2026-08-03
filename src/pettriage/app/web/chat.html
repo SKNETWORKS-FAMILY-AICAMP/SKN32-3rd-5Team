@@ -610,6 +610,9 @@ function absorbClarifyReply(text){
     else if(text.includes('고양이')) currentPet.species = 'cat';
     else if(text.includes('앵무') || text.includes('새')) currentPet.species = 'bird';
   }
+  if(missing.includes('substance_detail')){
+    pendingQuestion = text.trim() + ' ' + pendingQuestion;
+  }
 }
 
 /* 질문 정규화 — 서버(stub)의 단순 키워드 매칭을 돕는다.
