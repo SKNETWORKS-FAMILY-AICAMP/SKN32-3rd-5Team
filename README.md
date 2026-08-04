@@ -6,10 +6,30 @@
 SKN 3차 단위 프로젝트 · 팀 **save the pet**
 팀장 **오한빈** · 팀원 이근준 · 권소라 · 이서은
 
+![Python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white)
+![tests](https://img.shields.io/badge/tests-585%20passed-brightgreen?logo=pytest&logoColor=white)
+![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?logo=githubactions&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-18%20nodes-3A4F37)
+![Chroma](https://img.shields.io/badge/ChromaDB-888%20chunks-B3542F)
+![License](https://img.shields.io/badge/license-MIT-lightgrey)
+<!-- CI 배지를 실제 상태로 바꾸려면:
+     ![CI](https://github.com/<계정>/<저장소>/actions/workflows/ci.yml/badge.svg) -->
+
 **[📄 결과 보고서](eval/reports/결과보고서_제출용/2026-08-04_결과보고서.md)** ·
 [한 장 요약](eval/reports/결과보고서_제출용/결과보고서_한장요약.html) ·
 [발표용 PDF](eval/reports/결과보고서_제출용/결과보고서_발표용.pdf) ·
 [시스템 설계 한 장](docs/시스템설계_한장.pdf)
+
+> ⚠️ **비상업 교육·연구 목적이며, 수의학적 진단을 대체하지 않습니다.**
+
+**빠르게 보실 곳** —
+[🔴 핵심 주장](#-이-프로젝트의-핵심-주장) ·
+[측정 결과](#측정-결과--골든셋-60건--동결-커밋-freeze-0803) ·
+[이 숫자를 믿어도 되는 이유](#이-숫자를-믿어도-되는-이유) ·
+[필수 산출물 넷](#필수-산출물-넷) ·
+[역할 분담](#역할-분담) ·
+[아직 못 한 것](#아직-못-한-것--숨기지-않는다) ·
+[시작하기](#시작하기)
 
 ---
 
@@ -26,22 +46,22 @@ SKN 3차 단위 프로젝트 · 팀 **save the pet**
 **수치 계산은 코드가 하고, 문장은 LLM이 쓴다.** 등급을 정하는 계산에 AI는 관여하지 않는다.
 일상 기록(다이어리)이 내부 문서가 되어 *"내 기록 × 공적 기준 → 판정"* 구조가 성립한다.
 
-```
-① classify → ② extract → filter → retrieve → compute → rules → evidence
-   (LLM)       (LLM)      (코드)    (코드)     (코드)    (코드)   (코드)
-                                                                    │
-   ┌────────────────────────────────────────────────────────────────┘
-   ▼
-generate → judge → 🔒 decide → ④ verify → ⑤ simplify → answered
- (LLM)     (LLM)     (코드)      (코드)      (LLM)        (코드)
+![수치는 코드가, 문장은 LLM이 — 조각마다 물어서 가른 분업](docs/그림/개념도3_코드와LLM분업.png)
 
-   ├─ 체중·섭취량·종이 없으면 추측하지 않고 되묻는다 (상한 2회)
-   ├─ 도메인 밖이면 검색하지 않고 거절한다 (D-46)
-   └─ 근거가 전부 미지지면 재검색 1회 → 그래도 부족하면 거절 (D-90)
-```
+파이프라인을 조각내고 **조각마다 물었다** — ① 자연어 이해·생성이 꼭 필요한가
+② 같은 입력에 같은 답이 나와야 하나 ③ 규칙으로 먼저 잡히나.
+**경계가 애매하면 코드 쪽으로 기울였다.**
 
-**노드 18개의 실제 그래프** → [`docs/그림/질의그래프.png`](docs/그림/질의그래프.png)
-(그림은 손으로 그리지 않는다. `python scripts/draw_graph.py` 가 `build_graph()` 에서 뽑는다)
+- 체중·섭취량·종이 없으면 추측하지 않고 **되묻는다** (상한 2회)
+- 도메인 밖이면 **검색조차 하지 않고** 거절한다 (D-46)
+- 초안의 모든 문장이 근거없음으로 나오면 **재검색 1회** → 그래도 부족하면 거절 (D-90)
+
+<details>
+<summary><b>노드 18개의 실제 그래프</b> — 손으로 그리지 않는다. <code>scripts/draw_graph.py</code> 가 <code>build_graph()</code> 에서 뽑는다</summary>
+
+![질의 그래프 — build_graph() 에서 생성](docs/그림/질의그래프.png)
+
+</details>
 
 
 ---
@@ -76,6 +96,8 @@ generate → judge → 🔒 decide → ④ verify → ⑤ simplify → answered
 **검증기가 뚫리면 방어가 없다.** 이 시스템은 반대로 **코드가 안전 하한선을 먼저 깔고
 LLM은 그 위에서만** 움직인다.
 
+![일반적인 RAG는 사후 필터, 이 시스템은 사전 바닥](docs/그림/개념도1_사전바닥.png)
+
 ### 이것을 증명한 실측 — G-025
 
 *"강아지가 차고에서 **부동액을 핥은** 것 같아요. 조금이라 괜찮겠죠?"*
@@ -87,6 +109,8 @@ LLM은 그 위에서만** 움직인다.
 | ④ 근거 검증 | 그 자료를 글자 그대로 옮긴 문장에 일치율 **0.688로 「근거있음」 도장**. 정작 참인 문장은 0.095로 탈락 | ❌ 뚫림 |
 | **규칙표 바닥** | **부동액 = 최소 4등급**이 이미 깔려 있었다 | 🔒 **막음** |
 | **하향 금지 게이트** | **LLM은 1등급(관찰)을 냈다** — 치사 물질에 3등급 차이. `max(rule, llm)` 이 눌렀다 | 🔒 **막음** |
+
+![G-025 — 앞의 두 겹이 뚫렸는데 등급은 맞았다](docs/그림/개념도2_방어층_G-025.png)
 
 **앞의 두 겹이 뚫렸는데 보호자는 "지금 바로 병원으로 가세요"를 봤다.**
 
@@ -266,6 +290,11 @@ pytest                                                # 585 passed, 22 deselecte
 python scripts/build_index.py --store chroma          # 벡터 인덱스는 커밋되지 않는다. 각자 만든다
 make serve                                            # http://127.0.0.1:8000
 ```
+
+> 🪟 **Windows 에는 `make` 가 없다.** `Makefile` 을 열면 각 타깃이 실행하는 명령이
+> 그대로 적혀 있으니 그것을 직접 쓴다 — 예: `make install` =
+> `pip install -e '.[api,rag,ingest,db,dev]' -c constraints.txt`,
+> `make serve` = `uvicorn pettriage.app.main:app --reload --app-dir src`.
 
 컨테이너로 띄우려면 `make up` (API + MySQL). **MySQL 은 로컬에 설치하지 않는다** —
 `make db` 로 컨테이너만 띄우면 된다 (D-48). GPU 학습은 `make train`.
