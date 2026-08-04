@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8">
+<style>
+  :root{
+    --ink:#101010; --ink2:#4a4a48; --ink3:#8a8a86;
+    --line:#dedcd6; --soft:#f4f3ef; --paper:#ffffff;
+    --code:#2a78d6; --codebg:#e9f1fb; --codeln:#a9cbef;
+    --llm:#d9752e;  --llmbg:#fbf0e6;  --llmln:#eec9a4;
+    --good:#12833f; --goodbg:#e8f4ec;
+    --bad:#c9342f;  --badbg:#fbeceb;
+    --warn:#d38b12;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#e9e9e6;
+    font-family:"Noto Sans CJK KR","Noto Sans KR",sans-serif;color:var(--ink)}
+  .fig{width:1400px;background:var(--paper);padding:38px 44px 32px;margin:22px auto}
+  .ftitle{font-size:31px;font-weight:800;letter-spacing:-.025em;line-height:1.2}
+  .fsub{font-size:16px;color:var(--ink2);margin-top:7px;line-height:1.5}
+  .fnote{margin-top:22px;padding-top:12px;border-top:1px solid var(--line);
+    font-size:13px;color:var(--ink3);display:flex;justify-content:space-between;gap:20px}
+  code{font-family:"DejaVu Sans Mono",monospace;background:var(--soft);
+    padding:1px 6px;border-radius:4px;font-size:.92em}
+  b.k{background:#fff2b8;padding:0 3px;border-radius:2px}
+
+  /* ---------- 공통 박스 ---------- */
+  .box{border:2px solid var(--line);border-radius:11px;background:#fff}
+  .lbl{font-size:13px;font-weight:800;letter-spacing:.08em;color:var(--ink3)}
+
+  /* ---------- ① 대비 ---------- */
+  .cmp{display:grid;grid-template-columns:1fr 74px 1fr;gap:0;margin-top:30px;align-items:stretch}
+  .pane{border-radius:14px;padding:24px 26px 26px}
+  .pane.l{background:var(--badbg);border:2px solid #eec4c2}
+  .pane.r{background:var(--goodbg);border:2px solid #bcdcc7}
+  .ptitle{font-size:21px;font-weight:800;margin-bottom:3px}
+  .pdesc{font-size:14.5px;color:var(--ink2);line-height:1.5;min-height:44px}
+  .vs{display:flex;align-items:center;justify-content:center;font-size:19px;
+    font-weight:800;color:var(--ink3)}
+  .stack{margin-top:18px}
+  .srow{display:flex;align-items:center;gap:12px;margin-bottom:9px}
+  .schip{flex:1;border-radius:9px;padding:11px 14px;font-size:15.5px;font-weight:700;
+    background:#fff;border:2px solid var(--line)}
+  .schip small{display:block;font-weight:400;font-size:12.5px;color:var(--ink3);margin-top:2px}
+  .down{text-align:center;color:var(--ink3);font-size:15px;margin:-3px 0 6px}
+  .pierce{border-color:#e39d99;background:#fff6f5}
+  .concl{margin-top:16px;font-size:15px;font-weight:800;line-height:1.45}
+  .concl.bad{color:var(--bad)} .concl.good{color:var(--good)}
+
+  /* ---------- ② 방어층 ---------- */
+  .layers{display:grid;grid-template-columns:1fr 320px;gap:26px;margin-top:26px}
+  .lay{border-radius:10px;padding:13px 16px;margin-bottom:8px;display:flex;
+    align-items:center;gap:14px;border:2px solid var(--line);background:#fff}
+  .lay .n{font-size:13px;font-weight:800;color:var(--ink3);width:96px;flex:0 0 auto}
+  .lay .t{font-size:16.5px;font-weight:700;flex:1}
+  .lay .t small{display:block;font-weight:400;font-size:13px;color:var(--ink2);margin-top:2px;line-height:1.4}
+  .lay .r{font-size:14.5px;font-weight:800;white-space:nowrap;flex:0 0 auto}
+  .lay.brk{background:var(--badbg);border-color:#e8b9b6}
+  .lay.brk .r{color:var(--bad)}
+  .lay.stop{background:var(--goodbg);border-color:#a9d4b9;border-width:3px}
+  .lay.stop .r{color:var(--good)}
+  .lay.miss{background:#fdf6e8;border-color:#e8d3a4}
+  .lay.miss .r{color:var(--warn)}
+  .qbox{border-radius:11px;background:var(--soft);padding:16px 18px;font-size:15.5px;line-height:1.5}
+  .side .card{border:2px solid var(--line);border-radius:11px;padding:16px 18px;margin-bottom:14px}
+  .side .card h4{margin:0 0 8px;font-size:15px}
+  .kv{display:flex;justify-content:space-between;font-size:14px;padding:5px 0;
+    border-bottom:1px solid var(--soft)}
+  .kv b{font-size:15px}
+  .badge{display:inline-block;padding:5px 13px;border-radius:7px;color:#fff;
+    font-weight:800;font-size:15px;background:#c8342f}
+
+  /* ---------- ③ 파이프라인 ---------- */
+  .pipe{display:flex;align-items:stretch;gap:0;margin-top:26px}
+  .pb{flex:1;border-radius:10px;padding:14px 6px;text-align:center;border:2px solid;min-width:0}
+  .pb .no{font-size:11.5px;font-weight:800;opacity:.75}
+  .pb .nm{font-size:16px;font-weight:800;margin-top:2px;letter-spacing:-.01em}
+  .pb .ds{font-size:12.5px;margin-top:4px;line-height:1.3}
+  .pb.c{background:var(--codebg);border-color:var(--codeln);color:#123a63}
+  .pb.c .ds{color:#2c5b8a}
+  .pb.m{background:var(--llmbg);border-color:var(--llmln);color:#7a3f10}
+  .pb.m .ds{color:#98551d}
+  .pa{display:flex;align-items:center;color:#b3b3ae;font-size:17px;padding:0 4px;flex:0 0 auto}
+  .band{margin-top:12px;display:flex;gap:0}
+  .bseg{border-radius:9px;padding:11px 14px;font-size:14.5px;font-weight:700;text-align:center}
+  .legend{display:flex;gap:26px;margin-top:20px;font-size:14.5px;align-items:center}
+  .legend i{display:inline-block;width:15px;height:15px;border-radius:4px;border:2px solid;
+    margin-right:7px;vertical-align:-3px}
+  .kicker{margin-top:22px;border-left:5px solid var(--ink);padding:2px 0 2px 16px;
+    font-size:19px;font-weight:800;line-height:1.4}
+  .kicker small{display:block;font-size:14.5px;font-weight:400;color:var(--ink2);margin-top:5px;line-height:1.5}
+</style></head><body>
+
+<!-- ══════════════ ① 사후 필터 vs 사전 바닥 ══════════════ -->
+<div class="fig" id="fig1">
+  <div class="ftitle">안전은 <span style="color:var(--bad)">나중에 거르는 것</span>이 아니라
+    <span style="color:var(--good)">미리 까는 것</span>이다</div>
+  <div class="fsub">일반적인 RAG 는 LLM 이 만든 답을 뒤에서 검증한다. 우리는 코드가 먼저 안전 하한선을 깔고, LLM 은 그 위에서만 움직인다.</div>
+
+  <div class="cmp">
+    <div class="pane l">
+      <div class="lbl" style="color:#a85c58">일반적인 RAG</div>
+      <div class="ptitle">사후 필터</div>
+      <div class="pdesc">LLM 이 먼저 답을 만들고, 검증기가 잘못된 것을 걸러낸다.<br>
+        <b>방어가 마지막 한 겹에 몰려 있다.</b></div>
+      <div class="stack">
+        <div class="srow"><div class="schip">LLM 이 답을 만든다<small>등급도 문장도 모델이 정한다</small></div></div>
+        <div class="down">▼</div>
+        <div class="srow"><div class="schip pierce">검증기가 거른다<small>환각·근거없음 탐지</small></div></div>
+        <div class="down">▼</div>
+        <div class="srow"><div class="schip">사용자</div></div>
+      </div>
+      <div class="concl bad">🔴 검증기가 뚫리면 방어가 없다.</div>
+    </div>
+
+    <div class="vs">vs</div>
+
+    <div class="pane r">
+      <div class="lbl" style="color:#3d7a53">이 시스템</div>
+      <div class="ptitle">사전 바닥</div>
+      <div class="pdesc">코드가 물질별 <b>최소 등급</b>을 먼저 깐다.<br>
+        <b>LLM 은 그 바닥 아래로 내려갈 수 없다.</b></div>
+
+      <svg viewBox="0 0 470 300" style="width:100%;height:auto;margin-top:14px">
+        <!-- 등급 눈금 -->
+        <g font-size="14" fill="#8a8a86" font-family="Noto Sans CJK KR">
+          <text x="4" y="64">4 응급</text><text x="4" y="124">3 전화</text>
+          <text x="4" y="184">2 내원</text><text x="4" y="244">1 관찰</text>
+        </g>
+        <g stroke="#e2e0da" stroke-width="1.5">
+          <line x1="76" y1="59" x2="462" y2="59"/><line x1="76" y1="179" x2="462" y2="179"/>
+          <line x1="76" y1="239" x2="462" y2="239"/>
+        </g>
+        <!-- 바닥 아래 = 금지 영역 -->
+        <rect x="76" y="119" width="386" height="150" fill="#efd6d4" opacity=".55"/>
+        <text x="269" y="212" text-anchor="middle" font-size="16" fill="#a04a45" font-weight="700"
+          font-family="Noto Sans CJK KR">LLM 은 여기로 못 내려간다</text>
+
+        <!-- 상향 화살표 (허용) -->
+        <line x1="150" y1="116" x2="150" y2="76" stroke="#12833f" stroke-width="4"/>
+        <polygon points="150,62 142,80 158,80" fill="#12833f"/>
+        <text x="150" y="42" text-anchor="middle" font-size="15" fill="#12833f" font-weight="700"
+          font-family="Noto Sans CJK KR">올릴 수 있다 ✓</text>
+
+        <!-- 하향 화살표 (차단) -->
+        <line x1="330" y1="122" x2="330" y2="158" stroke="#c9342f" stroke-width="4" stroke-dasharray="7 5"/>
+        <polygon points="330,172 322,154 338,154" fill="#c9342f"/>
+        <g stroke="#c9342f" stroke-width="5" stroke-linecap="round">
+          <line x1="358" y1="128" x2="392" y2="162"/><line x1="392" y1="128" x2="358" y2="162"/>
+        </g>
+        <text x="375" y="192" text-anchor="middle" font-size="15" fill="#c9342f" font-weight="700"
+          font-family="Noto Sans CJK KR">내릴 수 없다</text>
+
+        <!-- 바닥선 : 맨 위에 그린다 -->
+        <line x1="76" y1="119" x2="462" y2="119" stroke="#12833f" stroke-width="6"/>
+        <rect x="76" y="92" width="330" height="24" rx="5" fill="#12833f"/>
+        <text x="88" y="109" font-size="15" fill="#fff" font-weight="800"
+          font-family="Noto Sans CJK KR">🔒 규칙표가 깐 바닥 — rule_level = 3</text>
+      </svg>
+
+      <div class="concl good">🔒 최종 등급 = max(규칙, LLM) — 모델은 경고를 더할 수 있고 뺄 수 없다.</div>
+    </div>
+  </div>
+
+  <div class="fnote"><div>SKN 3차 단위 프로젝트 · 팀 save the pet · 2026-08-04</div>
+    <div>근거 — D-09 하향 금지 게이트 · D-80 정량 상향 차단 · <code>triage/gate.py</code></div></div>
+</div>
+
+<!-- ══════════════ ② 방어 층 (G-025) ══════════════ -->
+<div class="fig" id="fig2">
+  <div class="ftitle">앞의 두 겹이 뚫렸는데 <span style="color:var(--good)">등급은 맞았다</span></div>
+  <div class="fsub">골든셋 <b>G-025</b> — 검색이 엉뚱한 자료를 가져왔고 근거 검증기까지 통과시켰다. 그런데도 보호자는 "지금 바로 병원으로 가세요"를 봤다.</div>
+
+  <div class="layers">
+    <div>
+      <div class="qbox" style="margin-bottom:16px">
+        🙋 <b>"강아지가 차고에서 부동액을 핥은 것 같아요. 조금이라 괜찮겠죠?"</b><br>
+        <span style="color:var(--ink3);font-size:13.5px">부동액(에틸렌글리콜) — 소량으로도 급성 신부전</span>
+      </div>
+
+      <div class="lay brk"><div class="n">방어 ①</div>
+        <div class="t">검색<small><b>"핥기"</b> 표면어로 중독 자료 대신 <b>개 강박장애 자료</b>를 가져왔다</small></div>
+        <div class="r">❌ 뚫림</div></div>
+
+      <div class="lay brk"><div class="n">방어 ②</div>
+        <div class="t">④ 근거 검증<small>그 자료를 글자 그대로 옮긴 문장에 <b>일치율 0.688 로 「근거있음」 도장</b><br>
+          정작 참인 문장은 0.095 로 탈락 — <b>완전히 역전됐다</b></small></div>
+        <div class="r">❌ 뚫림</div></div>
+
+      <div class="lay stop"><div class="n">방어 ③</div>
+        <div class="t">규칙표 바닥<small><b>부동액 = 최소 4등급</b>이 이미 깔려 있었다 (코드가 계산한다)</small></div>
+        <div class="r">🔒 막음</div></div>
+
+      <div class="lay stop"><div class="n">방어 ④</div>
+        <div class="t">하향 금지 게이트<small><b>LLM 은 1등급(관찰)을 냈다</b> — 치사 물질에 3등급 차이.
+          <code>max(rule, llm)</code> 이 눌렀다</small></div>
+        <div class="r">🔒 막음</div></div>
+
+      <div class="lay miss"><div class="n">방어 ⑤</div>
+        <div class="t">완곡표현 제거<small>목록의 <code>"관찰만"</code> 과 모델이 쓴 <code>"관찰하는"</code> — <b>한 단어 차로 놓쳤다</b></small></div>
+        <div class="r">⚠️ 놓침</div></div>
+    </div>
+
+    <div class="side">
+      <div class="card" style="border-color:#a9d4b9;background:var(--goodbg)">
+        <h4>보호자가 본 것</h4>
+        <div class="badge">응급</div>
+        <div style="font-size:15px;font-weight:700;margin-top:9px">지금 바로 동물병원으로 가세요</div>
+        <div style="font-size:13.5px;color:var(--ink2);margin-top:7px">기대 등급 <b>4</b> · 실제 <b>4</b> ✅</div>
+      </div>
+
+      <div class="card">
+        <h4>우연이 아니다 — 60건 전체에서</h4>
+        <div class="kv"><span>LLM 이 1~2 를 냈는데<br>코드가 3 이상으로 올린 건</span><b>10건</b></div>
+        <div class="kv"><span>그중 코드가 맞았던 건</span><b style="color:var(--good)">8건</b></div>
+        <div class="kv" style="border:0"><span>LLM 이 3등급을 낸 건</span><b>4건</b><br></div>
+        <div style="font-size:13.5px;color:var(--ink2);margin-top:9px;line-height:1.5">
+          <b>LLM 은 양극단으로 답한다</b> — "최악(4)" 아니면 "괜찮음(1)".
+          정답의 다수는 <b>중간(3)</b> 이다. <b>그 간극을 코드가 메운다.</b></div>
+      </div>
+
+      <div class="card" style="border-color:#e8b9b6;background:var(--badbg)">
+        <h4 style="color:var(--bad)">🔴 그리고 가장 강한 증거</h4>
+        <div style="font-size:13.8px;line-height:1.55;color:var(--ink2)">
+          ④ 근거 검증의 조치는 <b>300건에서 0회 실행됐다</b>.
+          <b>그런데도 심각한 과소평가는 다섯 판 전부 0건이었다.</b></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="fnote"><div>SKN 3차 단위 프로젝트 · 팀 save the pet · 2026-08-04</div>
+    <div>근거 — <code>docs/04b</code> §3.3 · <code>eval/reports/D1.json</code> · D-09 · D-84</div></div>
+</div>
+
+<!-- ══════════════ ③ 코드 vs LLM 분업 ══════════════ -->
+<div class="fig" id="fig3">
+  <div class="ftitle">수치는 <span style="color:var(--code)">코드</span>가, 문장은 <span style="color:var(--llm)">LLM</span> 이</div>
+  <div class="fsub">조각마다 물었다 — ① 자연어 이해·생성이 꼭 필요한가 ② 같은 입력에 같은 답이 나와야 하나 ③ 규칙으로 먼저 잡히나.
+    <b>경계가 애매하면 코드 쪽으로 기울였다.</b></div>
+
+  <div class="pipe">
+    <div class="pb m"><div class="no">①</div><div class="nm">분류</div><div class="ds">무엇을 묻는가</div></div>
+    <div class="pa">›</div>
+    <div class="pb m"><div class="no">②</div><div class="nm">슬롯 추출</div><div class="ds">종·체중·물질·양</div></div>
+    <div class="pa">›</div>
+    <div class="pb c"><div class="no">검색</div><div class="nm">retrieve</div><div class="ds">벡터DB 근거</div></div>
+    <div class="pa">›</div>
+    <div class="pb c"><div class="no">계산</div><div class="nm">compute</div><div class="ds">mg/kg 환산</div></div>
+    <div class="pa">›</div>
+    <div class="pb c"><div class="no">규칙</div><div class="nm">rules</div><div class="ds">바닥 등급</div></div>
+    <div class="pa">›</div>
+    <div class="pb m"><div class="no">생성</div><div class="nm">generate</div><div class="ds">답변 초안</div></div>
+    <div class="pa">›</div>
+    <div class="pb m"><div class="no">판정</div><div class="nm">judge</div><div class="ds">LLM 등급 제안</div></div>
+    <div class="pa">›</div>
+    <div class="pb c" style="border-width:3px;border-color:#2a78d6"><div class="no">🔒 게이트</div><div class="nm">decide</div><div class="ds">max(rule, llm)</div></div>
+    <div class="pa">›</div>
+    <div class="pb m"><div class="no">⑤</div><div class="nm">평이화</div><div class="ds">보호자 언어로</div></div>
+  </div>
+
+  <div class="band">
+    <div class="bseg" style="flex:2.19;background:var(--llmbg);color:#8a4a15;border:2px solid var(--llmln)">말을 알아듣는다</div>
+    <div style="width:8px"></div>
+    <div class="bseg" style="flex:3.29;background:var(--codebg);color:#1b4c80;border:2px solid var(--codeln)">
+      🔒 <b>등급을 정하는 계산에 LLM 이 없다</b></div>
+    <div style="width:8px"></div>
+    <div class="bseg" style="flex:2.19;background:var(--llmbg);color:#8a4a15;border:2px solid var(--llmln)">말을 만든다</div>
+    <div style="width:8px"></div>
+    <div class="bseg" style="flex:1.1;background:var(--codebg);color:#1b4c80;border:2px solid var(--codeln)">🔒 코드가 확정</div>
+    <div style="width:8px"></div>
+    <div class="bseg" style="flex:1.1;background:var(--llmbg);color:#8a4a15;border:2px solid var(--llmln)">다듬는다</div>
+  </div>
+
+  <div class="legend">
+    <span><i style="background:var(--codebg);border-color:var(--codeln)"></i><b>코드</b> — 같은 입력이면 항상 같은 답. 재현되고 감사할 수 있다</span>
+    <span><i style="background:var(--llmbg);border-color:var(--llmln)"></i><b>LLM</b> — 자연어 이해와 생성. <b>제안만 한다</b></span>
+  </div>
+
+  <div class="kicker">실측이 이 분업을 확인했다.
+    <small><b>양이 있는 질문(15건)은 규칙만으로 통과 93.3%</b> 이고 LLM 을 붙여도 그대로다 — 계산이 성립하는 자리에서 모델이 더할 것이 없었다.
+      반대로 <b>계산이 없는 자리(일반 사실·조류)가 가장 약하다.</b>
+      그리고 LLM 이 값을 낸 곳은 <b>범위 밖 거절(+6건) · 사실 질의(+3건) · 증상(+2건)</b> — 전부 <b>말이 필요한 자리</b>다.</small></div>
+
+  <div class="fnote"><div>SKN 3차 단위 프로젝트 · 팀 save the pet · 2026-08-04</div>
+    <div>근거 — <code>docs/05</code> 두 축 · <code>graph/build.py</code> 노드 18개 · 결과 보고서 §3.8</div></div>
+</div>
+
+</body></html>
