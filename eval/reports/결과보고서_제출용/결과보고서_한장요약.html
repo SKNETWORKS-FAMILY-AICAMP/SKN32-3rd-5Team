@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>SKN 3차 프로젝트 — 평가 결과 한 장 요약</title>
+<style>
+  :root{
+    color-scheme: light;
+    --surface-1:#fcfcfb; --plane:#f9f9f7; --line:#e3e2dd; --line-soft:#eeede9;
+    --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#7a7975;
+    --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --critical:#d03b3b;
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s7:#4a3aa7;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:where(:not([data-theme="light"])){
+      color-scheme: dark;
+      --surface-1:#1a1a19; --plane:#0d0d0d; --line:#383835; --line-soft:#2a2a28;
+      --ink:#ffffff; --ink-2:#c3c2b7; --ink-3:#93928a;
+      --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --critical:#d03b3b;
+      --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s7:#9085e9;
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--plane); color:var(--ink);
+    font-family:"Pretendard","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+    font-size:10.2px; line-height:1.45; padding:14px;
+  }
+  .sheet{max-width:1080px;margin:0 auto;background:var(--surface-1);border:1px solid var(--line);
+    border-radius:8px;padding:16px 18px 14px}
+  h1{font-size:17px;margin:0;letter-spacing:-.02em;font-weight:700}
+  .sub{color:var(--ink-2);font-size:10.5px;margin-top:3px}
+  .meta{color:var(--ink-3);font-size:9.5px;text-align:right;white-space:nowrap}
+  header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;
+    border-bottom:2px solid var(--ink);padding-bottom:9px;margin-bottom:11px}
+  h2{font-size:10.5px;margin:0 0 5px;letter-spacing:.06em;color:var(--ink-2);
+    font-weight:700;text-transform:uppercase}
+  .grid{display:grid;gap:11px}
+  .g2{grid-template-columns:1fr 1fr}
+  .g3{grid-template-columns:1fr 1fr 1fr}
+  .g21{grid-template-columns:1.35fr 1fr}
+  section{margin-bottom:11px}
+  .card{border:1px solid var(--line);border-radius:6px;padding:9px 10px;background:var(--surface-1)}
+  .card.accent{border-left:3px solid var(--s1)}
+  .card.accent2{border-left:3px solid var(--s2)}
+  .card.accent3{border-left:3px solid var(--s3)}
+  .card.crit{border-left:3px solid var(--critical)}
+  .axis-t{font-weight:700;font-size:11px;margin-bottom:3px;color:var(--ink)}
+  .axis-d{color:var(--ink-2);font-size:9.8px}
+  code{font-family:ui-monospace,"SFMono-Regular",Menlo,monospace;font-size:9.3px;
+    background:var(--line-soft);padding:.5px 3px;border-radius:3px;color:var(--ink);white-space:nowrap}
+  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+  .kpi{border:1px solid var(--line);border-radius:6px;padding:7px 9px}
+  .kpi .lab{color:var(--ink-2);font-size:9.2px}
+  .kpi .val{font-size:21px;font-weight:600;letter-spacing:-.02em;line-height:1.15;margin-top:1px}
+  .kpi .note{color:var(--ink-3);font-size:8.7px;margin-top:1px}
+  .bar{display:flex;height:16px;border-radius:4px;overflow:hidden;gap:2px;margin:6px 0 5px}
+  .bar div{display:flex;align-items:center;justify-content:center;font-size:8.6px;font-weight:700;
+    color:#0b0b0b;white-space:nowrap}
+  .bar div.on-dark{color:#fff}
+  .lgd{display:flex;gap:12px;flex-wrap:wrap;color:var(--ink-2);font-size:9.2px}
+  .lgd i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+  table{width:100%;border-collapse:collapse;font-size:9.5px}
+  th,td{text-align:left;padding:3.5px 6px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  th{color:var(--ink-2);font-weight:700;font-size:9px;letter-spacing:.03em}
+  td.n,th.n{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+  td.muted,.muted{color:var(--ink-3)}
+  tr.hi td{background:var(--line-soft)}
+  .tag{display:inline-block;padding:.5px 5px;border-radius:9px;font-size:8.6px;font-weight:700;
+    border:1px solid currentColor;white-space:nowrap}
+  .t-good{color:var(--good)} .t-warn{color:var(--serious)} .t-crit{color:var(--critical)}
+  b.up{color:var(--good)} b.dn{color:var(--critical)}
+  ul{margin:3px 0 0;padding-left:15px} li{margin-bottom:2.5px;color:var(--ink-2)}
+  li b{color:var(--ink)}
+  .quote{border-left:2px solid var(--line);padding-left:8px;color:var(--ink-2);font-size:9.6px;margin:5px 0 0}
+  .big{font-size:11.5px;font-weight:700;color:var(--ink);letter-spacing:-.01em}
+  footer{border-top:1px solid var(--line);margin-top:11px;padding-top:7px;
+    display:flex;justify-content:space-between;gap:14px;color:var(--ink-3);font-size:9px;flex-wrap:wrap}
+  .docmap b{color:var(--ink-2)}
+  @media print{
+    @page{size:A4 landscape;margin:8mm}
+    body{background:#fff;padding:0;font-size:8.1px;line-height:1.34}
+    .sheet{border:none;max-width:none;padding:0;background:#fff}
+    h1{font-size:13.5px} .sub{font-size:8.6px} .meta{font-size:7.6px}
+    header{padding-bottom:6px;margin-bottom:7px}
+    h2{font-size:8.4px;margin-bottom:3.5px}
+    section{margin-bottom:7px} .grid{gap:7px} .kpis{gap:6px}
+    .card{padding:6px 7px} .axis-t{font-size:8.8px} .axis-d{font-size:7.9px}
+    .kpi{padding:5px 7px} .kpi .val{font-size:16px} .kpi .lab{font-size:7.4px} .kpi .note{font-size:7px}
+    .bar{height:12px;margin:4px 0 3px} .bar div{font-size:6.9px} .lgd{font-size:7.4px;gap:9px}
+    table{font-size:7.7px} th,td{padding:2.4px 4px} th{font-size:7.3px}
+    code{font-size:7.5px} .quote{font-size:7.8px;margin-top:4px} .big{font-size:9.2px}
+    ul{padding-left:13px} li{margin-bottom:1.6px}
+    footer{margin-top:7px;padding-top:5px;font-size:7.2px}
+    .card,.kpi,.sheet{break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+<header>
+  <div>
+    <h1>반려동물 응급 트리아지 — 평가 결과 한 장 요약</h1>
+    <div class="sub"><b>골든셋 60건 · 세 축(코드만 / 대형LLM / LangChain)을 같은 조건에서 쟀다.</b>
+      동결 커밋 <code>freeze-0803</code> · <code>dirty=False</code> · 대상 종 <b>개 · 고양이 · 앵무새</b></div>
+  </div>
+  <div class="meta">SKN 3차 단위 프로젝트<br>작성자 <b>오한빈</b> (팀장)<br>2026-08-04</div>
+</header>
+
+<section>
+  <h2>1 · 결과 요약</h2>
+  <div class="kpis">
+    <div class="kpi"><div class="lab">통과율</div><div class="val">65.0%</div>
+      <div class="note">39/60 · 기준선 대비 <b class="up">+20.0pp</b></div></div>
+    <div class="kpi"><div class="lab">🔴 중대 과소평가</div><div class="val" style="color:var(--good)">0건</div>
+      <div class="note"><b>다섯 판 전부 0</b></div></div>
+    <div class="kpi"><div class="lab">등급 못 낸 긴급 건</div><div class="val" style="color:var(--good)">3.6%</div>
+      <div class="note">25.0%(7/28) → <b>1/28</b></div></div>
+    <div class="kpi"><div class="lab">LangChain 연동</div><div class="val" style="color:var(--s1)">A ≡ A-LC</div>
+      <div class="note">실패 21건 <b>case_id 완전 일치</b></div></div>
+    <div class="kpi"><div class="lab">④ 검증 (파인튜닝)</div><div class="val" style="color:var(--s3)">100%</div>
+      <div class="note">베이스 50% · p=0.0004</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>2 · 세 축 대조 — 분모를 섞지 않는다</h2>
+  <div class="grid g21">
+    <div>
+      <table>
+        <tr><th></th><th class="n">none<br><span class="muted">코드·규칙만</span></th>
+            <th class="n">A<br><span class="muted">openai SDK</span></th>
+            <th class="n">A-LC<br><span class="muted">LangChain</span></th></tr>
+        <tr class="hi"><td><b>통과</b></td><td class="n">45.0% <span class="muted">27/60</span></td>
+            <td class="n"><b>65.0%</b> <span class="muted">39/60</span></td>
+            <td class="n"><b>65.0%</b> <span class="muted">39/60</span></td></tr>
+        <tr><td>상태 일치</td><td class="n">63.3%</td><td class="n"><b>83.3%</b></td><td class="n"><b>83.3%</b></td></tr>
+        <tr><td>등급 일치도 <span class="muted">(분모)</span></td>
+            <td class="n muted">88.9% <span class="muted">(27)</span></td>
+            <td class="n">88.9% <span class="muted">(36)</span></td>
+            <td class="n">86.1% <span class="muted">(36)</span></td></tr>
+        <tr><td>🔴 과소평가</td><td class="n">7.4% (2)</td><td class="n"><b class="up">0.0%</b> (0)</td><td class="n">2.8% (1)</td></tr>
+        <tr><td>과대평가</td><td class="n">3.7% (1)</td><td class="n">11.1% (4)</td><td class="n">11.1% (4)</td></tr>
+        <tr class="hi"><td>🔴 <b>중대 과소평가</b></td><td class="n"><b>0.0%</b></td><td class="n"><b>0.0%</b></td><td class="n"><b>0.0%</b></td></tr>
+        <tr class="hi"><td>🔴 <b>등급 못 낸 긴급 건</b></td><td class="n"><b class="dn">25.0%</b> <span class="muted">7/28</span></td>
+            <td class="n"><b class="up">3.6%</b> <span class="muted">1/28</span></td>
+            <td class="n"><b class="up">3.6%</b> <span class="muted">1/28</span></td></tr>
+        <tr><td>must_contain (all)</td><td class="n">31.3%</td><td class="n"><b>54.2%</b></td><td class="n">52.1%</td></tr>
+        <tr><td>must_cite (any)</td><td class="n">59.0%</td><td class="n"><b>79.5%</b></td><td class="n"><b>79.5%</b></td></tr>
+        <tr><td>인용률</td><td class="n muted">99.5% ⚠︎무효</td><td class="n"><b>66.1%</b></td><td class="n">66.3%</td></tr>
+        <tr><td>지연 <span class="muted">answered p50</span></td><td class="n">0.15 s</td><td class="n">10.43 s</td><td class="n">10.24 s</td></tr>
+        <tr><td>5태스크 전부 모델</td><td class="n">0/60</td><td class="n"><b>60/60</b></td><td class="n"><b>60/60</b></td></tr>
+      </table>
+    </div>
+    <div>
+      <div class="card accent">
+        <div class="axis-t">회색 칸은 비교에 쓰지 않는다</div>
+        <div class="axis-d">
+          <b>① <code>none</code> 의 등급 일치도 88.9%(분모 27)</b> 를 A·A-LC(분모 36)와 나란히 놓지 않는다 —
+          <code>none</code> 은 <b>9건을 아예 등급 없이 빠뜨리고</b> 남은 것만 채점된 값이다.
+          <i>"틀리던 건이 거절로 빠져 분모가 줄어 비율이 오른다"</i> 의 실례다.<br><br>
+          <b>② <code>none</code> 의 인용률 99.5%</b> 는 무효값이다. LLM 이 없으면 <code>draft = context</code> 라
+          <b>표절 검사기가 자기 자신을 비교한 셈</b>이다. 건당 문장 수가 그것을 드러낸다 —
+          <b>none 12.6문장 vs A 4.0문장.</b>
+          <div class="quote" style="margin-top:5px">다른 지표는 <code>none</code> 이 그럴듯한 값을 냈지만,
+            인용률은 <b>"이 판은 인용을 잰 것이 아니다"</b> 를 숫자 모양으로 즉시 드러냈다.
+            <b>지표가 작동한다는 증거이기도 하다.</b></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>3 · 🔴 구조적 강점 — 안전은 <u>사후 검증</u>이 아니라 <u>사전 바닥</u>에서 온다</h2>
+  <div class="grid g2" style="margin-bottom:8px">
+    <div class="card crit">
+      <div class="axis-t">일반적인 RAG — 사후 필터</div>
+      <div class="axis-d">검증기가 환각을 걸러 준다는 구조. <b>필터가 뚫리면 방어가 없다.</b></div>
+    </div>
+    <div class="card accent3">
+      <div class="axis-t">이 시스템 — 사전 바닥</div>
+      <div class="axis-d"><b>코드가 바닥을 깔고 LLM 은 그 위로만 움직인다.</b>
+        <code>triage_level = max(rule, llm)</code> — 모델은 등급을 올릴 수만 있고 내릴 수 없다.</div>
+    </div>
+  </div>
+
+  <div class="grid g21">
+    <div>
+      <table>
+        <tr><th colspan="3">G-025 — <i>"강아지가 부동액을 핥은 것 같아요, 조금이라 괜찮겠죠"</i> (치사 물질)</th></tr>
+        <tr><th style="width:104px">방어 층</th><th>무슨 일이 있었나</th><th style="width:62px" class="n">결과</th></tr>
+        <tr><td>검색</td><td><b>"핥기"</b> 표면어로 중독 자료 대신 <b>개 강박장애 자료(S-080)</b> 를 가져왔다</td>
+            <td class="n"><span class="tag t-crit">뚫림</span></td></tr>
+        <tr><td>④ 근거 검증</td><td>그 자료를 <b>글자 그대로 옮긴 문장</b>에 일치율 <b>0.688 로 「근거있음」 도장</b>.
+            정작 참인 문장은 0.095 로 탈락</td><td class="n"><span class="tag t-crit">뚫림</span></td></tr>
+        <tr class="hi"><td><b>규칙표 바닥</b></td><td><b>물질별 최소 등급 4를 이미 깔아 두었다</b></td>
+            <td class="n"><span class="tag t-good">🔒 막음</span></td></tr>
+        <tr class="hi"><td><b>하향 금지 게이트</b></td><td><b>LLM 은 등급 1(관찰)을 냈다 — 치사 물질에 3등급 차이.</b>
+            <code>max(rule,llm)</code> 가 눌렀다</td><td class="n"><span class="tag t-good">🔒 막음</span></td></tr>
+        <tr><td>완곡표현 제거</td><td><code>"관찰만"</code> vs 모델이 쓴 <code>"관찰하는"</code> — 한 단어 차</td>
+            <td class="n"><span class="tag t-warn">놓침</span></td></tr>
+      </table>
+      <div class="quote"><b>검색이 틀리고 검증기까지 뚫렸는데 등급은 맞았다.</b>
+        막은 것은 검증기가 아니라 <b>코드가 깔아 둔 바닥</b>이다.</div>
+    </div>
+    <div>
+      <div class="card">
+        <div class="axis-t">우연이 아니다 — 60건 전체에서</div>
+        <table style="margin-top:4px">
+          <tr><td>LLM 이 1~2 를 냈는데 코드가 3 이상으로 올린 건</td><td class="n"><b>10건</b></td></tr>
+          <tr><td>그중 정답과 일치</td><td class="n"><b>8건</b></td></tr>
+          <tr><td>LLM 등급 분포</td><td class="n muted">4가 18 · <b>1이 12</b> · 3이 4 · 2가 4</td></tr>
+          <tr><td>정답 등급 분포</td><td class="n muted"><b>3이 19</b> · 4가 9 · 1이 7 · 2가 3</td></tr>
+        </table>
+        <div class="quote" style="margin-top:5px"><b>LLM 은 양극단으로 답한다 — "최악(4)" 아니면 "관찰(1)".</b>
+          정답의 다수는 중간(3)인데 LLM 이 3을 낸 것은 4건뿐이다.
+          <b>그 간극을 코드가 메운다.</b></div>
+      </div>
+      <div class="card crit" style="margin-top:8px">
+        <div class="axis-t">🔴 우발적 절제 — 가장 강한 증거</div>
+        <div class="axis-d">④ 근거 검증의 <b>조치는 300건에서 0회 실행됐다</b>
+          (<code>retried: 0</code> · 세 판 전부).
+          발동 조건 <code>all_ungrounded</code> 가 사실상 사문이었다.<br>
+          <b>그런데도 중대 과소평가는 다섯 판 전부 0.0% 였다.</b></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>4 · 측정 체계가 강점이다 — 우연히 오른 건이 하나도 없다</h2>
+  <div class="grid g21">
+    <div>
+      <table>
+        <tr><th style="width:66px">판</th><th class="n" style="width:52px">통과</th><th>무엇이 움직였나</th></tr>
+        <tr><td>B1 · B2 · B3</td><td class="n">55.0 / 55.0 / 56.7%</td>
+            <td>기준선 3회 반복 — 60건 중 <b>흔들린 건 2건뿐</b> → <b>소음대 ±1건(±1.7pp)</b> 확정</td></tr>
+        <tr><td>C1</td><td class="n">60.0%</td><td>골든셋 정정 2 · <b>D-88</b> 1 · 소음 −1 — <b>지목한 건이 그대로 움직였다</b></td></tr>
+        <tr><td>C2</td><td class="n">65.0%</td><td><b>D-89</b> G-017·G-019·G-034 — <b>세 건을 미리 지목하고 맞혔다</b></td></tr>
+        <tr class="hi"><td><b>D1 (동결)</b></td><td class="n"><b>65.0%</b></td>
+            <td>예방형 계량 반영. 통과 불변 — <b>소음대 안에서 예측대로</b></td></tr>
+      </table>
+      <div class="quote"><b>소음대를 알면 변화를 예측할 수 있다.</b>
+        고친 것과 움직인 것이 매 회차 일치했고, C2·D1 은 <b>어느 건이 통과할지 미리 지목한 뒤 맞았다.</b></div>
+    </div>
+    <div>
+      <div class="card">
+        <div class="axis-t">실패 21건 — 전수 분류 (미분류 0)</div>
+        <div class="bar">
+          <div style="flex:5;background:var(--s2)">예방형 5</div>
+          <div style="flex:4;background:var(--warn)">골든셋 4</div>
+          <div style="flex:4;background:var(--s1);color:#fff">문구 4</div>
+          <div style="flex:3;background:var(--s7);color:#fff">되묻기 3</div>
+          <div style="flex:3;background:var(--serious)">규칙바닥 3</div>
+          <div style="flex:2;background:var(--ink-3);color:#fff">검색 2</div>
+        </div>
+        <div class="lgd">
+          <span><i style="background:var(--s2)"></i>예방형·축 B — 설계안 있음</span>
+          <span><i style="background:var(--warn)"></i>골든셋 정정 대기</span>
+          <span><i style="background:var(--s1)"></i>문구만 미달</span>
+          <span><i style="background:var(--s7)"></i>되물어야 하는데 답했다</span>
+          <span><i style="background:var(--serious)"></i>규칙 바닥 없음</span>
+          <span><i style="background:var(--ink-3)"></i>검색 0건</span>
+        </div>
+        <div class="quote" style="margin-top:6px"><b class="big">모델을 바꿔서 해결되는 묶음이 하나도 없다.</b><br>
+          21건 중 <b>12건이 미결 설계와 골든셋</b>, 3건이 규칙 표의 빈칸, 2건이 코퍼스다.
+          <i>"LLM 은 제안하고 코드가 판정한다"</i> 로 설계한 결과가 여기 있다.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>5 · LLM 은 어디에서 값을 냈나 — 유형별</h2>
+  <div class="grid g21">
+    <div>
+      <table>
+        <tr><th>유형</th><th class="n" style="width:34px">n</th><th class="n" style="width:118px">통과 none → A</th><th>읽는 법</th></tr>
+        <tr class="hi"><td><b>none</b> (범위 밖)</td><td class="n">9</td><td class="n">33.3% → <b class="up">100.0%</b></td>
+            <td><b>전건 통과.</b> D-85(말했는데 코퍼스에 없는 것은 거절한다)가 미결 6건을 통째로 해소</td></tr>
+        <tr class="hi"><td><b>dose</b> (정량)</td><td class="n">15</td><td class="n"><b>93.3% → 93.3%</b></td>
+            <td>🔴 <b>LLM 의 기여 0 — 정량 판정은 코드가 이미 완성했다</b> (등급 일치 93.3%)</td></tr>
+        <tr><td>species</td><td class="n">9</td><td class="n">44.4% → <b class="up">66.7%</b></td><td>등급 일치 100%</td></tr>
+        <tr><td>symptom</td><td class="n">3</td><td class="n">0.0% → <b class="up">66.7%</b></td><td>등급 일치 100%</td></tr>
+        <tr><td>fact (정성)</td><td class="n">12</td><td class="n">16.7% → <b class="up">41.7%</b></td><td>가장 약한 축 — 과대 3건이 전부 여기</td></tr>
+        <tr><td>slot</td><td class="n">9</td><td class="n">44.4% → <b class="dn">33.3%</b></td><td>🔴 <b>내려갔다</b> — 미결 설계</td></tr>
+        <tr><td>prevent</td><td class="n">3</td><td class="n">0.0% → 0.0%</td><td>🔴 예방형 질의는 성격이 다르다 (설계안 있음)</td></tr>
+      </table>
+    </div>
+    <div>
+      <div class="card accent2">
+        <div class="axis-t">분업이 수치로 보인다</div>
+        <div class="axis-d">
+          <b>수치 판정은 코드가</b> — <code>dose</code> 15건에서 규칙만으로 93.3%.
+          LLM 을 붙여도 그대로다.<br>
+          <b>말이 필요한 자리는 LLM 이</b> — 범위 밖 거절 <b>+6건</b>, <code>fact</code> <b>+3건</b>,
+          <code>symptom</code>·<code>species</code> <b>+2·+2건</b>.
+          <div class="quote" style="margin-top:5px">그래서 <b>계산이 성립하는 자리가 가장 강하고
+            (<code>dose</code> 등급 일치 93.3% · 과대 0), 계산이 없는 자리(<code>fact</code>·조류)가 가장 약하다.</b>
+            설계가 예측한 그대로다.</div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:8px">
+        <div class="axis-t">종별 — 전체 평균은 조류 저하를 가린다</div>
+        <table style="margin-top:3px">
+          <tr><th>종</th><th class="n">n</th><th class="n">통과 none → A</th><th class="n">등급 일치</th></tr>
+          <tr><td>dog</td><td class="n">30</td><td class="n">50.0% → <b>76.7%</b></td><td class="n">90.9%</td></tr>
+          <tr><td>cat</td><td class="n">17</td><td class="n">35.3% → <b>58.8%</b></td><td class="n">88.9%</td></tr>
+          <tr><td><b>bird</b></td><td class="n">10</td><td class="n">30.0% → <b>40.0%</b></td><td class="n">80.0%</td></tr>
+        </table>
+        <div class="quote" style="margin-top:4px">코퍼스의 <b>조류 정량 역치가 0행</b>이라 정성 표에만 의존한다 —
+          정량 개선이 조류에 닿지 않는다. <b>평균만 보면 가려지므로 반드시 따로 낸다.</b></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>6 · 하나의 원리 — 세 층에서 같은 비대칭이 독립적으로 나왔다</h2>
+  <div class="grid g3" style="margin-bottom:7px">
+    <div class="card accent3"><div class="axis-t">등급 <span class="muted">D-09 · D-80</span></div>
+      <div class="axis-d"><code>max(rule_level, llm_level)</code><br>
+        모델은 등급을 <b>올릴 수만</b> 있다. → 하향 차단 <b>5회 기록</b> · 과소평가 <b>0.0%</b></div></div>
+    <div class="card accent3"><div class="axis-t">문장 <span class="muted">D-11 · D-39</span></div>
+      <div class="axis-d">등급 3 이상이면 완곡 표현 제거.<br>
+        모델은 <b>경고를 뺄 수 없다.</b></div></div>
+    <div class="card accent3"><div class="axis-t">④ 검증 <span class="muted">2026-08-03 합의</span></div>
+      <div class="axis-d"><b>2-gram 이 바닥, LLM 은 조이기만 한다.</b><br>
+        파인튜닝 학습에 그대로 반영 (§7)</div></div>
+  </div>
+  <div class="card" style="border-left:3px solid var(--ink)">
+    <div class="big">모델은 경고를 더할 수 있고 뺄 수 없다.</div>
+    <div class="axis-d" style="margin-top:3px">세 층은 서로 다른 시점에 <b>각자 발명됐다.</b>
+      우연이 세 번이면 원리다. — <b>이 시스템은 LLM 을 믿어서 안전한 것이 아니라, 믿지 않도록 설계해서 안전하다.</b></div>
+  </div>
+</section>
+
+<section>
+  <h2>7 · LangChain 연동 증명 · 파인튜닝 결과</h2>
+  <div class="grid g2">
+    <div class="card accent">
+      <div class="axis-t">필수 산출물 — LangChain 으로 벡터DB·LLM 연동</div>
+      <table style="margin-top:4px">
+        <tr><th></th><th class="n">A <span class="muted">openai SDK</span></th><th class="n">A-LC <span class="muted">LangChain</span></th></tr>
+        <tr><td>통과</td><td class="n">39/60</td><td class="n"><b>39/60</b></td></tr>
+        <tr><td>실패 <code>case_id</code></td><td class="n">21건</td><td class="n"><b>같은 21건</b> <span class="muted">(차집합 0)</span></td></tr>
+        <tr><td>LLM 등급이 갈린 건</td><td class="n" colspan="2"><b>3건</b> — G-005 · G-029 · G-034</td></tr>
+      </table>
+      <div class="quote" style="margin-top:5px"><b>배선만 된 것이 아니라 같은 판단을 같은 자리에서 낸다.</b><br>
+        더 중요한 것은 <b>LLM 등급이 3건에서 갈렸는데도 채점 결과가 같았다</b>는 점이다 —
+        <b>흔들림을 흡수한 것은 프롬프트가 아니라 바닥과 게이트다.</b>
+        갈린 유일한 건(G-005)은 <code>rule=None</code> — <b>바닥이 없는 자리</b>였다.</div>
+    </div>
+    <div class="card accent3">
+      <div class="axis-t">WS3 파인튜닝 (Qwen3-4B + QLoRA) — 측정·작성 <b>이서은</b></div>
+      <table style="margin-top:4px">
+        <tr><th>태스크</th><th class="n">베이스</th><th class="n">어댑터</th></tr>
+        <tr><td>① 분류</td><td class="n">20/20</td><td class="n">20/20</td></tr>
+        <tr><td>② 슬롯</td><td class="n">20/20</td><td class="n">20/20</td></tr>
+        <tr class="hi"><td>🔴 <b>④ 검증</b></td><td class="n"><b>10/20</b> <span class="muted">50%</span></td>
+            <td class="n"><b class="up">20/20</b> <span class="muted">100%</span></td></tr>
+      </table>
+      <div class="axis-d" style="margin-top:4px">학습 <b>6,739건</b> (classify 3027 · slot 2107 · verify 1221 ·
+        compress 199 · simplify 185) · 골든셋 누수 <b>0건</b> · <b>Fisher 정확검정 p = 0.0004</b></div>
+      <div class="quote" style="margin-top:4px">⚠︎ <b>다른 축의 측정이다.</b> 학습셋 held-out 20건씩 · 정확 일치 ·
+        ④ 배선본 기준. <b>골든셋 기준 비교군 C·D 는 여전히 미측정이다.</b></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>8 · 한계 — 이 숫자를 어떻게 읽지 말아야 하는가</h2>
+  <div class="grid g3">
+    <div class="card">
+      <div class="axis-t">측정의 한계</div>
+      <ul>
+        <li><b>통과율 65.0% 는 답변 품질이 아니다.</b> G-025 는 무관한 출처를 인용하고도 <b>통과로 채점됐다</b></li>
+        <li><b>표본 60건.</b> 유형별 분모가 3~15건 — <b>방향만 읽는다</b></li>
+        <li><b>과소평가 0.0% 는 0~1건</b>을 오간다. 반면 <b>중대 과소 0 은 다섯 판 전부</b>라 주장 가능</li>
+        <li>골든셋과 코퍼스가 같은 자료에서 나왔다 — <b>일반화 근거는 아니다</b></li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="axis-t">재지 않은 것을 0으로 적지 않는다</div>
+      <ul>
+        <li><b><code>모순 0건</code> 을 실적으로 쓰지 않는다</b> — 판정기가 2값만 반환해 <b>구조적으로 항상 0</b>이다</li>
+        <li><b>인용률의 33.9% 를 "환각 비율"로 읽지 않는다</b> — 상당수가 <b>등급이 시킨 행동 권고</b>다</li>
+        <li><b>골든셋 기준 C·D 미측정</b> — <i>"sLLM 이 대형 LLM 을 대체할 수 있는가"</i> 에는 <b>아직 답하지 못한다</b></li>
+      </ul>
+    </div>
+    <div class="card crit">
+      <div class="axis-t">🔴 알고 있는 결함</div>
+      <ul>
+        <li><b>지연 10.4 초.</b> 스트리밍을 쓰지 않으므로 이 값이 그대로 <b>사용자가 겪는 침묵</b>이다 — 응급 상황에서 그 자체로 설계 결함</li>
+        <li><b>지켜진 것은 등급이지 문장이 아니다.</b> 문장 수준 사실성은 통제되지 않았다 (G-025 본문)</li>
+        <li><b>④ 근거 적합성 검사 부재</b> — <code>draft</code> 를 <code>context</code> 하고만 비교하므로 <b>검색이 틀리면 함께 틀린다</b></li>
+        <li><b><code>prevent</code> 통과 0% · <code>slot</code> 하락</b> — 미결 설계</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="docmap">
+    <b>재현</b> &nbsp;<code>git checkout freeze-0803</code> → <code>PETTRIAGE_PROFILE=eval</code> →
+    <code>run_eval.py --arm none|A|A-LC</code> &nbsp;·&nbsp; <code>--arm none</code> 은 <b>API 키 없이 누구나 재현</b>한다
+    &nbsp;|&nbsp; <b>리포트</b> <code>eval/reports/D1*.json</code>
+  </div>
+  <div><b>"단점은 없나요?"</b> → §8 · <code>docs/06</code> 트레이드오프 &nbsp;·&nbsp;
+    <b>"왜 그렇게 쟀나요?"</b> → <code>docs/04</code> §1.2 분모 규칙</div>
+</footer>
+
+</div>
+</body>
+</html>
