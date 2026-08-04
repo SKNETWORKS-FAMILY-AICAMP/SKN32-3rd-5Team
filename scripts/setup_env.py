@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`.env` 를 만들고 **쓸 수 있는지까지 검증한다.**
 
     python scripts/setup_env.py              # 대화형 — 없는 값만 묻는다
@@ -117,7 +116,7 @@ def _check(lines: list[str]) -> list[str]:
         if shell is not None:
             problems.append(
                 f"{WARN} {key:16} 셸에 있다({_mask(shell)}) — **.env 를 가린다.** "
-                f'지우려면  Remove-Item Env:{key}'
+                f"지우려면  Remove-Item Env:{key}"
             )
 
     if os.environ.get("PETTRIAGE_PROFILE") is None:
@@ -216,8 +215,11 @@ def main() -> int:
         #    하나 더 생기는 것이고, 이 스크립트에는 파괴적 동작이 없다 —
         #    이미 값이 있는 항목은 묻지도 건드리지도 않고, 지우는 것은 중복 키의
         #    **앞엣것**(뒤엣것이 이기므로 이미 무효인 값)뿐이다.
-        dups = [k for k in ("OPENAI_API_KEY", "JWT_SECRET_KEY", "DATABASE_URL")
-                if len(_find(lines, k)) > 1]
+        dups = [
+            k
+            for k in ("OPENAI_API_KEY", "JWT_SECRET_KEY", "DATABASE_URL")
+            if len(_find(lines, k)) > 1
+        ]
         if dups:
             print(f"\n{WARN} 중복된 키가 있습니다: {' '.join(dups)}")
             print("   마지막 정의(실효값)만 남기고 앞엣것을 지웁니다.")
@@ -225,7 +227,8 @@ def main() -> int:
                 return 1
         lines = _interactive(lines)
         _write(lines, eol)
-        print(f"\n{OK} 저장했습니다 — UTF-8, BOM 없음, 줄끝 {'CRLF' if eol == chr(13)+chr(10) else 'LF'}")
+        eol_name = "CRLF" if eol == "\r\n" else "LF"
+        print(f"\n{OK} 저장했습니다 — UTF-8, BOM 없음, 줄끝 {eol_name}")
         lines, eol = _read()
 
     print("\n── 검사 ──")

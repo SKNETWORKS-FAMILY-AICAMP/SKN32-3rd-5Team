@@ -125,8 +125,8 @@ class DiaryEntry(Base):
         DateTime(timezone=True), default=utcnow, nullable=False
     )
     weight_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
-    meals: Mapped[str | None] = mapped_column(Text, nullable=True)      # JSON array
-    symptoms: Mapped[str | None] = mapped_column(Text, nullable=True)   # JSON array
+    meals: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array
+    symptoms: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     droppings: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 조류 전용
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

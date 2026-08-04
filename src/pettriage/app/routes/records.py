@@ -125,10 +125,7 @@ def report(
     if not pet:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "반려동물을 찾을 수 없습니다.")
 
-    q = (
-        db.query(DiaryEntry)
-        .filter(DiaryEntry.pet_id == pet_id, DiaryEntry.user_id == user_id)
-    )
+    q = db.query(DiaryEntry).filter(DiaryEntry.pet_id == pet_id, DiaryEntry.user_id == user_id)
     if period_from:
         q = q.filter(DiaryEntry.recorded_date >= datetime.fromisoformat(period_from).date())
     if period_to:

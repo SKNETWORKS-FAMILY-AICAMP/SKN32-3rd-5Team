@@ -206,7 +206,6 @@ def test_frontend_is_served(client: TestClient):
     assert "<title>" in r.text
 
 
-
 def test_full_text_carries_escalation_conditions(client: TestClient):
     """`answer` 만 읽는 소비자가 상승 조건을 빠뜨리지 않게 한다."""
     d = client.post(

@@ -27,10 +27,19 @@ SKN 3차 단위 프로젝트 · 팀 **save the pet**
    4  환경 점검        doctor                 8  DB 초기화   9  자유질의 검증
 ```
 
-명령으로 쓰시려면 `python PetTriage_Launcher`. 위에서부터 1 → 2 → 3 을 누르면 준비가 끝납니다.
+위에서부터 **1 → 2 → 3** 을 누르면 준비가 끝납니다.
 **MySQL 도 도커도 필요 없습니다** — 기본값이 SQLite 파일 하나입니다.
 
-⚠️ `5`·`6`·`9` 는 LLM 을 부릅니다(비용 발생). 시연은 **무료 폴백 모드**를 고를 수 있습니다.
+| | |
+|---|---|
+| Windows | `실행.bat` 더블클릭 |
+| macOS · Linux | `python PetTriage_Launcher` |
+
+⚠️ `5`·`6`·`9` 는 **LLM 을 부릅니다(비용 발생).** 시연은 **무료 폴백 모드**를 고를 수 있어
+화면과 흐름만 볼 때는 비용이 들지 않습니다.
+
+⚠️ 런처는 `PETTRIAGE_PROFILE=eval` 을 대신 세웁니다. **손으로 실행할 때 이걸 잊으면
+`engine` 이 `stub` 이 되어** 겉보기에는 도는데 실제로는 아무것도 하지 않습니다.
 
 **[📄 결과 보고서](eval/reports/결과보고서_제출용/2026-08-04_결과보고서.md)** ·
 [한 장 요약](eval/reports/결과보고서_제출용/결과보고서_한장요약.html) ·
@@ -457,14 +466,14 @@ status = answered   근거를 찾아 판정했다   → 배지 + 근거 + 감사
 │   ├── paths.py        프로젝트 루트 탐색 — 설치 형태와 무관하게 configs/·web/ 을 찾는다
 │   ├── config.py       YAML + 환경변수 로딩 (못 찾으면 크게 실패한다)
 │   ├── schemas.py      Fact · Chunk
-│   ├── ingest/         수집 → 사실 추출 → 템플릿 문장화 → 청킹        (WS1)
-│   ├── retrieval/      임베딩 · 벡터DB · 검색 · 중복 접기             (WS2)
+│   ├── ingest/         수집 → 사실 추출 → 템플릿 문장화 → 청킹
+│   ├── retrieval/      임베딩 · 벡터DB · 검색 · 중복 접기
 │   ├── compute/        비-RAG 계산 노드 (에너지·독성 임계치)
 │   │   ├── rules.py    규칙 테이블 조회 — 이 표를 읽는 유일한 경로     (D-16 · D-50)
 │   │   └── tables/     정량임계치.csv — 생성물. 손으로 고치지 않는다
 │   ├── triage/         등급 정의 + 하향 금지 게이트  🔒
-│   ├── graph/          LangGraph 상태·노드 18개                      (WS2)
-│   ├── models/         멀티태스크 sLLM — **ML 모델이다** (ORM 은 app/models.py)  (WS3)
+│   ├── graph/          LangGraph 상태·노드 18개
+│   ├── models/         멀티태스크 sLLM — **ML 모델이다** (ORM 은 app/models.py)
 │   │   ├── tasks.py    태스크 5종 — 그래프 노드·지표와 1:1
 │   │   ├── prompts.py  학습·추론 공용 템플릿 (라벨·스키마를 코드가 생성한다)
 │   │   ├── datasets/   샘플 스키마 · 태스크 혼합 · 누수 검사
@@ -472,11 +481,11 @@ status = answered   근거를 찾아 판정했다   → 배지 + 근거 + 감사
 │   │   └── serving/    LLMClient — 로컬 Qwen · API · LangChain · Echo
 │   ├── privacy/        ⚠️ 비어 있다. D-43 관문 5단계가 들어올 자리     (D-36)
 │   ├── safety/         출력 직전 관문 — 외국 핫라인 차단              (D-47)
-│   ├── app/            FastAPI — 계약 · 라우터 · 세션 · 저장소        (WS5)
+│   ├── app/            FastAPI — 계약 · 라우터 · 세션 · 저장소
 │   │   ├── models.py   **ORM 모델** (User · Pet · DiaryEntry · ChatSession)  (D-48)
 │   │   └── web/        데모 프론트 — 정적 HTML 6장
 │   └── tools/          운영 도구 (코퍼스 검증) — 콘솔 스크립트 대상
-├── eval/               골든셋 60건 · 평가 하네스 · 결과 보고서        (WS4)
+├── eval/               골든셋 60건 · 평가 하네스 · 결과 보고서
 ├── scripts/            진입점 — 인덱스 빌드 · 검사기 · 학습 데이터 생성 · 진단
 ├── tests/              안전 장치 회귀 테스트 585건
 ├── docker/             학습 이미지 (DB 테이블은 SQLAlchemy 가 만든다)
