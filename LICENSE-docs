@@ -1,0 +1,28 @@
+문서 라이선스 — Creative Commons Attribution-NonCommercial 4.0 International
+(CC BY-NC 4.0)
+
+Copyright (c) 2026 오한빈, 이근준, 권소라, 이서은
+
+적용 범위
+    docs/ · eval/reports/ · README.md
+    (코드는 Apache License 2.0 — 최상위 LICENSE 파일을 따릅니다.
+     data/ 는 어느 라이선스의 대상도 아닙니다 — NOTICE 참조.)
+
+허락하는 것
+    복제 · 배포 · 개작 — 출처를 밝히고 비상업적 목적으로
+
+조건
+    저작자 표시(BY)  위 저작권자와 원 저장소 주소를 밝히고, 변경했다면 변경 사실을 밝힙니다.
+    비영리(NC)       주로 상업적 이익이나 금전적 보상을 목적으로 이용할 수 없습니다.
+
+전문
+    https://creativecommons.org/licenses/by-nc/4.0/legalcode.ko
+    요약  https://creativecommons.org/licenses/by-nc/4.0/deed.ko
+
+    위 링크의 법적 표현이 이 요약보다 우선합니다.
+
+인용 예
+    오한빈, 이근준, 권소라, 이서은 (2026).
+    "save the pet — 반려동물 응급 트리아지 시스템" 설계 문서.
+    SKN 3차 단위 프로젝트. CC BY-NC 4.0.
+    https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN32-3rd-5Team

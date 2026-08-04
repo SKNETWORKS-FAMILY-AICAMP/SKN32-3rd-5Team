@@ -11,7 +11,8 @@ SKN 3차 단위 프로젝트 · 팀 **save the pet**
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?logo=githubactions&logoColor=white)
 ![LangGraph](https://img.shields.io/badge/LangGraph-18%20nodes-3A4F37)
 ![Chroma](https://img.shields.io/badge/ChromaDB-888%20chunks-B3542F)
-![License](https://img.shields.io/badge/license-MIT-lightgrey)
+![License](https://img.shields.io/badge/code-Apache--2.0-lightgrey)
+![Docs License](https://img.shields.io/badge/docs-CC%20BY--NC%204.0-lightgrey)
 <!-- CI 배지를 실제 상태로 바꾸려면:
      ![CI](https://github.com/<계정>/<저장소>/actions/workflows/ci.yml/badge.svg) -->
 
@@ -571,7 +572,26 @@ PETTRIAGE__RETRIEVAL__TOP_K=8 make serve  # 파일을 고치지 않고 한 번�
 
 ## 라이선스
 
-코드는 [MIT](LICENSE). **데이터는 이 라이선스의 적용을 받지 않는다** — 각 자료의
-출처 이용 조건을 따르며, 조건은 `data/manifests/SOURCES_CITED.csv` 에 기록되어 있다.
+**세 부분으로 나뉘며 조건이 각각 다르다.**
+
+| 대상 | 라이선스 | 요약 |
+|---|---|---|
+| **코드** `src/` `scripts/` `tests/` `eval/harness/` `notebooks/` | [Apache-2.0](LICENSE) | 상업적 이용 가능. 저작권 표시 · `NOTICE` 전파 · **변경 사실 표시** 의무 |
+| **문서** `docs/` `eval/reports/` `README.md` | [CC BY-NC 4.0](LICENSE-docs) | 출처를 밝히고 **비상업적**으로 이용 가능 |
+| **데이터** `data/` | **해당 없음** | 각 출처의 이용 조건을 따른다. 원문은 재배포하지 않는다 |
+
+`data/` 는 우리가 권리를 가진 저작물이 아니다. 사실을 추출해 재구성한 `data/facts/` 와
+수집 원장 `data/manifests/` 만 저장소에 있고 **원문 스냅샷은 포함하지 않는다.**
+출처별 이용 판정과 삭제 내역은 [`docs/01d_자료보관규칙.md`](docs/01d_자료보관규칙.md) ·
+`data/manifests/SOURCES_CITED.csv` · `data/manifests/DELETION_LOG.csv` 에 기록되어 있다.
+
+저작권자 표기와 세 갈래 조건은 [`NOTICE`](NOTICE) 에 있다 — Apache-2.0 §4(d)에 따라
+**파생물에도 전파된다.**
+
+> 이 저장소는 **2026-08-04 커밋부터** 위 조건을 적용한다.
+> 그 이전 커밋은 MIT License 로 배포되었으며, **그때 배포된 사본에 대한 허락은 유효하다**
+> (소급되지 않는다).
+
+Copyright (c) 2026 오한빈, 이근준, 권소라, 이서은
 
 본 프로젝트는 **비상업 교육·연구 목적**이며, 의료 행위를 대체하지 않는다.
