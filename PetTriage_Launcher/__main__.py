@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -48,16 +49,45 @@ def _reexec_into_venv() -> None:
     )
 
 
-def _utf8_console() -> None:
-    if os.name == "nt":
-        os.system("")  # ANSI 활성화
-        subprocess.call("chcp 65001 > nul", shell=True)
+def _console_codepage() -> str | None:
+    """지금 콘솔 코드페이지. 한국어 Windows 기본은 949 다."""
+    try:
+        out = subprocess.run(
+            "chcp", shell=True, capture_output=True, text=True, timeout=5
+        ).stdout
+    except Exception:
+        return None
+    m = re.search(r"(\d{3,5})", out)
+    return m.group(1) if m else None
+
+
+def _utf8_console() -> str | None:
+    """한글 출력을 위해 UTF-8 로 바꾸고 **원래 값을 돌려준다.**
+
+    🔴 `chcp 65001` 은 자식 프로세스가 아니라 **콘솔 자체**를 바꾼다. 윈도우는
+       부모 PowerShell 과 같은 콘솔을 공유하므로, 되돌리지 않으면 런처를 닫은 뒤에도
+       그 창의 코드페이지가 65001 로 남는다. 그러면 cp949 로 출력하는 다른 프로그램의
+       한글이 전부 깨져 보인다 (2026-08-04 실제로 겪음).
+
+       **빌린 것은 돌려준다.** 종료 경로 전부에서 복원한다.
+    """
     for s in (sys.stdout, sys.stderr):
         if hasattr(s, "reconfigure"):
             try:
                 s.reconfigure(encoding="utf-8")
             except Exception:
                 pass
+    if os.name != "nt":
+        return None
+    before = _console_codepage()
+    if before != "65001":
+        subprocess.call("chcp 65001 > nul", shell=True)
+    return before
+
+
+def _restore_console(before: str | None) -> None:
+    if os.name == "nt" and before and before != "65001":
+        subprocess.call(f"chcp {before} > nul", shell=True)
 
 
 MENU = """
@@ -80,8 +110,8 @@ MENU = """
 """
 
 
-def main() -> int:
-    _utf8_console()
+def main(_cp: list[str | None]) -> int:
+    _cp[0] = _utf8_console()
     _reexec_into_venv()
 
     import checks
@@ -132,15 +162,23 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # 원래 코드페이지를 담아 둘 자리. **어느 경로로 끝나든 복원한다.**
+    _cp: list[str | None] = [None]
     try:
-        code = main()
-    except SystemExit as e:
+        code = main(_cp)
+    except SystemExit:
+        _restore_console(_cp[0])
         raise
     except Exception:
         import traceback
 
         traceback.print_exc()
         print("\n  예상치 못한 오류입니다. 위 내용을 그대로 알려 주세요.")
-        input("  엔터를 누르면 닫힙니다 ")
+        try:
+            input("  엔터를 누르면 닫힙니다 ")
+        except (EOFError, KeyboardInterrupt):
+            pass
         code = 1
+    finally:
+        _restore_console(_cp[0])
     raise SystemExit(code)
