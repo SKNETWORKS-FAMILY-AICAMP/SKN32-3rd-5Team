@@ -130,7 +130,10 @@ GROUPS: list[dict] = [
             ("eval/reports/결과보고서_제출용/2026-08-04_결과보고서.md", "2026-08-04_결과보고서.md"),
             ("eval/reports/결과보고서_제출용/결과보고서_발표용.pdf", "결과보고서_발표용.pdf"),
             ("eval/reports/결과보고서_제출용/결과보고서_한장요약.html", "결과보고서_한장요약.html"),
-            ("eval/reports/2026-08-03_결과보고서.md", "원자료/2026-08-03_결과보고서_WS3파인튜닝.md"),
+            (
+                "eval/reports/2026-08-03_결과보고서.md",
+                "원자료/2026-08-03_결과보고서_WS3파인튜닝.md",
+            ),
             ("eval/reports/D1.json", "원자료/D1_A_대형LLM.json"),
             ("eval/reports/D1_lc.json", "원자료/D1_A-LC_LangChain.json"),
             ("eval/reports/D1_none.json", "원자료/D1_none_기준선.json"),
@@ -307,7 +310,11 @@ def copy_group(group: dict, dry: bool) -> tuple[list[tuple[str, int]], list[str]
             continue
 
         if dry:
-            size = sum(f.stat().st_size for f in src.rglob("*") if f.is_file()) if src.is_dir() else src.stat().st_size
+            size = (
+                sum(f.stat().st_size for f in src.rglob("*") if f.is_file())
+                if src.is_dir()
+                else src.stat().st_size
+            )
             copied.append((sub, size))
             continue
 
@@ -398,7 +405,9 @@ def write_readme(results: list[tuple[dict, list, list]]) -> None:
                 A(f"| `{name}` | {human(size)} |")
             A("")
         if g["dir"].startswith("03"):
-            A("코드 사본 대신 **경로 지도**를 두었습니다 — `03_구현-코드/README.md` 를 보시면 됩니다.")
+            A(
+                "코드 사본 대신 **경로 지도**를 두었습니다 — `03_구현-코드/README.md` 를 보시면 됩니다."
+            )
             A("")
         if missing:
             A("🔴 **저장소에 없어 담지 못한 것**")
@@ -414,7 +423,9 @@ def write_readme(results: list[tuple[dict, list, list]]) -> None:
     A("**안전은 나중에 거르는 것이 아니라 미리 까는 것이다.**")
     A("일반적인 RAG 는 LLM 이 만든 답을 검증기가 걸러낸다 — 검증기가 뚫리면 방어가 없다.")
     A("이 시스템은 코드가 물질별 최소 등급을 먼저 깔고 LLM 은 그 위로만 움직인다.")
-    A("근거 검증이 300건에서 한 번도 조치를 실행하지 않은 상태에서도 **중대 과소평가는 다섯 판 전부 0건**이었다.")
+    A(
+        "근거 검증이 300건에서 한 번도 조치를 실행하지 않은 상태에서도 **중대 과소평가는 다섯 판 전부 0건**이었다."
+    )
     A("")
 
     (OUT / "README.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -434,7 +445,9 @@ def main() -> int:
                 rmtree(old)
                 print(f"· 옛 이름 폴더를 치웠다 — {old_name}/")
             elif old.is_dir():
-                print(f"⚠️ {old_name}/ 가 남아 있는데 생성물 표시가 없어 두었다. 확인 후 직접 지워라.")
+                print(
+                    f"⚠️ {old_name}/ 가 남아 있는데 생성물 표시가 없어 두었다. 확인 후 직접 지워라."
+                )
 
     if OUT.exists() and not args.dry_run:
         if not (OUT / MARKER).exists():
@@ -459,8 +472,10 @@ def main() -> int:
         total += sum(s for _, s in copied)
         missing_total += len(missing)
         mark = "·" if not missing else "🔴"
-        print(f"{mark} {g['dir']:<22} {len(copied):>2}개  {human(sum(s for _, s in copied)):>8}"
-              + (f"   없음 {len(missing)}건" if missing else ""))
+        print(
+            f"{mark} {g['dir']:<22} {len(copied):>2}개  {human(sum(s for _, s in copied)):>8}"
+            + (f"   없음 {len(missing)}건" if missing else "")
+        )
         for m in missing:
             print(f"     🔴 없음 — {m}")
 
@@ -472,8 +487,10 @@ def main() -> int:
     (OUT / GROUPS[2]["dir"] / "README.md").write_text(CODE_MAP, encoding="utf-8")
     write_readme(results)
 
-    print(f"\n✅ {OUT.relative_to(ROOT)}/  합계 {human(total)}"
-          + (f" · 🔴 없는 파일 {missing_total}건 (README 에 적었다)" if missing_total else ""))
+    print(
+        f"\n✅ {OUT.relative_to(ROOT)}/  합계 {human(total)}"
+        + (f" · 🔴 없는 파일 {missing_total}건 (README 에 적었다)" if missing_total else "")
+    )
 
     if args.zip:
         rev = git_head().split()[0]

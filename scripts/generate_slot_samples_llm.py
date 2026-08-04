@@ -207,7 +207,8 @@ def main() -> int:
         type=str,
         default=None,
         help="쉼표로 구분한 패턴 이름만 생성(예: elapsed_hours_mentioned). "
-        "지정하면 --out에 이어쓴다(append) — 기존 건 안 건드림. 안 주면 전체 패턴을 새로 쓴다(overwrite).",
+        "지정하면 --out에 이어쓴다(append) — 기존 건 안 건드림. "
+        "안 주면 전체 패턴을 새로 쓴다(overwrite).",
     )
     args = ap.parse_args()
 

@@ -100,9 +100,7 @@ def _schema_block(task: Task) -> str:
     shape = "{" + ", ".join(f'"{k}": null' for k in spec.output_keys) + "}"
     return (
         "\n\n[출력 스키마] **아래 키만** 쓴다. 다른 이름의 키를 만들지 않는다.\n"
-        "값을 모르면 그 키를 `null` 로 둔다 — 키를 빼지 않는다.\n\n"
-        + rules
-        + f"\n\n형식: {shape}"
+        "값을 모르면 그 키를 `null` 로 둔다 — 키를 빼지 않는다.\n\n" + rules + f"\n\n형식: {shape}"
     )
 
 

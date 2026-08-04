@@ -750,13 +750,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     #
     # ⚠️ 이 검사도 `--fail-under` 블록 밖으로 꺼냈다. 안에 있던 동안에는
     #    `--fail-missed` 만 주고 돌리면 **아무것도 검사하지 않고 종료코드 0** 이었다.
-    if a.fail_missed is not None and s.missed_urgent_rate is not None:
-        if s.missed_urgent_rate > a.fail_missed:
-            print(
-                f"✗ 등급을 못 낸 긴급 건 {fmt(s.missed_urgent_rate)} > "
-                f"상한 {fmt(a.fail_missed)}"
-            )
-            return 1
+    if (
+        a.fail_missed is not None
+        and s.missed_urgent_rate is not None
+        and s.missed_urgent_rate > a.fail_missed
+    ):
+        print(f"✗ 등급을 못 낸 긴급 건 {fmt(s.missed_urgent_rate)} > 상한 {fmt(a.fail_missed)}")
+        return 1
 
     if a.fail_over is not None:
         s = summarize(results)
