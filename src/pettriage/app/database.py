@@ -77,10 +77,15 @@ def main() -> int:
     기동 시 자동 실행하지 **않는** 이유 — 스키마 생성은 명시적 조작이어야 한다.
     서버가 뜰 때마다 `create_all` 을 부르면 운영 DB 에 조용히 테이블이 생긴다.
     """
-    import os
+    from ..config import get_secrets
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    if not os.getenv("DATABASE_URL"):
+
+    # ⚠️ **`os.getenv` 로 보지 않는다.** `Secrets` 는 `.env` 파일을 직접 읽으므로,
+    #    환경변수만 보면 **`.env` 에 값이 있는데도 "없다"** 고 거부한다.
+    #    앱은 붙는데 초기화 스크립트만 거부해서 `no such table` 로 끝났다 (2026-08-03).
+    #    `scripts/doctor.py` 가 같은 이유로 같은 수정을 받았다.
+    if not get_secrets().database_url:
         print("✗ DATABASE_URL 이 없다. .env 를 확인할 것 (configs/README.md 참조).")
         return 1
     init_db()
