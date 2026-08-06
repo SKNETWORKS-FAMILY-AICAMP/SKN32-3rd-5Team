@@ -3,22 +3,41 @@ Copyright (c) 2026 오한빈, 이근준, 권소라, 이서은
 SKN 3차 단위 프로젝트 (SK네트웍스 Family AI 캠프)
 https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN32-3rd-5Team
 
+Required Notice: Copyright 2026 오한빈, 이근준, 권소라, 이서은 — 팀 save the pet (https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN32-3rd-5Team)
+
 이 배포물은 세 가지로 나뉘며 각각 조건이 다릅니다.
 
-  코드    src/ · scripts/ · tests/ · eval/harness/ · notebooks/
-          Apache License 2.0 (LICENSE)
+  코드    src/ · scripts/ · tests/ · eval/harness/ · configs/ · notebooks/
+          PolyForm Noncommercial License 1.0.0 (LICENSE)
+          비상업적 목적으로만 이용할 수 있습니다.
+          교육기관 · 비영리단체 · 공공기관의 이용은 허용됩니다.
+          ⚠ 예외 — src/pettriage/compute/tables/*.csv 는 코드가 아니라
+            아래 「데이터」에 해당합니다. 경로는 src/ 안이지만
+            사실 표에서 파생된 생성물입니다.
 
-  문서    docs/ · eval/reports/ · README.md
+  문서    docs/ · eval/reports/ · eval/goldenset/ · README.md
           CC BY-NC 4.0 (LICENSE-docs)
           출처를 밝히고 비상업적으로 이용할 수 있습니다.
 
-  데이터  data/
+  데이터  data/ · src/pettriage/compute/tables/*.csv
           이 라이선스들의 적용 대상이 아닙니다.
           각 출처의 이용 조건을 따르며, 원문(raw/·snapshot/)은 재배포하지 않습니다.
+          사실 표의 스키마 · 분류 · 문장화는 본 프로젝트의 산출물이나,
+          각 행이 가리키는 원출처의 이용 조건이 그대로 유효하므로
+          저작권자가 재라이선스를 부여할 수 없습니다.
           수집 경로 · 이용 판정 · 삭제 내역은 data/manifests/ 에 있습니다.
 
-수정하여 재배포하는 경우 Apache License 2.0 §4 에 따라 이 NOTICE 를 함께 실어야 하며,
-변경한 파일에는 변경 사실을 표시해야 합니다.
+재배포하는 경우 PolyForm Noncommercial License 1.0.0 의 「Notices」 절에 따라
+이 NOTICE 와 위 Required Notice 줄을 함께 실어야 합니다.
+문서를 개작해 재배포하는 경우 CC BY-NC 4.0 에 따라 변경 사실을 밝혀야 합니다.
 
-이 저장소는 2026-08-04 커밋부터 위 조건을 적용합니다.
-그 이전 커밋은 MIT License 로 배포되었습니다.
+적용 시점 — 커밋 시점에 따라 조건이 다릅니다.
+
+  ~ 2026-08-03    MIT License
+  2026-08-04 ~    Apache License 2.0
+  2026-08-06 ~    PolyForm Noncommercial License 1.0.0 (코드)
+                  CC BY-NC 4.0 (문서)
+
+이미 배포된 커밋의 조건은 소급하여 변경되지 않습니다.
+
+상업적 이용을 원하시면 저작권자에게 문의해 주십시오.

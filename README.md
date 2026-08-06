@@ -11,8 +11,8 @@ SKN 3차 단위 프로젝트 · 팀 **save the pet**
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?logo=githubactions&logoColor=white)
 ![LangGraph](https://img.shields.io/badge/LangGraph-18%20nodes-3A4F37)
 ![Chroma](https://img.shields.io/badge/ChromaDB-888%20chunks-B3542F)
-![License](https://img.shields.io/badge/code-Apache--2.0-lightgrey)
-![Docs License](https://img.shields.io/badge/docs-CC%20BY--NC%204.0-lightgrey)
+![License](https://img.shields.io/badge/code-PolyForm%20Noncommercial%201.0.0-B3542F)
+![Docs License](https://img.shields.io/badge/docs-CC%20BY--NC%204.0-B3542F)
 <!-- CI 배지를 실제 상태로 바꾸려면:
      ![CI](https://github.com/<계정>/<저장소>/actions/workflows/ci.yml/badge.svg) -->
 
@@ -597,24 +597,35 @@ PETTRIAGE__RETRIEVAL__TOP_K=8 make serve  # 파일을 고치지 않고 한 번�
 
 ## 라이선스
 
-**세 부분으로 나뉘며 조건이 각각 다르다.**
+**세 부분으로 나뉘며 조건이 각각 다르다. 셋 다 상업적 이용을 허용하지 않는다.**
 
 | 대상 | 라이선스 | 요약 |
 |---|---|---|
-| **코드** `src/` `scripts/` `tests/` `eval/harness/` `notebooks/` | [Apache-2.0](LICENSE) | 상업적 이용 가능. 저작권 표시 · `NOTICE` 전파 · **변경 사실 표시** 의무 |
-| **문서** `docs/` `eval/reports/` `README.md` | [CC BY-NC 4.0](LICENSE-docs) | 출처를 밝히고 **비상업적**으로 이용 가능 |
-| **데이터** `data/` | **해당 없음** | 각 출처의 이용 조건을 따른다. 원문은 재배포하지 않는다 |
+| **코드** `src/` `scripts/` `tests/` `eval/harness/` `configs/` `notebooks/` | [PolyForm Noncommercial 1.0.0](LICENSE) | **비상업적 목적으로만.** 교육기관 · 비영리단체 · 공공기관의 이용은 허용된다 |
+| **문서 · 그림 · 골든셋** `docs/` `eval/reports/` `eval/goldenset/` `README.md` | [CC BY-NC 4.0](LICENSE-docs) | 출처를 밝히고 **비상업적**으로 이용 가능 |
+| **데이터 · 규칙표** `data/` `src/pettriage/compute/tables/*.csv` | 🔴 **부여할 수 없다** | 각 출처의 이용 조건을 따른다. 원문은 재배포하지 않는다 |
+
+> ⚠️ **코드는 OSI 오픈소스가 아니다.** 읽고 배우고 비상업적으로 쓰는 것은 자유이나,
+> **상업적 이용은 허용하지 않는다.** 상업 이용을 원하면 저작권자에게 문의한다.
+
+> ⚠️ `src/pettriage/compute/tables/*.csv` 는 **경로가 `src/` 안이지만 코드가 아니다.**
+> 사실 표에서 파생된 생성물이라 데이터와 같은 조건이다.
 
 `data/` 는 우리가 권리를 가진 저작물이 아니다. 사실을 추출해 재구성한 `data/facts/` 와
 수집 원장 `data/manifests/` 만 저장소에 있고 **원문 스냅샷은 포함하지 않는다.**
 출처별 이용 판정과 삭제 내역은 [`docs/01d_자료보관규칙.md`](docs/01d_자료보관규칙.md) ·
 `data/manifests/SOURCES_CITED.csv` · `data/manifests/DELETION_LOG.csv` 에 기록되어 있다.
 
-저작권자 표기와 세 갈래 조건은 [`NOTICE`](NOTICE) 에 있다 — Apache-2.0 §4(d)에 따라
-**파생물에도 전파된다.**
+저작권자 표기와 세 갈래 조건은 [`NOTICE`](NOTICE) 에 있다 — PolyForm 의 「Notices」 절에 따라
+`Required Notice:` 줄과 함께 **파생물에도 전파된다.**
 
-> 이 저장소는 **2026-08-04 커밋부터** 위 조건을 적용한다.
-> 그 이전 커밋은 MIT License 로 배포되었다.
+**커밋 시점에 따라 조건이 다르다.** 이미 배포된 커밋의 조건은 **소급하여 변경되지 않는다.**
+
+| 시점 | 코드 | 문서 |
+|---|---|---|
+| ~ 2026-08-03 | MIT | MIT |
+| 2026-08-04 ~ 08-05 | Apache-2.0 | CC BY-NC 4.0 |
+| **2026-08-06 ~** | **PolyForm Noncommercial 1.0.0** | CC BY-NC 4.0 |
 
 Copyright (c) 2026 오한빈, 이근준, 권소라, 이서은
 
