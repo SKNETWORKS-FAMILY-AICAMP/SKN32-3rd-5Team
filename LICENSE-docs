@@ -4,9 +4,10 @@
 Copyright (c) 2026 오한빈, 이근준, 권소라, 이서은
 
 적용 범위
-    docs/ · eval/reports/ · README.md
-    (코드는 Apache License 2.0 — 최상위 LICENSE 파일을 따릅니다.
-     data/ 는 어느 라이선스의 대상도 아닙니다 — NOTICE 참조.)
+    docs/ · docs/그림/ · eval/reports/ · eval/goldenset/ · README.md
+    (코드는 PolyForm Noncommercial License 1.0.0 — 최상위 LICENSE 파일을 따릅니다.
+     data/ 와 src/pettriage/compute/tables/*.csv 는 저작권자가 라이선스를
+     부여할 수 없습니다 — NOTICE 참조.)
 
 허락하는 것
     복제 · 배포 · 개작 — 출처를 밝히고 비상업적 목적으로
