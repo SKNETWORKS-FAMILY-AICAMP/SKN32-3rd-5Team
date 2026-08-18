@@ -4,14 +4,23 @@
 
 ## 시작
 
+가장 쉬운 길은 **`실행.bat` 더블클릭**(macOS·Linux 는 `python PetTriage_Launcher`)이다.
+설치·`.env` 설정·인덱스 빌드·테스트를 메뉴에서 고를 수 있다.
+
+직접 치려면:
+
 ```bash
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 make install      # 의존성 + pre-commit 훅
-make test         # 68 tests
+pytest            # 589 passed, 22 deselected
 make serve        # http://127.0.0.1:8000
 ```
 
 GPU가 없어도 여기까지는 전부 돈다. 학습 의존성은 `.[train]` 으로 분리되어 있다.
+
+> 🪟 **Windows 에는 `make` 가 없다.** `Makefile` 을 열면 각 타깃이 실행하는 명령이 그대로
+> 적혀 있으니 그것을 직접 쓴다. CI 는 우분투에서 `make lint` 를 부르므로, 로컬에서는
+> `ruff check src tests scripts eval` · `ruff format --check src tests scripts eval` 로 같은 검사를 한다.
 
 ## 브랜치와 PR
 
@@ -26,50 +35,60 @@ GPU가 없어도 여기까지는 전부 돈다. 학습 의존성은 `.[train]` �
 
 | 항목 | 규칙 |
 |---|---|
-| `main` | 보호. **직접 푸시하지 않는다** |
+| `main` | **직접 푸시하지 않는다.** PR 로만 들어간다 |
 | PR | CI 통과 + 리뷰 1인 |
 | PR 제목 | **작업 내용을 말해야 한다** — 브랜치명이 `lgj` 라 제목이 유일한 단서다.<br>`feat(ws2): 근거 검증 노드 추가` · `fix(ws1): 단위 변환 오류` |
-| 커밋 | `feat(ws2): ...` · `fix(ws1): ...` · `docs: ...` |
+| 커밋 | `feat(...)` · `fix(...)` · `docs: ...` · `chore: ...` |
 
 ```bash
 git clone https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN32-3rd-5Team.git
 cd SKN32-3rd-5Team
-git checkout lgj            # 자기 브랜치
+git checkout <자기-브랜치>
 ```
 
 ## 개인 브랜치를 쓸 때 반드시 지킬 것
 
 개인 브랜치는 작업 단위 브랜치와 달리 **머지 후에도 살아남는다.** 그래서 두 가지가 필요하다.
 
-**① 주 2회 회의 때 `main` 을 각자 브랜치로 가져온다.**
+### ① 회의 때마다 `main` 을 자기 브랜치로 가져온다
 
 ```bash
-git checkout lgj
-git fetch origin
-git merge origin/main       # 충돌은 지금 푸는 게 싸다
-git push
+git fetch origin --prune
+git checkout <자기-브랜치>
+git merge --ff-only origin/<자기-브랜치>   # 다른 기기에서 푸시한 것을 먼저 받는다
+git merge --ff-only origin/main            # 거부되면 갈라진 것 → git merge origin/main
+git push origin <자기-브랜치>
 ```
 
-미루면 브랜치가 `main` 에서 멀어지고, **막판에 4명 것이 한꺼번에 충돌한다.** 4주 일정에서 이게 가장 흔한 사고다.
+`--ff-only` 를 쓰는 이유는 **안 되면 그냥 거부하기 때문**이다. 병합 커밋을 몰래 만들거나
+충돌 상태로 빠뜨리지 않는다.
 
-**② PR은 작게, 자주 보낸다.**
+미루면 브랜치가 `main` 에서 멀어지고, **막판에 네 사람 것이 한꺼번에 충돌한다.**
+일주일짜리 일정에서 이게 가장 비싼 사고다.
+
+> PR 을 머지하면 GitHub 가 `main` 에 병합 커밋을 만든다. 그 커밋은 `main` 에만 생기므로
+> **PR 을 보낸 뒤에도 자기 브랜치는 그대로 뒤처져 있다.** `N commits behind` 는 정상이고,
+> 다음 작업 전에 위 절차로 따라잡으면 된다.
+
+### ② PR은 작게, 자주 보낸다
 
 브랜치가 오래 살아도 PR까지 크면 리뷰가 불가능해진다. 기능 하나가 끝나면 그때 보낸다 —
-`lgj → main` PR 하나에 2주치를 담지 않는다.
+PR 하나에 2주치를 담지 않는다.
 
 ## 반드시 지키는 것
 
-**① 새 판단 지점이 생기면 3문을 먼저 적용한다** (docs/05 §1).
+**① 새 판단 지점이 생기면 3문을 먼저 적용한다** (`docs/05` §1).
 결과를 `docs/06_설계결정기록.md` 에 D 번호로 남기고, **트레이드오프 문장을 함께 적는다.**
 감수한 것을 적지 않은 "왜"는 자기 합리화다.
 
-**② LLM에 맡기기로 했다면 같은 PR에 검증 코드를 넣는다** (docs/05 §6).
+**② LLM에 맡기기로 했다면 같은 PR에 검증 코드를 넣는다** (`docs/05` §6).
 
 **③ 안전 관련 조정은 위험도 상향 방향으로만 한다.**
 `src/pettriage/triage/` 를 고치는 PR은 `tests/test_triage_gate.py` 가 반드시 통과해야 한다.
+🔒 표시가 붙은 결정(하향 금지 게이트 · 과소평가율)을 건드리면 **검토를 한 번 더 받는다.**
 
-**④ 자료를 수집하기 전에 게이트를 통과시킨다** (docs/05 §8.1).
-받고 나서 버리지 않는다.
+**④ 자료를 수집하기 전에 이용 조건 게이트를 통과시킨다** (`docs/05` §8.1).
+받고 나서 버리지 않는다 — 실제로 62건 중 15건을 약관 때문에 버렸다.
 
 **⑤ 파라미터를 코드에 박지 않는다.** `configs/*.yaml` 로 뺀다.
 실험 보고 시 그 YAML과 `constraints.txt` 커밋 해시를 함께 적으면 재현이 성립한다 (04 §8).
@@ -78,27 +97,74 @@ git push
 모듈 최상단으로 올리면 GPU 없는 팀원과 CI가 깨진다. CI의 `test` job이 `.[api,dev]` 만
 설치하는 것으로 이 제약이 강제된다.
 
+**⑦ 🔴 의존성이 늘어난 모듈은 분류가 바뀐 것이다.**
+어떤 모듈이 `sqlalchemy`·`jwt` 처럼 `[db]` 에만 있는 것을 임포트하기 시작했다면, 그 모듈은
+**그날부터 DB 모듈**이다. `app/routes/__init__.py` 의 조건부 블록으로 옮긴다.
+
+> 2026-08-08 에 `records.py` 가 이 규칙을 어겨 **앱이 통째로 임포트 실패**했다.
+> 임포트 한 줄이 늘었을 뿐이라고 읽으면 **그 모듈이 어느 목록에 있어야 하는지를 다시 묻지 않게 된다** (D-98 연관).
+
+**⑧ 🔴 결정을 폐기하면 「구현될 자리」에도 폐기 표시를 남긴다** (D-98).
+`docs/06` 에 적는 것으로 끝내지 않는다. 그 결정이 구현될 모듈의 머리말·노드 안내·부품표에
+**폐기 사실과 사유**를 적는다.
+
+> 문장 제거는 실측 근거로 폐기됐는데 그 사실이 문서 네 곳에만 있었고, `verify.py` 머리말에
+> *"문장 제거"* 라는 한 줄이 남아 있었다. 그래서 **성실하게 구현돼 들어왔다.**
+> **읽는 사람이 있는 자리에 최신 상태가 없으면, 낡은 쪽이 실행된다.**
+
+**⑨ 두 곳에 같은 것을 적지 않는다** (D-22 · D-96).
+`.gitignore` ↔ `check_no_data.sh`, `Makefile` ↔ `ci.yml`, 규칙 테이블 ↔ 사실 표처럼
+짝지어진 곳은 **한쪽을 고치면 반드시 다른 쪽도 본다.**
+
+> `Makefile` 의 린트 경로를 고쳤는데 `ci.yml` 이 자기 목록을 따로 갖고 있어,
+> **`make lint` 는 빨간데 CI 는 초록인 상태**가 이틀 갔다.
+> 그래서 지금 `ci.yml` 은 경로를 적지 않고 `make lint` 를 부른다.
+
+**⑩ 검증하지 않은 가정을 테스트로 적지 않는다** (D-87).
+`assert` 를 새로 쓰면 **반드시 한 번 실행해 본다.** 실행하지 않은 단언은
+**가정을 사실로 보이게 만든다.** 실행 중 존재할 수 없는 상태를 손으로 만든 테스트도 같다.
+
+## 테스트를 읽는 법
+
+- **`pytest` 에 `-q` 를 붙이지 않는다.** `addopts` 에 이미 있어 `-qq` 가 되면
+  실패한 테스트의 이름조차 안 나온다. CI 는 `-v` 로 상쇄한다
+- **`1 skipped` 를 한 건으로 읽지 않는다.** 모듈 단위 스킵이면 파일 하나가 통째로 빠진 것이다
+- **더 많이 설치하는 CI 잡만 초록이면 의존성 누락이다.** `test`(`[api,dev]`)가 빨갛고
+  `db-deps`(`[api,db,dev]`)가 초록이면 코드가 아니라 **선언**을 본다
+
 ## 커밋하지 않는 것
 
 | 대상 | 이유 |
 |---|---|
 | `data/` 아래 자료 파일 | 이용약관 제약 (D-29). `git add -f` 를 쓰지 않는다 |
-| `artifacts/` 학습 어댑터 | 용량. 재현은 `configs/` + `constraints.txt` + 시드로 한다 |
-| `.env` | 비밀 |
+| 학습 어댑터 (`.safetensors` · `.bin` · `.gguf` · `.pt` · `.ckpt`) | 용량 (D-41). 재현은 `configs/` + `constraints.txt` + 시드로 한다 |
+| 벡터 인덱스 (`.chroma/`) | 각자 만든다 (D-44 · D-53) |
+| `.env` · DB 파일 | 비밀 |
+| **실사용 입력으로 돌린 결과 JSON** | 공개 저장소다. `eval/reports/` 는 추적되므로 특히 주의한다 |
 
 `pre-commit` 훅과 CI의 `no-data-committed` job이 이중으로 막는다.
 
-## 워크스트림별 진입점
+## 어디를 고치나
 
-| WS | 담당 | 주 작업 파일 |
-|---|---|---|
-| WS1 데이터 | 수집·전처리·인덱싱 | `src/pettriage/ingest/` · `data/manifests/` |
-| WS2 RAG | 그래프·검색·판정 | `src/pettriage/graph/` · `retrieval/` · `triage/` |
-| WS3 sLLM | 학습·서빙 | `src/pettriage/models/` · `configs/train.yaml` |
-| WS4 평가 | 골든셋·지표 | `eval/` · `src/pettriage/tools/` |
-| WS5 UI | 화면 | `web/` · `src/pettriage/app/` |
+| 영역 | 주 작업 파일 |
+|---|---|
+| 데이터 — 수집·전처리·인덱싱 | `src/pettriage/ingest/` · `data/manifests/` |
+| RAG — 그래프·검색·판정 | `src/pettriage/graph/` · `retrieval/` · `triage/` · `compute/` |
+| sLLM — 학습·서빙 | `src/pettriage/models/` · `configs/train.yaml` |
+| 평가 — 골든셋·지표 | `eval/` · `src/pettriage/tools/` |
+| API · 화면 | `src/pettriage/app/` · `src/pettriage/app/web/` |
 
-## 문서
+폴더마다 `README.md` 가 있어 **무엇이 들어가고 무엇이 들어가면 안 되는지**를 그 자리에서 알 수 있다.
 
-문서가 기준이고 코드가 따라간다. 코드와 문서가 어긋나면 **어느 쪽이 맞는지 먼저 정하고**
-한쪽만 고치지 않는다. 다이어그램(`docs/` 밖 배포본)도 같은 규칙을 따른다.
+## 문서와 코드가 어긋났을 때
+
+**어느 쪽이 맞는지 먼저 정하고, 한쪽만 고치지 않는다.**
+
+다만 판정 기준이 있다.
+
+> **선언과 실제가 어긋나면, 거짓말하는 쪽은 대개 선언이다.**
+> 문서·주석·테스트 이름은 낡을 수 있지만 **실행되는 코드는 낡지 않는다.**
+> 그러니 **먼저 실물을 다시 읽고**, 그다음에 어느 쪽을 고칠지 정한다.
+
+다이어그램도 같은 규칙을 따른다. `docs/그림/질의그래프.*` 는 **손으로 그리지 않는다** —
+`python scripts/draw_graph.py` 가 `build_graph()` 에서 뽑는다. 그래프를 고쳤으면 다시 뽑는다.

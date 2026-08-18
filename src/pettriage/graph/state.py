@@ -131,6 +131,9 @@ class GraphState(TypedDict, total=False):
     #: 없는 경우)와 구분할 방법이 없다.
     monitor_without_conditions: bool
     escalation_conditions: list[str]
+    #: 게이트가 LLM의 하향 판정을 막았는가 (`triage.gate.apply_gate` 정의).
+    #: `contracts.TriageResult` 가 rule_level·llm_level 과 대조해 검증한다.
+    overridden: bool
 
     # ── ④ 근거 검증 ─────────────────────────────────────────
     verdicts: list[dict[str, str]]  # 문장별 근거있음/근거없음/모순
@@ -231,6 +234,7 @@ def initial_state(question: str, session_id: str, **kw: Any) -> GraphState:
         "rule_level": None,
         "llm_level": None,
         "triage_level": None,
+        "overridden": False,
     }
     st.update(kw)  # type: ignore[typeddict-item]
     return st
