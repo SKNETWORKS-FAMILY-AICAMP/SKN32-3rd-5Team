@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PetTriage — 기록장</title>
+<title>STP — 기록장</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -59,6 +59,13 @@
   .main{ flex:1; min-width:0; display:flex; flex-direction:column; height:100vh; }
   .topbar{ display:flex; align-items:center; padding: 18px 30px; border-bottom:1px solid var(--line); flex-shrink:0; background: var(--surface); }
   .menu-btn{ display:none; }
+  .welcome-chip{
+    display:inline-flex; align-items:center; gap:6px;
+    padding: 6px 12px; border-radius: 999px;
+    background: var(--moss-soft); color: var(--moss-dark);
+    font-size: 12.5px; font-weight: 600; white-space:nowrap;
+    flex-shrink:0; margin-left:auto;
+  }
   .topbar-copy .eyebrow{ font-size:11px; font-weight:700; color: var(--moss-dark); background: var(--moss-soft); display:inline-block; padding:4px 10px; border-radius:999px; margin-bottom:8px; }
   .topbar-copy h1{ font-family:'Noto Serif KR', serif; font-size:20px; font-weight:700; margin:0 0 4px; }
   .topbar-copy p{ font-size:12.5px; color: var(--ink-soft); margin:0; }
@@ -212,7 +219,7 @@
       <span class="logo-mark">
         <svg viewBox="0 0 24 24" fill="none"><path d="M12 14c-3.5 0-6.5 2.2-6.5 5.2 0 1 .8 1.8 1.8 1.8h9.4c1 0 1.8-.8 1.8-1.8 0-3-3-5.2-6.5-5.2Z" fill="#fff"/><circle cx="6" cy="8" r="2.3" fill="#fff"/><circle cx="18" cy="8" r="2.3" fill="#fff"/><circle cx="9.3" cy="4.6" r="2" fill="#fff"/><circle cx="14.7" cy="4.6" r="2" fill="#fff"/></svg>
       </span>
-      <span class="logo-text">PetTriage</span>
+      <span class="logo-text">Save The Pet</span>
     </div>
     <div class="sidebar-profile">
       <div class="av" id="sbAvatar">🐶</div>
@@ -245,6 +252,7 @@
       <h1>기록장</h1>
       <p id="topP">콩이와 함께한 하루하루를 남겨보세요.</p>
     </div>
+    <span class="welcome-chip" id="welcomeChip"></span>
   </div>
 
   <div class="split">
@@ -329,6 +337,13 @@ if(!authToken){
 function authHeader(){
   return { 'Authorization': 'Bearer ' + authToken };
 }
+
+/* ---- 우측 상단 환영 문구 ---- */
+(function fillWelcome(){
+  const nick = sessionStorage.getItem('ptt_nickname');
+  const el = document.getElementById('welcomeChip');
+  if(nick && el){ el.innerHTML = `🐾 ${nick}님 환영합니다`; }
+})();
 async function api(path, opts){
   const r = await fetch(path, opts);
   if(r.status === 401){
@@ -722,7 +737,7 @@ function renderFormMode(entry){
     <div class="entry-date-head">
       <div>
         <h2>${pretty(selectedDate)}</h2>
-        <div class="sub">${isNew ? '아직 기록이 없어요. 오늘을 남겨볼까요?' : '기록을 수정하고 있어요 (새 기록으로 저장돼요)'}</div>
+        <div class="sub">${isNew ? '아직 기록이 없어요. 오늘을 남겨볼까요?' : '기록을 수정하고 있어요'}</div>
       </div>
     </div>
 

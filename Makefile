@@ -1,4 +1,4 @@
-.PHONY: help doctor install initdb serve test todo lint fmt verify facts golden eval rules vocab index train up db down docker clean
+.PHONY: help doctor install initdb serve test todo lint fmt verify facts golden eval submit rules vocab index train up db down docker clean
 
 help:            ## 이 목록
 	@grep -E '^[a-z-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -60,6 +60,15 @@ vocab:           ## 사실 표 → 물질 어휘 폐쇄 목록 재생성 (D-59 �
 eval:            ## 골든셋 평가 (정확도 + 지연). 게이트 포함
 	PETTRIAGE_PROFILE=eval python eval/harness/run_eval.py --json eval/reports/latest.json \
 		--fail-under 0.05 --fail-missed 0.30 --min-graded 10
+
+# 필수 산출물 넷을 `제출/` 한 폴더로 모은다. **손으로 모으지 않는다** —
+# 사본이 원본과 어긋나는 순간 어느 쪽이 진짜인지 알 수 없게 된다 (D-22).
+# `제출/` 은 커밋하지 않는다. 제출은 `make submit-zip` 이 만든 묶음을 올린다.
+submit:          ## 필수 산출물 넷을 제출/ 폴더로 모은다 (생성물이다)
+	python scripts/make_submission.py
+
+submit-zip:      ## 제출/ + 제출_<커밋>.zip
+	python scripts/make_submission.py --zip
 
 index:           ## 사실 표 → 청크 **+ Chroma 적재** (D-44)
 	python scripts/build_index.py --store chroma

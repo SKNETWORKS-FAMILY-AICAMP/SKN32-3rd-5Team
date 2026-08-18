@@ -38,8 +38,17 @@ REQUIRED_SLOTS = {
 #:
 #: 부분 일치로 본다 — `"뭔가 하얀 가루"` 처럼 꾸밈말이 붙어 온다.
 _VAGUE_SURFACES: tuple[str, ...] = (
-    "뭔가", "무언가", "뭘까", "뭔지", "미상", "모름", "모르겠", "알 수 없",
-    "이상한", "정체불명", "unknown",
+    "뭔가",
+    "무언가",
+    "뭘까",
+    "뭔지",
+    "미상",
+    "모름",
+    "모르겠",
+    "알 수 없",
+    "이상한",
+    "정체불명",
+    "unknown",
 )
 
 
@@ -157,7 +166,6 @@ def _resolvable(surface: str, species: str | None) -> bool:
     if res.name or res.candidates:
         return True
     return bool(species and resolve_substance(surface, None).name)
-
 
 
 def _llm_slots(question: str) -> dict | None:

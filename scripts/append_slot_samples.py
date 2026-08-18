@@ -90,7 +90,10 @@ def main() -> int:
         )
         next_id += 1
 
-    print(f"패턴 {args.pattern!r}: 후보 {len(picked)}건 · 중복 스킵 {skipped_dupe}건 · 추가 {len(new_rows)}건")
+    print(
+        f"패턴 {args.pattern!r}: 후보 {len(picked)}건 · "
+        f"중복 스킵 {skipped_dupe}건 · 추가 {len(new_rows)}건"
+    )
     print(f"  target = 교사 판정 {teacher_used}건 · 생성값(교사 실패) {gen_used}건")
 
     if args.dry_run:

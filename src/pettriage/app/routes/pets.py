@@ -1,5 +1,3 @@
-# 0802 권소라 내용 추가 : def update_pet, def delete_pet 내용 추가 / import PetUpdate, import Response 추가
-
 """반려동물 프로필 라우터.
 
     POST /api/pets            등록
@@ -20,7 +18,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from ..contracts import PetCreate, PetResponse, PetUpdate
@@ -124,6 +122,15 @@ def delete_pet(
     pet = db.query(Pet).filter(Pet.pet_id == pet_id, Pet.user_id == user_id).first()
     if not pet:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "반려동물을 찾을 수 없습니다.")
+
+    # 마지막 한 마리는 지울 수 없다.
+    # 프론트에서도 버튼을 막지만 API 를 직접 부르는 경로가 있으니 여기서도 확인한다.
+    remaining = db.query(Pet).filter(Pet.user_id == user_id).count()
+    if remaining <= 1:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "마지막 반려동물은 삭제할 수 없습니다. 새 반려동물을 먼저 등록해 주세요.",
+        )
 
     db.delete(pet)
     db.commit()

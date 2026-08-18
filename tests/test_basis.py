@@ -274,4 +274,3 @@ class Test행동문장:
             if hit:
                 offenders.append((r["case_id"], r["expected_triage"], hit))
         assert not offenders, f"행동 문장을 실으면 이 건들이 실패로 돌아선다: {offenders}"
-

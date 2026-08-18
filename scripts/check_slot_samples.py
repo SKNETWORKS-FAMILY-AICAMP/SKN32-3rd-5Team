@@ -38,9 +38,12 @@ from pettriage.models.tasks import SPECS, Task  # noqa: E402
 #: 어휘 자체는 겹치지만, 여기는 "타깃에 이미 박힌 오류값을 고치는" 좁은 용도라
 #: 별도로 둔다 — 질문 문장을 훑는 추출기가 아니다.
 _SPECIES_KO_TO_EN = {
-    "개": "dog", "강아지": "dog",
-    "고양이": "cat", "냥이": "cat",
-    "앵무새": "bird", "새": "bird",
+    "개": "dog",
+    "강아지": "dog",
+    "고양이": "cat",
+    "냥이": "cat",
+    "앵무새": "bird",
+    "새": "bird",
 }
 
 #: amount_g가 실은 "개수"였을 가능성을 표시하는 어휘 — D-89 key_hints의
@@ -57,7 +60,9 @@ def _load(path: Path) -> list[dict]:
 def main() -> int:
     ap = argparse.ArgumentParser(description="② 슬롯 학습 데이터 정합성 검사")
     ap.add_argument("--path", type=Path, default=ROOT / "data" / "train" / "samples.jsonl")
-    ap.add_argument("--fix", action="store_true", help="키 누락·스키마 밖 키·species 한글만 고쳐 저장")
+    ap.add_argument(
+        "--fix", action="store_true", help="키 누락·스키마 밖 키·species 한글만 고쳐 저장"
+    )
     args = ap.parse_args()
 
     output_keys = SPECS[Task.SLOT].output_keys
@@ -106,7 +111,9 @@ def main() -> int:
             # 🔴 자동 수정 안 함 — 표시만.
 
         row = dict(row)
-        row["target"] = json.dumps(target, ensure_ascii=False) if isinstance(raw_target, str) else target
+        row["target"] = (
+            json.dumps(target, ensure_ascii=False) if isinstance(raw_target, str) else target
+        )
         out_rows.append(row)
 
     total_slot = sum(1 for r in rows if r.get("task") == "slot")
@@ -116,7 +123,9 @@ def main() -> int:
     print(f"  키 누락             {missing_key_rows:>5}건  → null 채움{tag}")
     print(f"  스키마 밖 키         {off_schema_rows:>5}건  → 버림{tag}  {sorted(off_schema_names)}")
     print(f"  species 한글         {species_ko_rows:>5}건  → dog/cat/bird 로{tag}")
-    print(f"  amount_g 개수 의심    {len(amount_suspect):>5}건  → 🔴 사람이 봐야 함 (자동 수정 금지)")
+    print(
+        f"  amount_g 개수 의심    {len(amount_suspect):>5}건  → 🔴 사람이 봐야 함 (자동 수정 금지)"
+    )
     if amount_suspect:
         for sid, q, amt in amount_suspect[:30]:
             print(f"    {sid}: {q!r}  amount_g={amt}")

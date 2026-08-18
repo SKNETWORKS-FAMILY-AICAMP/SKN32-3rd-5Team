@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>SKN 3차 프로젝트 — 시스템 설계 한 장 요약</title>
+<style>
+  :root{
+    color-scheme: light;
+    --surface-1:#fcfcfb; --plane:#f9f9f7; --line:#e3e2dd; --line-soft:#eeede9;
+    --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#7a7975;
+    --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --critical:#d03b3b;
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s7:#4a3aa7;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:where(:not([data-theme="light"])){
+      color-scheme: dark;
+      --surface-1:#1a1a19; --plane:#0d0d0d; --line:#383835; --line-soft:#2a2a28;
+      --ink:#ffffff; --ink-2:#c3c2b7; --ink-3:#93928a;
+      --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --critical:#d03b3b;
+      --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s7:#9085e9;
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--plane); color:var(--ink);
+    font-family:"Pretendard","Noto Sans CJK KR","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+    font-size:10.2px; line-height:1.45; padding:14px;
+  }
+  .sheet{max-width:1080px;margin:0 auto;background:var(--surface-1);border:1px solid var(--line);
+    border-radius:8px;padding:16px 18px 14px}
+  h1{font-size:17px;margin:0;letter-spacing:-.02em;font-weight:700}
+  .sub{color:var(--ink-2);font-size:10.5px;margin-top:3px}
+  .meta{color:var(--ink-3);font-size:9.5px;text-align:right;white-space:nowrap}
+  header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;
+    border-bottom:2px solid var(--ink);padding-bottom:9px;margin-bottom:11px}
+  h2{font-size:10.5px;margin:0 0 5px;letter-spacing:.06em;color:var(--ink-2);
+    font-weight:700;text-transform:uppercase}
+  .grid{display:grid;gap:11px}
+  .g2{grid-template-columns:1fr 1fr}
+  .g3{grid-template-columns:1fr 1fr 1fr}
+  .g21{grid-template-columns:1.3fr 1fr}
+  section{margin-bottom:11px}
+  .card{border:1px solid var(--line);border-radius:6px;padding:9px 10px;background:var(--surface-1)}
+  .card.accent{border-left:3px solid var(--s1)}
+  .card.accent2{border-left:3px solid var(--s2)}
+  .card.accent3{border-left:3px solid var(--s3)}
+  .card.crit{border-left:3px solid var(--critical)}
+  .axis-t{font-weight:700;font-size:11px;margin-bottom:3px;color:var(--ink)}
+  .axis-d{color:var(--ink-2);font-size:9.8px}
+  code{font-family:"DejaVu Sans Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;font-size:9.3px;
+    background:var(--line-soft);padding:.5px 3px;border-radius:3px;color:var(--ink);white-space:nowrap}
+  .flow{display:flex;align-items:stretch;gap:0;flex-wrap:nowrap;overflow:hidden}
+  .step{flex:1;border:1px solid var(--line);border-radius:5px;padding:6px 4px;text-align:center;
+    background:var(--surface-1);min-width:0}
+  .step b{display:block;font-size:9.4px;line-height:1.25}
+  .step span{display:block;color:var(--ink-3);font-size:8.4px;margin-top:2px;line-height:1.2}
+  .step.code{background:#eef4fb;border-color:#c4d9f0}
+  .step.llm{background:#f7f0ea;border-color:#e6d2c1}
+  @media (prefers-color-scheme: dark){
+    :root:where(:not([data-theme="light"])) .step.code{background:#16263a;border-color:#2c4c73}
+    :root:where(:not([data-theme="light"])) .step.llm{background:#3a2a1e;border-color:#6b4a2e}
+  }
+  .arw{display:flex;align-items:center;color:var(--ink-3);padding:0 2px;font-size:10px;flex:0 0 auto}
+  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+  .kpi{border:1px solid var(--line);border-radius:6px;padding:7px 9px}
+  .kpi .lab{color:var(--ink-2);font-size:9.2px}
+  .kpi .val{font-size:21px;font-weight:600;letter-spacing:-.02em;line-height:1.15;margin-top:1px}
+  .kpi .note{color:var(--ink-3);font-size:8.7px;margin-top:1px}
+  .bar{display:flex;height:16px;border-radius:4px;overflow:hidden;gap:2px;margin:6px 0 5px}
+  .bar div{display:flex;align-items:center;justify-content:center;font-size:8.6px;font-weight:700;
+    color:#0b0b0b;white-space:nowrap}
+  .bar div.on-dark{color:#fff}
+  .lgd{display:flex;gap:12px;flex-wrap:wrap;color:var(--ink-2);font-size:9.2px}
+  .lgd i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+  table{width:100%;border-collapse:collapse;font-size:9.5px}
+  th,td{text-align:left;padding:3.5px 6px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  th{color:var(--ink-2);font-weight:700;font-size:9px;letter-spacing:.03em}
+  td.n,th.n{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+  tr.hi td{background:var(--line-soft)}
+  .tag{display:inline-block;padding:.5px 5px;border-radius:9px;font-size:8.6px;font-weight:700;
+    border:1px solid currentColor;white-space:nowrap}
+  .t-good{color:var(--good)} .t-warn{color:var(--serious)} .t-crit{color:var(--critical)}
+  ul{margin:3px 0 0;padding-left:15px} li{margin-bottom:2.5px;color:var(--ink-2)}
+  li b{color:var(--ink)}
+  .quote{border-left:2px solid var(--line);padding-left:8px;color:var(--ink-2);font-size:9.6px;margin:5px 0 0}
+  .big{font-size:12px;font-weight:700;color:var(--ink);letter-spacing:-.01em;line-height:1.35}
+  footer{border-top:1px solid var(--line);margin-top:11px;padding-top:7px;
+    display:flex;justify-content:space-between;gap:14px;color:var(--ink-3);font-size:9px;flex-wrap:wrap}
+  .docmap b{color:var(--ink-2)}
+  @media print{
+    @page{size:A4 landscape;margin:8mm}
+    body{background:#fff;padding:0;font-size:7.3px;line-height:1.28}
+    .sheet{border:none;max-width:none;padding:0;background:#fff}
+    h1{font-size:12px} .sub{font-size:7.7px} .meta{font-size:6.9px}
+    header{padding-bottom:4px;margin-bottom:5px}
+    h2{font-size:7.6px;margin-bottom:2.5px}
+    section{margin-bottom:3px} .grid{gap:4.5px} .kpis{gap:4.5px}
+    .card{padding:4.5px 6px} .axis-t{font-size:8px} .axis-d{font-size:7.1px}
+    .step{padding:3px 2px} .step b{font-size:6.8px} .step span{font-size:6.1px}
+    .kpi{padding:4px 6px} .kpi .val{font-size:14px} .kpi .lab{font-size:6.8px} .kpi .note{font-size:6.4px}
+    .bar{height:10px;margin:3px 0 2px} .bar div{font-size:6.2px} .lgd{font-size:6.7px;gap:7px}
+    table{font-size:7px} th,td{padding:1.8px 3.5px} th{font-size:6.6px}
+    code{font-size:6.8px} .quote{font-size:7px;margin-top:3px;padding-left:6px} .big{font-size:9px}
+    ul{padding-left:12px} li{margin-bottom:1.1px}
+    footer{margin-top:3.5px;padding-top:3px;font-size:6.5px}
+    .card,.step,.kpi,.sheet{break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+<header>
+  <div>
+    <h1>반려동물 헬스케어 다이어리 &amp; 응급 대응 — 시스템 설계 요약</h1>
+    <div class="sub"><b>RAG가 근거를 가져오고, 코드가 등급을 판정하며, LLM은 그 위로만 움직인다.</b>
+      대상 종 <b>개 · 고양이 · 앵무새</b></div>
+  </div>
+  <div class="meta">SKN 3차 단위 프로젝트<br>작성자 <b>오한빈</b> (팀장)<br>2026-08-04 (최종)</div>
+</header>
+
+<section>
+  <h2>1 · 판단 기준 — 두 축 (문서 05)</h2>
+  <div class="grid g2">
+    <div class="card accent">
+      <div class="axis-t">축① 결정론은 코드로, 판단·해석만 LLM에게</div>
+      <div class="axis-d">조각을 붙일 때마다 3문을 던진다. ① 자연어 이해·생성이 꼭 필요한가 → 아니면 코드.
+        ② 같은 입력에 같은 답이 나와야 하나 → 규칙으로. ③ 규칙 먼저, 안 잡히는 것만 LLM.
+        <b>경계가 애매하면 코드 쪽으로 기운다.</b>
+        <div class="quote" style="margin-top:4px"><b>실측이 이 축을 확인했다</b> — 정량 유형(<code>dose</code> 15건)은
+          <b>규칙만으로 통과 93.3%</b>이고 LLM을 붙여도 그대로다. 계산이 성립하는 자리에서 모델이 더할 것이 없었다.</div></div>
+    </div>
+    <div class="card accent2">
+      <div class="axis-t">축② 통제가 먼저, 배달이 나중</div>
+      <div class="axis-d">예측·검증·안전이 끝난 뒤에 UI를 만든다. 대형 LLM 기준 RAG를 먼저 완성한 뒤 sLLM으로 교체한다.
+        <b>중간 점검에 보여줄 화면이 없는 것을 감수</b>하고, 재작업과 파인튜닝 실패 리스크를 없앴다.
+        <div class="quote" style="margin-top:4px">교체 가능성도 증명됐다 — 같은 모델을 <b>LangChain으로 갈아 끼운 판(A-LC)이
+          실패 21건의 케이스 번호까지 동일</b>했다 (D-21 · D-71).</div></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>2 · 질의 흐름 — 코드에서 뽑은 실제 노드 (문서 02 · <code>graph/build.py</code>)</h2>
+  <div class="flow">
+    <div class="step llm"><b>① classify</b><span>의도 분류</span></div><div class="arw">›</div>
+    <div class="step llm"><b>② extract</b><span>슬롯 추출</span></div><div class="arw">›</div>
+    <div class="step code"><b>filter</b><span>종 필터</span></div><div class="arw">›</div>
+    <div class="step code"><b>retrieve</b><span>벡터 검색</span></div><div class="arw">›</div>
+    <div class="step code"><b>compute</b><span>mg/kg 환산</span></div><div class="arw">›</div>
+    <div class="step code"><b>rules</b><span>바닥 등급</span></div><div class="arw">›</div>
+    <div class="step code"><b>evidence</b><span>근거 조립</span></div><div class="arw">›</div>
+    <div class="step llm"><b>generate</b><span>초안</span></div><div class="arw">›</div>
+    <div class="step llm"><b>judge</b><span>LLM 판정</span></div><div class="arw">›</div>
+    <div class="step code"><b>🔒 decide</b><span>게이트</span></div><div class="arw">›</div>
+    <div class="step code"><b>④ verify</b><span>근거 검증</span></div><div class="arw">›</div>
+    <div class="step llm"><b>⑤ simplify</b><span>평이화</span></div>
+  </div>
+  <div class="lgd" style="margin-top:4px">
+    <span><i style="background:#c4d9f0"></i><b>코드</b> — 같은 입력이면 항상 같은 답</span>
+    <span><i style="background:#e6d2c1"></i><b>LLM</b> — 말을 알아듣고 말을 만든다</span>
+    <span style="color:var(--ink-3)">되묻기 <code>clarify</code> 2회 · 재검색 <code>retry → retrieve</code> 1회 ·
+      거절 <code>refuse_scope</code>/<code>refuse_nohit</code>/<code>refuse_verify</code></span>
+  </div>
+  <div class="quote"><b>③ 컨텍스트 압축은 이 경로에 없다 (D-83).</b> 실측 근거가 393~533자이고 창은 128k라
+    임계 800자를 한 번도 안 넘겼다 — <b>한 번도 실행되지 않는 코드</b>였다. 압축 태스크는 <b>기간 리포트</b>로 옮겼다.
+    <b>미채택:</b> ReAct · MCP · 멀티에이전트 · SSE 스트리밍 — "안 썼다"가 아니라 <b>판정해서 뺐다</b>.</div>
+</section>
+
+<section>
+  <h2>3 · 안전 장치 — 지표가 아니라 구조로 막는다 · <span style="text-transform:none">실측으로 확인됨</span></h2>
+  <div class="grid g3">
+    <div class="card accent3"><div class="axis-t">🔒 트리아지 하향 금지 게이트</div>
+      <div class="axis-d"><code>triage_level = max(rule, llm)</code><br>
+        <b>LLM은 등급을 낮출 수 없다.</b> 정량 계산이 성립한 자리에서는 <b>상향도 차단</b>한다 (D-80).
+        <div class="quote" style="margin-top:4px"><b>실측</b> — 하향 차단 <b>5회</b> · 상향 차단 6회(오류 0) ·
+          바닥이 없는 자리에서 D-84가 <b>3건</b>을 더 막았다. 결과 <b>중대 과소평가 0건</b> <span style="color:var(--ink-3)">(D-09·D-80·D-84)</span></div></div></div>
+    <div class="card accent3"><div class="axis-t">종 미확인 시 답변 금지</div>
+      <div class="axis-d">같은 물질도 종에 따라 독성이 다르다. <b>포유류 기준의 조류 적용은 치명적</b>이므로,
+        종이 확인되지 않으면 검색 자체를 하지 않는다
+        <div class="quote" style="margin-top:4px">⚠️ 강제는 <b>슬롯 노드 한 겹</b>이다. 검색 계층에 같은 방어를 넣는 것이 남은 과제다 <span style="color:var(--ink-3)">(D-10)</span></div></div></div>
+    <div class="card accent3"><div class="axis-t">근거 없으면 답하지 않는다</div>
+      <div class="axis-d">문장별 근거 검증 → 전 문장 미지지면 재검색 1회 → 그래도 부족하면 <b>거절</b>.
+        거절·되묻기를 1급 동작으로 취급한다
+        <div class="quote" style="margin-top:4px">⚠️ <b>문장 제거는 폐기했다</b> — 근거없음 문장의 다수가
+          <b>등급이 시킨 행동 권고</b>여서, 지우면 <i>"즉시 수의사와 상담하세요"</i>가 사라진다 <span style="color:var(--ink-3)">(D-11·D-39)</span></div></div></div>
+  </div>
+
+  <div class="card" style="border-left:3px solid var(--ink);margin-top:9px">
+    <div class="big">모델은 경고를 더할 수 있고 뺄 수 없다.</div>
+    <div class="axis-d" style="margin-top:3px">같은 비대칭이 <b>세 층에서 각자 발명됐다</b> —
+      <b>등급</b>(<code>max(rule, llm)</code> · D-09·D-80) · <b>문장</b>(완곡 표현 제거 · D-11·D-39) ·
+      <b>④ 검증</b>(2-gram이 바닥, LLM은 조이기만 · D-91). <b>우연이 세 번이면 원리다.</b></div>
+  </div>
+</section>
+
+<section>
+  <h2>4 · 데이터 — 라이선스 게이트가 설계를 바꿨다</h2>
+  <div class="kpis" style="margin-bottom:8px">
+    <div class="kpi"><div class="lab">검토한 출처</div><div class="val">62</div><div class="note">30개 도메인 약관 전수</div></div>
+    <div class="kpi"><div class="lab">원문 적재 가능</div><div class="val" style="color:var(--good)">8</div><div class="note">FDA · Frontiers · 농진청</div></div>
+    <div class="kpi"><div class="lab">사실추출 한정</div><div class="val" style="color:var(--serious)">38</div><div class="note">★ 기본 경로</div></div>
+    <div class="kpi"><div class="lab">삭제</div><div class="val" style="color:var(--critical)">15</div><div class="note">해시 + 약관 원문 기록</div></div>
+    <div class="kpi"><div class="lab">사실 표 → 청크</div><div class="val">888</div><div class="note">코드가 문장화 · 벡터DB 적재</div></div>
+  </div>
+  <div class="bar">
+    <div style="flex:8;background:var(--good)">✓ 통과 8</div>
+    <div style="flex:38;background:var(--serious)">~ 사실추출 한정 38</div>
+    <div class="on-dark" style="flex:15;background:var(--critical)">✕ 삭제 15</div>
+    <div style="flex:1;background:var(--line)"></div>
+  </div>
+  <div class="lgd" style="margin-bottom:7px">
+    <span><i style="background:var(--good)"></i>✓ 통과 — 원문 청크 적재</span>
+    <span><i style="background:var(--serious)"></i>~ 사실추출 한정 — 원문 미적재, 사실만 뽑아 자체 문장화</span>
+    <span><i style="background:var(--critical)"></i>✕ 삭제 — 약관이 용도 자체를 금지</span>
+  </div>
+  <div class="grid g21">
+    <div>
+      <table>
+        <tr><th>수집 전 게이트 (D-35)</th><th style="width:96px">걸리면</th></tr>
+        <tr><td><b>G1a 용도 금지</b> — <code>artificial intelligence</code> · <code>train</code> ·
+          <code>information retrieval system</code></td><td><span class="tag t-crit">✕ 중단</span></td></tr>
+        <tr><td><b>G1b 수단 금지</b> — <code>robot</code> · <code>scrape</code></td><td>수동 취득 전환</td></tr>
+        <tr><td><b>G2 복제 허락</b> — 개인·비상업 허용 문언</td><td><span class="tag t-warn">~ 사실추출</span></td></tr>
+        <tr><td><b>G3 접근 비용</b> — 구독 · 로그인</td><td><span class="tag t-crit">✕ 중단</span></td></tr>
+        <tr><td colspan="2" style="color:var(--ink-3);border:none;padding-top:4px">
+          + 조건 2단계 — G4 데이터베이스권 · G5 개인정보</td></tr>
+      </table>
+    </div>
+    <div>
+      <div class="card" style="height:100%">
+        <div class="axis-t">그래서 인덱싱이 두 갈래가 됐다 (02 §3)</div>
+        <div class="axis-d" style="margin-top:4px">
+          <b>경로 ①</b> 원문 → 청킹 → 임베딩 <span style="color:var(--ink-3)">(8건)</span><br>
+          <b>경로 ② ★</b> 원문 → <b>사실 표 추출</b> → <b>템플릿 문장 생성(코드)</b> → 임베딩 <span style="color:var(--ink-3)">(38건)</span>
+          <div class="quote" style="margin-top:5px">문장화를 <b>LLM이 아니라 코드</b>가 하므로,
+            검증 대상이 문장이 아니라 <b>필드</b>로 축소된다. 축①의 가장 좋은 예시다 <span style="color:var(--ink-3)">(D-38)</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>5 · 측정 결과 — 골든셋 60건 · 동결 커밋 <span style="text-transform:none"><code>freeze-0803</code></span></h2>
+  <div class="grid g21">
+    <div>
+      <table>
+        <tr><th></th><th class="n">none <span style="color:var(--ink-3)">코드·규칙만</span></th>
+            <th class="n">A <span style="color:var(--ink-3)">LLM 연동</span></th>
+            <th class="n">A-LC <span style="color:var(--ink-3)">LangChain</span></th></tr>
+        <tr class="hi"><td><b>통과</b></td><td class="n">45.0%</td><td class="n"><b>65.0%</b></td><td class="n"><b>65.0%</b></td></tr>
+        <tr><td>상태 일치</td><td class="n">63.3%</td><td class="n"><b>83.3%</b></td><td class="n"><b>83.3%</b></td></tr>
+        <tr class="hi"><td>🔴 <b>중대 과소평가</b></td><td class="n"><b>0건</b></td><td class="n"><b>0건</b></td><td class="n"><b>0건</b></td></tr>
+        <tr class="hi"><td>🔴 <b>등급 못 낸 긴급 건</b></td><td class="n" style="color:var(--critical)"><b>25.0%</b> <span style="color:var(--ink-3)">7/28</span></td>
+            <td class="n" style="color:var(--good)"><b>3.6%</b> <span style="color:var(--ink-3)">1/28</span></td>
+            <td class="n" style="color:var(--good)"><b>3.6%</b></td></tr>
+        <tr><td>지연 <span style="color:var(--ink-3)">answered p50</span></td><td class="n">0.15 s</td>
+            <td class="n" style="color:var(--serious)">10.43 s</td><td class="n" style="color:var(--serious)">10.24 s</td></tr>
+        <tr><td>5태스크 전부 모델</td><td class="n">0/60</td><td class="n"><b>60/60</b></td><td class="n"><b>60/60</b></td></tr>
+      </table>
+    </div>
+    <div>
+      <div class="card crit">
+        <div class="axis-t">🔴 가장 강한 증거 — 우발적 절제</div>
+        <div class="axis-d">④ 근거 검증의 조치는 <b>300건에서 0회 실행됐다</b>(발동 조건이 사문이었다).
+          <b>그런데도 중대 과소평가는 다섯 판 전부 0건이었다.</b>
+          <div class="quote" style="margin-top:5px">일반적인 RAG는 <b>사후 필터</b>다 — 검증기가 뚫리면 방어가 없다.
+            이 시스템은 반대로 <b>코드가 바닥을 깔고 LLM은 그 위로만</b> 움직인다.
+            <b>안전 마진은 사후 검증이 아니라 사전 바닥에서 온다.</b></div></div>
+      </div>
+      <div class="card" style="margin-top:8px">
+        <div class="axis-t">파인튜닝 (Qwen3-4B + QLoRA · WS3 이서은)</div>
+        <div class="axis-d">④ 검증 태스크 held-out <b>베이스 10/20 → 어댑터 20/20</b>
+          (Fisher 정확검정 <b>p = 0.0004</b>). 분류·슬롯은 베이스도 만점이라 차이가 안 보인다.
+          <div class="quote" style="margin-top:4px">⚠️ <b>다른 축의 측정이다</b> — 골든셋 60건 기준 비교군 C·D는 미측정.</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>6 · 지금 상태와 남은 과제</h2>
+  <div class="grid g2">
+    <div class="card">
+      <div class="axis-t">✅ 끝난 것</div>
+      <ul>
+        <li><b>필수 산출물 넷</b> — 데이터·전처리 / 아키텍처 / RAG+벡터DB+LangChain 코드 / 테스트 계획·결과 보고서</li>
+        <li><b>설계 결정 86건</b> 기록 (D-01~D-92 · 결번 6) — 전부 트레이드오프 포함</li>
+        <li>자료 30개 도메인 약관 전수 검토 · 판정 · 삭제 이력화</li>
+        <li>골든셋 <b>60건</b> · 평가 하네스 · <b>측정 8회</b>로 소음대 ±1건 확정</li>
+        <li><code>pytest</code> <b>585 passed</b> · 추론 경로 동결(<code>freeze-0803</code>)</li>
+      </ul>
+    </div>
+    <div class="card crit">
+      <div class="axis-t">🔴 남은 것 (마감 후 · 04b §7)</div>
+      <ul>
+        <li><b>근거 적합성 검사</b> — 질문 물질 ≠ 출처 물질이면 근거에서 제외.
+          <code>substance</code> 슬롯과 사실표 열의 <b>문자열 대조 한 번</b>이면 된다</li>
+        <li><b>재검색 발동 조건 재설계</b> — <code>all_ungrounded</code>는 사문이다(300건 0회)</li>
+        <li><b>④ 배선 통합 + 재측정</b> (D-91) · <b>스트리밍</b>(10.4초 침묵)</li>
+        <li><code>prevent</code> 유형 통과 0% · 조류 정량 역치 0행 · 개인정보 필터 미구현</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="docmap">
+    <b>읽는 순서</b> &nbsp;05 두 축 → 02 §2 흐름 → 06 D-09·D-80·D-84(안전) → 04b(발견) → 결과 보고서 &nbsp;|&nbsp;
+    <b>00</b> 마스터 · <b>01</b> 데이터 · <b>02</b> 아키텍처 · <b>03</b> 모델 · <b>04</b> 평가 ·
+    <b>05</b> 원칙 · <b>06</b> 결정기록 · <b>04b</b> 근거검증 발견
+  </div>
+  <div><b>"단점은 없나요?"</b> → 06 트레이드오프 · 보고서 §8 &nbsp;·&nbsp;
+    <b>"왜 버렸나요?"</b> → <code>DELETION_LOG.csv</code></div>
+</footer>
+
+</div>
+</body>
+</html>

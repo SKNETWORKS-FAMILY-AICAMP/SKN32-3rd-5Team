@@ -14,7 +14,7 @@ graph TD;
 	retrieve(retrieve)
 	compute(compute)
 	rules(rules)
-	compress(compress)
+	evidence(evidence)
 	generate(generate)
 	judge(judge)
 	decide(decide)
@@ -29,8 +29,8 @@ graph TD;
 	__start__ --> classify;
 	answered --> __end__;
 	clarify --> __end__;
-	compress --> generate;
 	compute --> rules;
+	evidence --> generate;
 	filter --> retrieve;
 	generate --> judge;
 	judge --> decide;
@@ -38,14 +38,15 @@ graph TD;
 	refuse_scope --> __end__;
 	refuse_verify --> __end__;
 	retry --> retrieve;
-	rules --> compress;
+	rules --> evidence;
 	simplify --> answered;
 	classify -.-> refuse_scope;
 	classify -.-> extract;
 	extract -.-> clarify;
 	extract -.-> filter;
+	extract -.-> refuse_nohit;
 	retrieve -.-> compute;
-	retrieve -.-> compress;
+	retrieve -.-> evidence;
 	retrieve -.-> refuse_nohit;
 	retrieve -.-> refuse_verify;
 	decide -. &nbsp;end&nbsp; .-> __end__;

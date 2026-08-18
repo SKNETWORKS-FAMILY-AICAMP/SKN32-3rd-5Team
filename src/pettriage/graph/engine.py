@@ -156,7 +156,6 @@ def _advice_line(state: GraphState) -> str:
     return f"[해야 할 일] {msg}."
 
 
-
 class GraphEngine:
     """LangGraph 기반 질의 엔진.
 

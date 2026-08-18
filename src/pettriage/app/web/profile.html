@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PetTriage — 프로필 생성</title>
+<title>STP — 프로필 생성</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -173,12 +173,12 @@
         <span class="logo-mark">
           <svg viewBox="0 0 24 24" fill="none"><path d="M12 14c-3.5 0-6.5 2.2-6.5 5.2 0 1 .8 1.8 1.8 1.8h9.4c1 0 1.8-.8 1.8-1.8 0-3-3-5.2-6.5-5.2Z" fill="#fff"/><circle cx="6" cy="8" r="2.3" fill="#fff"/><circle cx="18" cy="8" r="2.3" fill="#fff"/><circle cx="9.3" cy="4.6" r="2" fill="#fff"/><circle cx="14.7" cy="4.6" r="2" fill="#fff"/></svg>
         </span>
-        <span class="logo-text">PetTriage</span>
+        <span class="logo-text">Save The Pet</span>
       </div>
-      <h2>이제부터 같이<br>나눠 먹을 준비</h2>
-      <p>프로필을 만들면 우리 아이 기준으로 어떤 음식을 한입 나눠줘도 되는지 알려드려요.</p>
+      <h2 id="sideH2">이제부터 같이<br>나눠 먹을 준비</h2>
+      <p id="sideP">프로필을 만들면 우리 아이 기준으로 어떤 음식을 한입 나눠줘도 되는지 알려드려요.</p>
 
-      <div class="steps">
+      <div class="steps" id="onboardSteps">
         <div class="step done"><span class="step-dot">✓</span>회원가입</div>
         <div class="step active"><span class="step-dot">2</span>프로필 생성</div>
         <div class="step"><span class="step-dot">3</span>한입 나누기 시작</div>
@@ -189,9 +189,9 @@
   <div class="form-side">
     <div class="form-inner">
     <div class="form-head">
-      <span class="eyebrow">STEP 2 · PET PROFILE</span>
-      <h1>반려동물 프로필</h1>
-      <p>사진, 이름, 품종, 크기를 알려주시면 우리 아이가 나눠 먹어도 되는 음식을 정확히 안내해드려요.</p>
+      <span class="eyebrow" id="formEyebrow">STEP 2 · PET PROFILE</span>
+      <h1 id="formH1">반려동물 프로필</h1>
+      <p id="formP">사진, 이름, 품종, 크기를 알려주시면 우리 아이가 나눠 먹어도 되는 음식을 정확히 안내해드려요.</p>
     </div>
 
     <!-- 사진 업로드 -->
@@ -266,6 +266,7 @@
 
     <button class="btn-primary" id="saveProfileBtn" disabled>프로필 저장하고 한입 나누러 가기</button>
     <button class="btn-secondary-profile" id="addAnotherBtn" disabled>저장하고 추가 프로필 만들기</button>
+    <button class="btn-secondary-profile" id="cancelBtn" style="display:none;">작성 취소</button>
 
     <div class="added-pets" id="addedPets"></div>
     </div>
@@ -299,6 +300,37 @@ async function api(path, opts){
   }
   return r.json();
 }
+
+/* ---- 이미 반려동물이 있으면 "추가 등록" 문구로 바꾼다 ----
+   이 화면은 두 경로에서 열린다:
+     1. 회원가입 직후 (첫 반려동물) — 온보딩 스텝을 그대로 보여준다
+     2. 로그인 후 추가 등록 — 스텝 문구가 어색하므로 감춘다  */
+(async function adaptForContext(){
+  try{
+    const pets = await api('/api/pets', { headers: authHeader() });
+    if(pets.length === 0) return;  /* 온보딩 그대로 */
+
+    /* 이미 반려동물이 있음 — 추가 등록 모드 */
+    document.getElementById('onboardSteps').style.display = 'none';
+    document.getElementById('sideH2').innerHTML = '새 반려동물<br>추가하기';
+    document.getElementById('sideP').textContent = '다른 아이 정보를 알려주시면 그 아이 기준으로도 안내해드릴게요.';
+    document.getElementById('formEyebrow').textContent = 'NEW PET';
+    document.getElementById('formP').textContent = '사진, 이름, 품종, 크기를 알려주세요.';
+    const saveBtn = document.getElementById('saveProfileBtn');
+    if(saveBtn) saveBtn.textContent = '프로필 저장';
+
+    /* 한 번에 여러 마리를 추가할 필요는 드묾 — 이 버튼은 온보딩용으로만 */
+    const addAnotherBtn = document.getElementById('addAnotherBtn');
+    if(addAnotherBtn) addAnotherBtn.style.display = 'none';
+
+    /* 작성 취소 → 반려동물 목록으로 돌아간다 */
+    const cancelBtn = document.getElementById('cancelBtn');
+    if(cancelBtn){
+      cancelBtn.style.display = '';
+      cancelBtn.addEventListener('click', ()=>{ window.location.href = '/static/pets.html'; });
+    }
+  } catch(e){ /* 조용히 온보딩 유지 — 실패해도 화면은 뜬다 */ }
+})();
 
 /* 사진 업로드 미리보기 (참고: 지금 백엔드 /api/pets 에는 사진 필드가 없어서
    화면 미리보기 용도로만 쓰고, 저장 요청에는 포함하지 않음) */

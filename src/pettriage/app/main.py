@@ -103,8 +103,27 @@ async def _lifespan(app: FastAPI):
     실패하면 로그에 남기고 `/api/health` 의 `model_loaded=false` 로 드러낸다 —
     **조용히 넘어가지 않는다.**
     """
+    import os
+
     from ..config import get_config
     from .deps import get_engine
+
+    # ── DB 스키마 자동 생성 (2026-08-03 개정) ─────────────────
+    # 팀원 온보딩 편의 — `python -m pettriage.app.database` 를 매번 부르지 않게 한다.
+    # `create_all` 은 **이미 있는 테이블은 건드리지 않는다** — 재기동이 안전하다.
+    # 프로덕션에 붙일 때는 프로파일 체크나 마이그레이션 도구 (Alembic 등) 로 교체한다.
+    if os.getenv("DATABASE_URL"):
+        try:
+            from .database import init_db
+
+            init_db()
+        except Exception as e:  # noqa: BLE001
+            log.error(
+                "DB 스키마 초기화 실패 — %s: %s (DATABASE_URL 접속 확인 필요)",
+                type(e).__name__,
+                e,
+            )
+            raise
 
     cfg = get_config()
     engine = get_engine()  # EngineUnavailable 이면 여기서 크게 실패한다 (의도)
