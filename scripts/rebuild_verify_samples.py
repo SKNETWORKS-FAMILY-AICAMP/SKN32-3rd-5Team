@@ -33,7 +33,9 @@ sys.path.insert(0, str(ROOT / "src"))
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--batch", type=Path, default=ROOT / "data" / "train" / "verify_batch_raw.jsonl")
+    ap.add_argument(
+        "--batch", type=Path, default=ROOT / "data" / "train" / "verify_batch_raw.jsonl"
+    )
     ap.add_argument("--samples", type=Path, default=ROOT / "data" / "train" / "samples.jsonl")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
@@ -53,7 +55,9 @@ def main() -> int:
     dropped_dupes = len(batch_rows) - len(new_rows)
 
     dangerous = sum(
-        1 for r in new_rows if r["intended_label"] == "근거없음" and r["teacher_verdict"] == "근거있음"
+        1
+        for r in new_rows
+        if r["intended_label"] == "근거없음" and r["teacher_verdict"] == "근거있음"
     )
     mismatches = sum(1 for r in new_rows if not r["agree"])
 
@@ -81,8 +85,8 @@ def main() -> int:
     old_verify_count = len(old_rows) - len(kept)
 
     print(f"raw 배치: {len(batch_rows)}건 (중복 {dropped_dupes}건 제거 → {len(new_rows)}건)")
-    print(f"  위험 방향 불일치(근거없음→근거있음): {dangerous}건 — target은 intended_label(근거없음)로 고정해 안전 방향 유지")
-    print(f"  전체 불일치(교사와 의도 라벨이 다른 것): {mismatches}/{len(new_rows)}")
+    print(f"  위험 방향(근거없음→근거있음) 불일치: {dangerous}건 — target은 intended_label 고정")
+    print(f"  전체 불일치(교사 vs 의도 라벨): {mismatches}/{len(new_rows)}")
     print(f"samples.jsonl 기존 verify {old_verify_count}건 → 새 verify {len(out_rows)}건으로 교체")
 
     if args.dry_run:

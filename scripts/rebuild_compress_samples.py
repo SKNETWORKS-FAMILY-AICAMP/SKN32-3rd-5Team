@@ -63,8 +63,10 @@ def main() -> int:
     kept = [r for r in old_rows if r["task"] != "compress"]
     old_compress_count = len(old_rows) - len(kept)
 
-    print(f"report 배치: {len(batch_rows)}건 (숫자 환각 의심 {dropped_fabricated}건 제외 → {len(kept_batch)}건)")
-    print(f"samples.jsonl 기존 compress {old_compress_count}건(질의 경로용, 무효) → 새 compress {len(out_rows)}건(기간 리포트용)으로 교체")
+    print(
+        f"report {len(batch_rows)}건 (환각의심 {dropped_fabricated}건 제외 → {len(kept_batch)}건)"
+    )
+    print(f"samples.jsonl compress: 구 {old_compress_count}건 → 신 {len(out_rows)}건")
 
     if args.dry_run:
         print("\n--dry-run 이라 저장하지 않았다.")
