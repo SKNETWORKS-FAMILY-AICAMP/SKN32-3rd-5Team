@@ -75,7 +75,7 @@
 - 도메인 밖이면 **검색조차 하지 않고** 거절한다
 - 초안의 모든 문장이 근거없음이면 **재검색 1회** → 그래도 부족하면 거절
 
-<details>
+<details open>
 <summary><b>기술 스택 — 무엇을 왜 골랐나</b></summary>
 
 <br>
@@ -123,7 +123,7 @@
 > ⚠️ `5`·`6`·`9` 는 LLM을 부른다(비용 발생). 시연은 **무료 폴백 모드**를 고를 수 있어
 > 화면과 흐름만 볼 때는 비용이 들지 않는다.
 
-<details>
+<details open>
 <summary><b>수동 설치 · make 타깃 · 설치 그룹</b></summary>
 
 <br>
@@ -322,7 +322,7 @@ LLM이 3을 낸 것은 4건뿐이다. **그 간극을 코드가 메운다.**
 **흔들림을 흡수한 것은 프롬프트가 아니라 바닥과 게이트**다. 갈린 유일한 최종 등급은
 `rule=None`, 바닥이 없는 자리였다.
 
-<details>
+<details open>
 <summary><b>AI는 어디에서 값을 냈나 — 유형별 분해</b></summary>
 
 <br>
@@ -342,7 +342,7 @@ LLM이 3을 낸 것은 4건뿐이다. **그 간극을 코드가 메운다.**
 
 </details>
 
-<details>
+<details open>
 <summary><b>이 숫자를 믿어도 되는 이유</b> — 오차를 먼저 확정하고, 예측하고 나서 쟀다</summary>
 
 <br>
@@ -383,7 +383,7 @@ LLM이 3을 낸 것은 4건뿐이다. **그 간극을 코드가 메운다.**
 
 </details>
 
-<details>
+<details open>
 <summary><b>재현 — API 키 없이 기준선을 다시 잴 수 있다</b></summary>
 
 <br>
@@ -482,7 +482,7 @@ python eval/harness/run_eval.py --arm A-LC  --json eval/reports/재현_A-LC.json
 
 ## 저장소 구조
 
-<details>
+<details open>
 <summary><b>디렉터리 지도</b></summary>
 
 <br>
@@ -537,7 +537,7 @@ PETTRIAGE__RETRIEVAL__TOP_K=8 make serve  # 파일을 고치지 않고 한 번�
 
 </details>
 
-<details>
+<details open>
 <summary><b>API — 엔드포인트와 응답 계약</b></summary>
 
 <br>
@@ -574,7 +574,7 @@ status = answered   근거를 찾아 판정했다   → 배지 + 근거 + 감사
 
 </details>
 
-<details>
+<details open>
 <summary><b>개발 규칙</b></summary>
 
 <br>
@@ -600,7 +600,7 @@ status = answered   근거를 찾아 판정했다   → 배지 + 근거 + 감사
 
 </details>
 
-<details>
+<details open>
 <summary><b>문서 — 읽는 순서</b></summary>
 
 <br>
@@ -672,7 +672,7 @@ status = answered   근거를 찾아 판정했다   → 배지 + 근거 + 감사
 
 제약이 설계를 바꾼 결과이고, 그래서 **검증 대상이 문장에서 필드로 줄었다.**
 
-<details>
+<details open>
 <summary><b>대장 4종</b></summary>
 
 <br>
@@ -716,7 +716,7 @@ status = answered   근거를 찾아 판정했다   → 배지 + 근거 + 감사
 **커밋 시점에 따라 조건이 다르다.** 라이선스 변경은 앞으로만 적용되고,
 이미 배포된 커밋의 조건은 **소급하여 변경되지 않는다.**
 
-<details>
+<details open>
 <summary>적용 시점 — 어느 커밋을 받았는지에 따라 조건이 다르다</summary>
 
 <br>
