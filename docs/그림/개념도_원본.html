@@ -78,6 +78,10 @@
   .pb.c .ds{color:#2c5b8a}
   .pb.m{background:var(--llmbg);border-color:var(--llmln);color:#7a3f10}
   .pb.m .ds{color:#98551d}
+  /* 하이브리드 — 2-gram(코드)이 바닥이고 LLM 은 조이기만 한다 (D-91) */
+  .pb.h{background:linear-gradient(100deg,var(--codebg) 0 46%,var(--llmbg) 54% 100%);
+    border-color:#c8bfc9;color:#3f3560}
+  .pb.h .ds{color:#5a4b73}
   .pa{display:flex;align-items:center;color:#b3b3ae;font-size:17px;padding:0 4px;flex:0 0 auto}
   .band{margin-top:12px;display:flex;gap:0}
   .bseg{border-radius:9px;padding:11px 14px;font-size:14.5px;font-weight:700;text-align:center}
@@ -156,7 +160,9 @@
           font-family="Noto Sans CJK KR">🔒 규칙표가 깐 바닥 — rule_level = 3</text>
       </svg>
 
-      <div class="concl good">🔒 최종 등급 = max(규칙, LLM) — 모델은 경고를 더할 수 있고 뺄 수 없다.</div>
+      <div class="concl good">🔒 최종 등급 = max(규칙, LLM) — 모델은 경고를 더할 수 있고 뺄 수 없다.
+        <span style="display:block;font-weight:400;font-size:13.5px;color:var(--ink2);margin-top:6px;line-height:1.5">
+          단, <b>정량 계산이 성립하면 LLM 상향도 막는다</b> — 잰 자리에서는 규칙이 맞다 (D-80).</span></div>
     </div>
   </div>
 
@@ -226,7 +232,8 @@
     </div>
   </div>
 
-  <div class="fnote"><div>SKN 3차 단위 프로젝트 · 팀 save the pet · 2026-08-04</div>
+  <div class="fnote"><div>SKN 3차 단위 프로젝트 · 팀 save the pet · 측정 2026-08-04 (<code>freeze-0803</code>)<br>
+      <span style="font-size:12px">④ 근거 검증은 2026-08-08 에 LLM 배선이 추가됐다. 위 수치는 그 이전, 2-gram 단독 시점의 실측이다.</span></div>
     <div>근거 — <code>docs/04b</code> §3.3 · <code>eval/reports/D1.json</code> · D-09 · D-84</div></div>
 </div>
 
@@ -253,6 +260,8 @@
     <div class="pa">›</div>
     <div class="pb c" style="border-width:3px;border-color:#2a78d6"><div class="no">🔒 게이트</div><div class="nm">decide</div><div class="ds">max(rule, llm)</div></div>
     <div class="pa">›</div>
+    <div class="pb h"><div class="no">④</div><div class="nm">verify</div><div class="ds">2-gram 바닥 + LLM</div></div>
+    <div class="pa">›</div>
     <div class="pb m"><div class="no">⑤</div><div class="nm">평이화</div><div class="ds">보호자 언어로</div></div>
   </div>
 
@@ -266,12 +275,15 @@
     <div style="width:8px"></div>
     <div class="bseg" style="flex:1.1;background:var(--codebg);color:#1b4c80;border:2px solid var(--codeln)">🔒 코드가 확정</div>
     <div style="width:8px"></div>
+    <div class="bseg" style="flex:1.1;background:linear-gradient(100deg,var(--codebg) 0 46%,var(--llmbg) 54% 100%);color:#3f3560;border:2px solid #c8bfc9;white-space:nowrap;font-size:13.5px">🔒 코드가 바닥</div>
+    <div style="width:8px"></div>
     <div class="bseg" style="flex:1.1;background:var(--llmbg);color:#8a4a15;border:2px solid var(--llmln)">다듬는다</div>
   </div>
 
   <div class="legend">
     <span><i style="background:var(--codebg);border-color:var(--codeln)"></i><b>코드</b> — 같은 입력이면 항상 같은 답. 재현되고 감사할 수 있다</span>
     <span><i style="background:var(--llmbg);border-color:var(--llmln)"></i><b>LLM</b> — 자연어 이해와 생성. <b>제안만 한다</b></span>
+    <span><i style="background:linear-gradient(100deg,var(--codebg) 0 46%,var(--llmbg) 54% 100%);border-color:#c8bfc9"></i><b>하이브리드</b> — 코드가 바닥, LLM 은 조이기만</span>
   </div>
 
   <div class="kicker">실측이 이 분업을 확인했다.
@@ -279,8 +291,9 @@
       반대로 <b>계산이 없는 자리(일반 사실·조류)가 가장 약하다.</b>
       그리고 LLM 이 값을 낸 곳은 <b>범위 밖 거절(+6건) · 사실 질의(+3건) · 증상(+2건)</b> — 전부 <b>말이 필요한 자리</b>다.</small></div>
 
-  <div class="fnote"><div>SKN 3차 단위 프로젝트 · 팀 save the pet · 2026-08-04</div>
-    <div>근거 — <code>docs/05</code> 두 축 · <code>graph/build.py</code> 노드 18개 · 결과 보고서 §3.8</div></div>
+  <div class="fnote"><div>SKN 3차 단위 프로젝트 · 팀 save the pet · 2026-08-08<br>
+      <span style="font-size:12px">③ 압축은 질의 경로가 아니라 <b>기간 리포트</b>에 있다 (D-83). 그래서 이 흐름에는 ①②④⑤ 만 나온다.</span></div>
+    <div>근거 — <code>docs/05</code> 두 축 · <code>graph/build.py</code> 노드 18개 · D-91 · 결과 보고서 §3.8</div></div>
 </div>
 
 </body></html>
