@@ -16,12 +16,44 @@ from __future__ import annotations
 
 import pytest
 
-from pettriage.graph.nodes.verify import _judge_sentence, verify_grounding
+from pettriage.graph.nodes import verify as verify_mod
+from pettriage.graph.nodes.verify import _combined_verdict, _judge_sentence, verify_grounding
 
 _CONTEXT = (
     "개가 테오브로민 20 mg/kg 을 섭취하면 임상징후가 나타난다. "
     "40-50 mg/kg 에서 중증 징후가 관찰되고 60 mg/kg 에서 발작이 발생한다."
 )
+
+
+class Test하이브리드_결합:
+    """2-gram이 바닥, LLM은 조이기만 한다 (한빈·이서은 합의, 2026-08-03).
+
+    LLM의 `근거있음`이 2-gram의 `근거없음`을 못 뒤집는다 — LLM 혼자 관대하게
+    오판해도 2-gram이 막는다. `모순`·`근거없음`(이미 엄격한 방향)은 LLM을
+    그대로 믿는다.
+    """
+
+    def test_LLM이_근거있음_2gram이_근거없음이면_근거없음(self, monkeypatch):
+        monkeypatch.setattr(verify_mod, "_llm_judge_sentence", lambda s, c: "근거있음")
+        sentence = "이것은 근거 문서와 전혀 무관한 완전히 다른 내용의 문장이다"
+        assert _judge_sentence(sentence, _CONTEXT) == "근거없음"  # 전제 확인
+        assert _combined_verdict(sentence, _CONTEXT) == "근거없음"
+
+    def test_LLM이_모순이면_2gram과_상관없이_모순(self, monkeypatch):
+        monkeypatch.setattr(verify_mod, "_llm_judge_sentence", lambda s, c: "모순")
+        sentence = "테오브로민 20 mg/kg 에서 임상징후가 나타난다"  # 2-gram은 근거있음일 문장
+        assert _judge_sentence(sentence, _CONTEXT) == "근거있음"  # 전제 확인
+        assert _combined_verdict(sentence, _CONTEXT) == "모순"
+
+    def test_LLM과_2gram_둘다_근거있음이면_근거있음(self, monkeypatch):
+        monkeypatch.setattr(verify_mod, "_llm_judge_sentence", lambda s, c: "근거있음")
+        sentence = "테오브로민 20 mg/kg 에서 임상징후가 나타난다"
+        assert _combined_verdict(sentence, _CONTEXT) == "근거있음"
+
+    def test_LLM이_없으면_2gram_단독(self, monkeypatch):
+        monkeypatch.setattr(verify_mod, "_llm_judge_sentence", lambda s, c: None)
+        sentence = "테오브로민 20 mg/kg 에서 임상징후가 나타난다"
+        assert _combined_verdict(sentence, _CONTEXT) == _judge_sentence(sentence, _CONTEXT)
 
 
 class Test음성대조:
@@ -87,17 +119,17 @@ class Test집계가_응답까지_나온다:
 
 
 class Test문서와코드가어긋난다:
-    """🔴 **05 §4 는 ④를 LLM 태스크로 적어 두었는데 호출부가 없다.**
+    """🔴 **2026-08-03까지 05 §4 는 ④를 LLM 태스크로 적어 두었는데 호출부가 없었다.**
 
-    고치기 전까지는 **어긋나 있다는 사실 자체를 코드가 들고 있어야** 한다.
-    안 그러면 다음 사람이 리포트의 *"전 태스크 모델"* 을 그대로 믿는다.
+    `_llm_judge_sentence` 로 배선하며 해소됐다 — `verify` 가 `WIRED` 로 옮겨갔다.
+    이 클래스 이름은 그 사고를 기록해 둔다. 다음에 어긋나면 여기 다시 채운다.
     """
 
-    def test_verify_는_배선되지_않았다고_표시돼_있다(self):
+    def test_verify_는_배선돼_있다(self):
         from pettriage.graph.fallbacks import UNWIRED, WIRED
 
-        assert "verify" in UNWIRED
-        assert "verify" not in WIRED
+        assert "verify" in WIRED
+        assert "verify" not in UNWIRED
 
     def test_표시가_실제와_맞는다(self):
         """선언과 코드가 어긋나면 **선언 쪽이 거짓말**이 된다. 실제 호출부를 센다."""

@@ -6,6 +6,16 @@
     **판정에 따른 조치는 코드가 한다** — 문장 제거 · 재검색 1회 · 거절.
 
     애매하면 `근거없음` 쪽으로 판정한다. 놓친 환각이 나가는 것보다 낫다.
+
+    ⚠️ **2026-08-03까지 이 노드가 LLM을 한 번도 부르지 않았다.** `Task.VERIFY`
+    프롬프트·태스크 정의는 있었지만 호출부가 없어서, ④를 파인튜닝해도 그
+    결과를 쓸 자리가 없었다(05 §4가 ④를 "핵심"이라 부른 것과 정반대 상태).
+    `_llm_judge_sentence` 가 그 호출부다. 실패·미설정이면 2-gram 폴백
+    (`_judge_sentence`)으로 내려간다 (05 §6과 같은 패턴). 둘 다 있으면
+    `_combined_verdict` 가 합친다 — **2-gram이 바닥, LLM은 조이기만
+    한다**(2026-08-03 합의). LLM의 `근거있음`이 2-gram의 `근거없음`을
+    못 뒤집는다 — LLM의 관대한 오판 하나가 환각을 그대로 통과시키는
+    사고를 막는다.
 """
 
 from __future__ import annotations
@@ -18,6 +28,49 @@ from ..state import GraphState
 log = logging.getLogger(__name__)
 
 VERDICTS = ("근거있음", "근거없음", "모순")
+
+
+def _llm_judge_sentence(sentence: str, context: str) -> str | None:
+    """LLM으로 판정한다. 모델이 없거나 실패·목록 밖 응답이면 `None`.
+
+    `None`이면 부르는 쪽이 `_judge_sentence`(2-gram) 폴백으로 내려간다.
+    """
+    from ...models.serving.factory import get_client
+    from ...models.tasks import Task
+
+    client = get_client()
+    if client is None:
+        return None
+    try:
+        user_input = f"문장: {sentence}\n\n근거 문서:\n{context}"
+        raw = client.run(Task.VERIFY, user_input, max_tokens=16).strip()
+    except Exception as e:  # noqa: BLE001
+        log.warning("verify LLM 호출 실패 — 2-gram 폴백: %s", type(e).__name__)
+        return None
+    for v in VERDICTS:
+        if v in raw:
+            return v
+    log.info("VERIFY 응답이 허용목록 밖이다: %r — 2-gram 폴백", raw[:40])
+    return None
+
+
+def _combined_verdict(sentence: str, context: str) -> str:
+    """LLM과 2-gram을 합친다 — **2-gram이 바닥, LLM은 조이기만 한다.**
+
+    합의(한빈·이서은, 2026-08-03): LLM이 `근거있음`이라고 해도 2-gram이
+    `근거없음`이면 2-gram이 이긴다 — LLM의 관대한 판정이 2-gram의 신중함을
+    못 뒤집는다. 반대로 LLM이 `모순`·`근거없음`(이미 엄격한 방향)이면
+    그대로 믿는다 — 2-gram은 `모순` 개념이 없어 그 방향에서는 비교할
+    상대가 못 된다. LLM이 아예 없거나 실패하면 2-gram 단독으로 돈다
+    (기존 폴백과 동일).
+    """
+    llm_verdict = _llm_judge_sentence(sentence, context)
+    if llm_verdict is None:
+        return _judge_sentence(sentence, context)
+    if llm_verdict == "근거있음" and _judge_sentence(sentence, context) == "근거없음":
+        return "근거없음"
+    return llm_verdict
+
 
 #: 재검색은 1회까지 (02 §2). 무한 루프를 막는다.
 MAX_RETRY = 1
@@ -62,9 +115,16 @@ def _judge_sentence(sentence: str, context: str) -> str:
 def verify_grounding(state: GraphState) -> GraphState:
     """초안의 각 문장이 검색된 근거로 뒷받침되는지 검사한다.
 
+    ⚠️ **문장 제거를 여기서 한다** (2026-08-03 추가). 예전에는 판정만 하고
+    끝나서, 일부 문장만 근거없음/모순이어도 그 문장이 그대로 최종 답변에
+    나갔다 — 전부 근거없음일 때의 거절 경로만 있고, "부분적으로 근거
+    없는 문장을 뺀다"는 원래 설계(모듈 머리말 "문장 제거")가 미구현이었다.
+    `근거있음`이 아닌 문장은 여기서 `draft`에서 걸러낸다. `simplify` 는
+    이 필터를 거친 `draft` 만 본다 — 따로 손댈 필요가 없다.
+
     Returns:
-        `{"verdicts": [{"sentence": ..., "verdict": ...}], "retry_count": n}`.
-        전부 `근거없음` 이고 재검색도 끝났으면
+        `{"verdicts": [...], "draft": (근거있음만 남긴 텍스트), "retry_count": n}`.
+        전부 근거없음/모순이고 재검색도 끝났으면
         `{"status": "refused", "refusal_reason": "검증실패"}`.
     """
     draft = state.get("draft", "")
@@ -75,12 +135,14 @@ def verify_grounding(state: GraphState) -> GraphState:
 
     verdicts: list[dict[str, str]] = []
     for sentence in sentences:
-        verdict = _judge_sentence(sentence, context)
+        verdict = _combined_verdict(sentence, context)
         verdicts.append({"sentence": sentence, "verdict": verdict})
 
-    # 전부 근거없음 → **실패를 세운다. 상한 판단은 하지 않는다.**
+    # 전부 근거없음/모순(=근거있음이 하나도 없음) → **실패를 세운다. 상한 판단은 하지 않는다.**
     #
-    # 🔴 2026-08-03 까지 이 조건에 `and retry_count >= MAX_RETRY` 가 붙어 있었고,
+    # ⚠️ 예전에는 "근거없음"만 셌다 — 전부 "모순"인 답도 거절 없이 통과했다 (2026-08-03).
+    #
+    # 🔴 그리고 그날까지 이 조건에 `and retry_count >= MAX_RETRY` 가 붙어 있었고,
     #    그래서 **재검색이 한 번도 발동할 수 없었다** —
     #
     #      · `verify` 가 `refused` 를 세우려면 `retry_count >= 1` 이어야 하고
@@ -94,10 +156,11 @@ def verify_grounding(state: GraphState) -> GraphState:
     #    `build.py` 머리말이 이미 옳은 설계를 적어 두었다 —
     #    *"상한 판단은 라우터 한 곳이고 `verify_grounding` 은 판정만 한다"*.
     #    여기서 상한을 다시 보던 것이 그 결정을 어기고 있었다.
-    all_ungrounded = bool(verdicts) and all(v["verdict"] == "근거없음" for v in verdicts)
+    all_ungrounded = bool(verdicts) and all(v["verdict"] != "근거있음" for v in verdicts)
     if all_ungrounded:
         log.warning(
-            "verify_grounding: 전 문장 근거없음 (retry_count=%d) → 재검색 또는 거절", retry_count
+            "verify_grounding: 전 문장 근거없음/모순 (retry_count=%d) → 재검색 또는 거절",
+            retry_count,
         )
         return {  # type: ignore[typeddict-item]
             "status": "refused",
@@ -105,7 +168,17 @@ def verify_grounding(state: GraphState) -> GraphState:
             "verdicts": verdicts,
         }
 
+    # 근거있음만 남긴다 — 근거없음·모순 문장은 최종 답변에서 뺀다.
+    # all_ungrounded 인데 재검색 여지가 남은 경우(→ retry)는 draft를 건드리지
+    # 않는다. 어차피 simplify 로 안 가고 retrieve 로 되돌아간다.
+    if not all_ungrounded:
+        grounded = [v["sentence"] for v in verdicts if v["verdict"] == "근거있음"]
+        draft = ". ".join(grounded)
+        if draft and not draft.endswith("."):
+            draft += "."
+
     return {  # type: ignore[typeddict-item]
         "verdicts": verdicts,
+        "draft": draft,
         "retry_count": retry_count,
     }
